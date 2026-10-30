@@ -1174,3 +1174,62 @@ Russian meaning of each word in the sense used in the book.
 - The `kindle_app` conda env has an editable install pointing at another
   checkout; scripts run outside the repo import that older package.
 - Offline lemmatization still produces some wrong lemmas (e.g. "felt").
+
+## 2026-10-30 - Claude - AnkiConnect delivery and Windows installer
+
+### Goal
+
+Send cards straight into a running Anki and make the app installable without
+Python, conda or the repository.
+
+### Decisions
+
+- AnkiConnect delivers the same `.apkg` through `importPackage` instead of
+  `addNotes`, so a note keeps one GUID whether it arrived by file or directly,
+  and re-sending updates notes instead of duplicating them.
+- A card is re-sent when its enrichment is newer than its last Anki export.
+- Words are marked exported only after the file exists and, when pushing,
+  after Anki confirmed the import.
+- Installer: PyInstaller one-folder bridge (fast start for per-action
+  processes) shipped as Tauri resources via a separate
+  `tauri.bundle.conf.json`, so development builds do not need it. Installed
+  builds store data in the per-user app data directory; development keeps the
+  repository `.app-data`. Release builds are GUI-subsystem apps and spawn the
+  bridge with `CREATE_NO_WINDOW`.
+
+### Changes
+
+- `anki_connect.py`, bridge `push_anki`, AnkiConnect state in
+  `connector_status`, `needs_anki_update`; UI sends directly when Anki is
+  reachable and otherwise builds the file with an "open in Anki" notice.
+- `packaging/bridge_entry.py`, `packaging/build_bridge.py`,
+  `scripts/build-installer.ps1`, Rust bridge resolution, README section.
+- `.github/workflows/ci.yml` (tests, build, cargo check) and `release.yml`
+  (installer on tags or manual runs, attached to a draft release).
+
+### Findings
+
+- PyInstaller's NLTK runtime hook imports nltk before the entry script, so
+  `NLTK_DATA` set there was ignored. The build machine masked it with the
+  user's own `%APPDATA%\nltk_data`; a clean machine would have run without
+  WordNet. The entry now prepends the bundled path, and the smoke test runs
+  with an empty `APPDATA`.
+- The first bridge build was 225 MB: duplicated NLTK data from the build
+  machine, wordfreq data for ~40 languages and Tcl/Tk. Now 66 MB; only English
+  frequencies, WordNet and the POS tagger are shipped (`omw-1.4` and
+  `punkt_tab` are unused by the code).
+
+### Verification
+
+- `pytest`: 71 passed, 1 skipped. `npm test`: 19 passed. `npm run build` and
+  `cargo check`: passed.
+- AnkiConnect covered by a local fake add-on server (status, import, failed
+  import keeps words pending). Not exercised against the real Anki: the
+  add-on is not installed and importing would change the user's collection.
+- Frozen bridge smoke test: analyses of the demo words are identical to the
+  development Python with an empty `APPDATA`; it detected the real Kindle over
+  MTP; ~0.85 s per call.
+- The local NSIS build is blocked: Kaspersky (`avp.exe`) denies executing the
+  freshly compiled release build scripts (`os error 5/32`, also with another
+  target directory). Security settings were not changed. The GitHub release
+  workflow builds on a clean runner instead; it has not run yet (not pushed).
