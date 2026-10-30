@@ -16,26 +16,39 @@ few rare moments; everyday actions stay fast, quiet and precise.
 
 ## Light (the signature)
 
-- **Sources are always drawn.** A desk lamp lights the main scene of a screen,
-  a floor lamp stands at the edge of the room, a small sconce lights the
-  navigation. Light never comes from nowhere.
-- **Ray anatomy:** shade → soft volumetric cone (layered gradients, blurred,
-  masked, `screen` blend at night) → warm pool where it lands → soft shadow
-  behind lit objects. A few slow dust motes drift inside the cone.
+- **Sources are always drawn.** An architect's desk lamp lights the main scene
+  of a screen, a clip lamp lights a card that needs you, a wall sconce rides
+  the navigation wall to the section you are in. Light never comes from
+  nowhere.
+- **A lamp burns only where there is something to do.** New words or a
+  connected Kindle light the desk; due cards light the review card. When the
+  work is done the lamp goes out and its corner falls into shadow, with a
+  handwritten note saying why. By day the beams are gone and a lit subject
+  keeps a faint warm wash.
+- **Ray anatomy:** shade → soft volumetric cone (CSS clip-path anchored to the
+  same corner as the drawing, blurred, `screen` blend at night) → warm pool
+  where it lands → shadow cast away from the lamp. A few slow dust motes drift
+  inside the cone. Components: `DeskLamp`, `ClipLamp`, `Sconce` in
+  `src/components/light/`; the host is `.lamp-host`.
 - **Light means focus.** The selected word, book or card sits in the pool; the
   rest of the room is in shadow (lower contrast, never unreadable).
-- **One warm light colour** (`--lamp`, ~2700K amber). Everything else is
-  graphite, paper and ink.
-- **Transitions through light:** switching theme is a lamp switch (pull cord /
-  click) — the room dims, then relights. Opening a card or review session
-  brightens its lamp. Navigation between screens is a short dim (≤180 ms),
-  never a long blackout.
+- **One warm light colour** (`--lamp`, ~2700K amber, with `--lamp-beam` and
+  `--lamp-hot` as its lighter tints). Everything else is graphite, paper and
+  ink.
+- **Transitions through light:** switching theme is a wall switch — the room
+  dims, then relights, and lamps warm up with a brief flicker. Navigation
+  between screens never blacks out.
 
 ## Pencil and paper
 
-- Strokes are soft graphite: slightly irregular, double-hatched where emphasis
-  is needed. Borders and dividers are drawn with `roughjs` (fixed seed per
-  element so they don't jitter between renders) — never perfect 1 px boxes.
+- Strokes are soft graphite: slightly irregular, double-stroked where emphasis
+  is needed. Rules, frames and curls are fixed hand-placed SVG paths
+  (`PencilRule`, `PencilFrame`, `CornerCurl`) stretched with non-scaling
+  strokes, so they never jitter and never become perfect 1 px boxes. Larger
+  drawings use the `#pencil-graphite` filter for grain.
+- Typography borrows from books: dictionary entries for words
+  (**lemma** *сущ.* — meaning), dot leaders for ledgers, handwritten notes in
+  the margins.
 - Flourishes (curls, small vines, corner ornaments) mark headings, section
   breaks and empty states. They are sparse: at most one per region.
 - Paper has a faint grain; at night it reads as dark paper under low light.

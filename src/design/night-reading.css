@@ -35,12 +35,13 @@
 
   /* World tokens */
   --lamp: 38 92% 56%;
+  --lamp-hot: 40 45% 90%;
+  --lamp-beam: 37 100% 75%;
   --lamp-glow: 0;
   --pencil: 222 8% 30%;
   --shadow-color: 30 20% 30%;
   --grain-opacity: 0.07;
   --beam-blend: multiply;
-  --room-shadow: 0;
 }
 
 .dark {
@@ -71,12 +72,13 @@
   --ring: 37 88% 63%;
 
   --lamp: 38 95% 62%;
+  --lamp-hot: 41 100% 84%;
+  --lamp-beam: 37 100% 75%;
   --lamp-glow: 1;
   --pencil: 36 8% 72%;
   --shadow-color: 222 50% 2%;
   --grain-opacity: 0.09;
   --beam-blend: screen;
-  --room-shadow: 0.42;
 }
 
 :root {
@@ -112,75 +114,89 @@ body {
 
 /* ---------- Pencil ---------- */
 
-/* Hand-drawn strokes as masks: the shape is drawn once, the colour follows the theme. */
-:root {
-  --pencil-line: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 400 6%27 preserveAspectRatio=%27none%27%3E%3Cg fill=%27none%27 stroke=%27black%27 stroke-linecap=%27round%27 vector-effect=%27non-scaling-stroke%27%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%271.2%27 d=%27M1 3.3 C 80 2.3 150 4.2 230 3.1 S 350 2.5 399 3.5%27/%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%270.6%27 stroke-opacity=%270.55%27 d=%27M4 3.9 C 120 3.1 240 4.5 396 3.0%27/%3E%3C/g%3E%3C/svg%3E");
-  --pencil-vline: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 6 400%27 preserveAspectRatio=%27none%27%3E%3Cg fill=%27none%27 stroke=%27black%27 stroke-linecap=%27round%27%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%271.1%27 d=%27M3.2 1 C 2.4 90 4.1 200 3.0 280 S 2.6 360 3.4 399%27/%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%270.55%27 stroke-opacity=%270.5%27 d=%27M3.8 6 C 3.1 140 4.4 260 3.0 394%27/%3E%3C/g%3E%3C/svg%3E");
-  --pencil-box: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 200 60%27 preserveAspectRatio=%27none%27%3E%3Cg fill=%27none%27 stroke=%27black%27 stroke-linecap=%27round%27%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%271.2%27 d=%27M3 3.4 C 60 2.6 140 3.9 198.4 2.6 M197.6 1.4 C 198.6 20 197.8 40 198.2 57.8 M199 57.2 C 140 58.2 60 57.1 1.6 58.2 M2.6 59 C 1.8 40 2.6 20 1.9 1.8%27/%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%270.6%27 stroke-opacity=%270.5%27 d=%27M5 4.6 C 80 4 150 4.8 196 4 M196.4 6 C 197 30 196.6 45 196.8 56 M194 56.4 C 120 56.9 60 56.2 4 56.8 M3.6 54 C 3.2 35 3.9 20 3.4 5%27/%3E%3C/g%3E%3C/svg%3E");
-  --pencil-hatch: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%278%27 height=%278%27 viewBox=%270 0 8 8%27%3E%3Cpath d=%27M-1 9 L9 -1%27 stroke=%27black%27 stroke-width=%270.8%27/%3E%3C/svg%3E");
+/* Mask strokes for pseudo-element dividers; the colour follows the theme. */
+:root {
+  --pencil-line: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 400 6%27 preserveAspectRatio=%27none%27%3E%3Cg fill=%27none%27 stroke=%27black%27 stroke-linecap=%27round%27 vector-effect=%27non-scaling-stroke%27%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%271.2%27 d=%27M1 3.3 C 80 2.3 150 4.2 230 3.1 S 350 2.5 399 3.5%27/%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%270.6%27 stroke-opacity=%270.55%27 d=%27M4 3.9 C 120 3.1 240 4.5 396 3.0%27/%3E%3C/g%3E%3C/svg%3E");
+  --pencil-vline: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 6 400%27 preserveAspectRatio=%27none%27%3E%3Cg fill=%27none%27 stroke=%27black%27 stroke-linecap=%27round%27%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%271.1%27 d=%27M3.2 1 C 2.4 90 4.1 200 3.0 280 S 2.6 360 3.4 399%27/%3E%3Cpath vector-effect=%27non-scaling-stroke%27 stroke-width=%270.55%27 stroke-opacity=%270.5%27 d=%27M3.8 6 C 3.1 140 4.4 260 3.0 394%27/%3E%3C/g%3E%3C/svg%3E");
 }
-.pencil-rule-bottom, .pencil-rule-top { position: relative; }
-.pencil-rule-bottom::after, .pencil-rule-top::before {
-  position: absolute; left: 0; right: 0; height: 6px; content: ''; pointer-events: none;
-  background: hsl(var(--pencil) / 0.38);
-  -webkit-mask: var(--pencil-line) center / 100% 100% no-repeat; mask: var(--pencil-line) center / 100% 100% no-repeat;
-}
-.pencil-rule-bottom::after { bottom: -3px; }
-.pencil-rule-top::before { top: -3px; }
-.pencil-box { position: relative; }
-.pencil-box::after {
-  position: absolute; inset: -3px; content: ''; pointer-events: none;
-  background: currentColor; opacity: .55;
-  -webkit-mask: var(--pencil-box) center / 100% 100% no-repeat; mask: var(--pencil-box) center / 100% 100% no-repeat;
-}
-/* Hatching instead of soft drop shadows. */
-.pencil-hatch-shadow { position: relative; }
-.pencil-hatch-shadow::before {
-  position: absolute; inset: 10px -12px -12px 10px; z-index: -1; content: ''; pointer-events: none;
-  background: hsl(var(--pencil) / 0.5);
-  -webkit-mask: var(--pencil-hatch) 0 0 / 7px 7px repeat; mask: var(--pencil-hatch) 0 0 / 7px 7px repeat;
-  -webkit-mask-composite: source-in;
-  opacity: .7;
-}
-.pencil-icon svg, svg.pencil-icon { filter: url(#pencil-texture); }
 
-.sketch-frame { position: relative; }
-.sketch-overlay { position: absolute; inset: 0; overflow: visible; pointer-events: none; color: hsl(var(--pencil) / 0.55); }
-.sketch-curls path { fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; }
-.sketch-rule { width: 100%; height: 8px; color: hsl(var(--pencil) / 0.45); }
-.sketch-rule svg { display: block; overflow: visible; }
-.flourish { display: block; margin: 0 auto; color: hsl(var(--pencil) / 0.6); overflow: visible; }
+/* Inline primitives from components/sketch: rules, frames, curls, flourishes. */
+.pencil-rule { display: block; width: 100%; height: 8px; overflow: visible; color: hsl(var(--pencil) / 0.34); }
+.pencil-rule path { fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; }
+.pencil-frame { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; color: hsl(var(--pencil) / 0.62); }
+.pencil-frame path { fill: none; stroke: currentColor; stroke-linecap: round; }
+.pencil-frame-main { stroke-width: 1.2; }
+.pencil-frame-ghost { stroke-width: 0.8; opacity: 0.5; }
+.corner-curl { position: absolute; width: 34px; height: 34px; overflow: visible; pointer-events: none; color: hsl(var(--pencil) / 0.42); filter: url(#pencil-graphite); }
+.corner-curl path { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; }
+.flourish { display: block; margin: 0 auto; color: hsl(var(--pencil) / 0.6); overflow: visible; filter: url(#pencil-graphite); }
 .flourish path { fill: none; stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; }
 .flourish circle { fill: currentColor; }
 .hand { font-family: var(--font-hand); font-weight: 500; letter-spacing: 0; }
 
 /* ---------- Light ---------- */
 
-/* A scene: shadow and cones under the content, glaze and lamps above it. */
-.light-scene { position: relative; }
-.light-scene > :not(.scene-layer):not(.lamp-chain) { position: relative; z-index: 1; }
-.scene-layer { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
-.scene-shadow { z-index: 0; }
-.scene-shadow-fill { fill: hsl(var(--shadow-color) / var(--room-shadow, 0)); transition: fill 420ms var(--ease-out); }
-.scene-light { z-index: 0; mix-blend-mode: var(--beam-blend); opacity: var(--lamp-glow); transition: opacity 420ms var(--ease-out); }
-.beam-stop-0 { stop-color: hsl(var(--lamp)); stop-opacity: .5; }
-.beam-stop-1 { stop-color: hsl(var(--lamp)); stop-opacity: .2; }
-.beam-stop-2 { stop-color: hsl(var(--lamp)); stop-opacity: .07; }
-.scene-dust { z-index: 0; color: hsl(var(--lamp)); opacity: var(--lamp-glow); }
-.scene-glaze { z-index: 2; mix-blend-mode: var(--beam-blend); opacity: var(--lamp-glow); }
-.pool-stop-0 { stop-color: hsl(var(--lamp)); stop-opacity: .1; }
-.pool-stop-1 { stop-color: hsl(var(--lamp)); stop-opacity: 0; }
-.scene-lamps { z-index: 3; color: hsl(var(--pencil) / 0.9); }
-.lamp-model { filter: url(#pencil-texture); }
-.lamp-halo { fill: hsl(var(--lamp) / calc(0.28 * var(--lamp-glow))); filter: blur(7px); }
-.lamp-filament { fill: hsl(var(--lamp) / calc(0.3 + 0.7 * var(--lamp-glow))); }
-.lamp-chain-bead { fill: hsl(var(--lamp) / calc(0.4 + 0.6 * var(--lamp-glow))); stroke: currentColor; stroke-width: .8; }
+/*
+ * Lamps (components/light) are layers inside a host: beams and pools sit
+ * under the host's content, drawings and blooms above it. A lamp shines only
+ * with `.is-lit`; by day the beams are gone and a lit subject keeps a wash.
+ */
+.lamp-host { position: relative; isolation: isolate; }
+:where(.lamp-host > :not(.lamp)) { position: relative; z-index: 1; }
+.lamp { position: absolute; pointer-events: none; }
 
-/* The sconce's pull chain switches day and night. */
-.lamp-chain { position: absolute; z-index: 4; width: 18px; height: 18px; border-radius: 50%; transition: transform 200ms var(--ease-out); }
-.lamp-chain:hover { transform: translateY(2px); background: hsl(var(--lamp) / 0.12); }
-.lamp-chain:active { transform: translateY(6px); transition-duration: 90ms; }
-.lamp-chain:focus-visible { outline: 1.5px dashed hsl(var(--primary)); outline-offset: 3px; }
+.lamp-strokes { fill: none; stroke: hsl(var(--pencil) / 0.85); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.lamp-strokes .lamp-body { fill: hsl(var(--background)); }
+.lamp-strokes .lamp-soft { stroke: hsl(var(--pencil) / 0.4); stroke-width: 1.05; }
+.lamp-strokes .lamp-hatch { stroke: hsl(var(--pencil) / 0.38); stroke-width: 0.8; }
+.lamp-strokes .lamp-cord-core { stroke: hsl(var(--background)); stroke-width: 0.8; }
+.lamp-cast { fill: hsl(var(--shadow-color) / 0.55); filter: blur(5px); }
+.lamp-mouth { fill: hsl(var(--background)); stroke: hsl(var(--pencil) / 0.85); stroke-width: 1.3; transition: fill 600ms var(--ease-out); }
+.lamp-halo { fill: hsl(var(--lamp-hot)); filter: blur(7px); }
+.lamp-filament { fill: hsl(var(--lamp-hot)); }
+.lamp-halo, .lamp-filament, .desk-lamp-beam, .clip-lamp-beam, .sconce-beam, .lamp-bloom, .desk-lamp-desk-glow { opacity: 0; transition: opacity 700ms var(--ease-out); }
+.is-lit .lamp-halo, .is-lit .lamp-filament, .is-lit.desk-lamp-beam, .is-lit.clip-lamp-beam, .is-lit.sconce-beam, .is-lit.lamp-bloom, .is-lit.desk-lamp-desk-glow { opacity: var(--lamp-glow); }
+.dark .is-lit .lamp-mouth { fill: hsl(var(--lamp-hot)); }
+.lamp-pool { opacity: 0; transition: opacity 700ms var(--ease-out); }
+.lamp-pool.is-lit { opacity: 1; }
+/* A lamp coming on at night warms up with a brief flicker. */
+.dark .is-lit.desk-lamp-beam, .dark .is-lit.clip-lamp-beam, .dark .is-lit.lamp-bloom, .dark .is-lit .lamp-halo { animation: lamp-warm 700ms ease-out both; }
+@keyframes lamp-warm { 0% { opacity: 0; } 22% { opacity: 0.85; } 32% { opacity: 0.35; } 60% { opacity: 1; } 100% { opacity: 1; } }
+.lamp-mote { visibility: hidden; right: calc(var(--mote-right) * var(--lamp-s, 1)); bottom: calc(var(--mote-bottom) * var(--lamp-s, 1)); border-radius: 50%; background: hsl(var(--lamp-hot)); box-shadow: 0 0 6px hsl(var(--lamp) / 0.8); opacity: 0; animation: lamp-mote 10s linear infinite; }
+.dark .lamp-mote.is-lit { visibility: visible; }
+@keyframes lamp-mote { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 0.85; } 70% { opacity: 0.55; } 100% { transform: translate(-46px, -72px); opacity: 0; } }
+.lamp-bloom { border-radius: 50%; mix-blend-mode: var(--beam-blend); z-index: 3; background: radial-gradient(circle, hsl(var(--lamp-hot) / 0.9) 0, hsl(var(--lamp-beam) / 0.42) 22%, hsl(var(--lamp) / 0.12) 48%, transparent 70%); }
+
+/* Desk lamp: anchored to the host's bottom-right corner, scaled by --lamp-s. */
+.desk-lamp-beam { inset: 0; filter: blur(12px); mix-blend-mode: var(--beam-blend); }
+.desk-lamp-beam > span { position: absolute; inset: 0; }
+.desk-lamp-cone, .desk-lamp-pool {
+  clip-path: polygon(calc(100% - 346px * var(--lamp-s)) calc(100% - 468px * var(--lamp-s)), calc(100% - 288px * var(--lamp-s)) calc(100% - 391px * var(--lamp-s)), calc(100% - 456px * var(--lamp-s)) 100%, 0 100%, 0 calc(100% - 377px * var(--lamp-s)));
+}
+.desk-lamp-cone { background: radial-gradient(circle at calc(100% - 317px * var(--lamp-s)) calc(100% - 430px * var(--lamp-s)), hsl(var(--lamp-beam) / 0.46) 0, hsl(var(--lamp-beam) / 0.15) calc(300px * var(--lamp-s)), hsl(var(--lamp) / 0.05) calc(700px * var(--lamp-s)), transparent calc(980px * var(--lamp-s))); }
+.desk-lamp-core {
+  clip-path: polygon(calc(100% - 328px * var(--lamp-s)) calc(100% - 444px * var(--lamp-s)), calc(100% - 306px * var(--lamp-s)) calc(100% - 415px * var(--lamp-s)), calc(100% - 656px * var(--lamp-s)) 100%, 0 100%, 0 calc(100% - 102px * var(--lamp-s)));
+  background: radial-gradient(circle at calc(100% - 317px * var(--lamp-s)) calc(100% - 430px * var(--lamp-s)), hsl(var(--lamp-hot) / 0.3) 0, hsl(var(--lamp-beam) / 0.08) calc(420px * var(--lamp-s)), transparent calc(820px * var(--lamp-s)));
+}
+.desk-lamp-pool { inset: 0; background: radial-gradient(ellipse calc(470px * var(--lamp-s)) calc(250px * var(--lamp-s)) at 300px calc(100% - 170px * var(--lamp-s)), hsl(var(--lamp) / calc(0.12 + 0.05 * var(--lamp-glow))), transparent 75%); }
+.desk-lamp-desk-glow { left: -30px; width: calc(100% - 420px * var(--lamp-s)); bottom: -34px; height: 68px; background: radial-gradient(ellipse 50% 50% at 50% 50%, hsl(var(--lamp-beam) / 0.22), transparent 72%); mix-blend-mode: var(--beam-blend); }
+.desk-lamp-drawing { right: 0; bottom: 0; z-index: 2; width: calc(400px * var(--lamp-s)); height: calc(600px * var(--lamp-s)); overflow: visible; }
+.desk-lamp-bloom { right: calc(237px * var(--lamp-s)); bottom: calc(350px * var(--lamp-s)); width: calc(160px * var(--lamp-s)); height: calc(160px * var(--lamp-s)); }
+
+/* Clip lamp: clamped to the host's top edge near the right corner. */
+.clip-lamp-beam { left: 0; right: 0; top: -44px; bottom: 0; filter: blur(8px); mix-blend-mode: var(--beam-blend); }
+.clip-lamp-beam > span { position: absolute; inset: 0; clip-path: polygon(calc(100% - 238px) 4px, calc(100% - 200px) 8px, 100% 100%, 0 100%, 0 81px); background: radial-gradient(circle at calc(100% - 219px) 6px, hsl(var(--lamp-beam) / 0.46) 0, hsl(var(--lamp-beam) / 0.15) 170px, hsl(var(--lamp) / 0.05) 320px, transparent 400px); }
+.clip-lamp-pool { inset: 0; background: radial-gradient(ellipse 72% 58% at 36% 44%, hsl(var(--lamp) / calc(0.12 + 0.05 * var(--lamp-glow))), transparent 76%); }
+.clip-lamp-drawing { right: 0; top: -90px; z-index: 2; width: 260px; height: 110px; overflow: visible; }
+.clip-lamp-bloom { right: 184px; top: -73px; width: 70px; height: 70px; }
+
+/* Sconce: rides the navigation wall to the active item. */
+.sconce-beam, .sconce-drawing { left: -16px; top: -104px; width: 236px; transform: translateY(calc(var(--sconce-index, 0) * var(--sconce-pitch))); transition: transform 320ms var(--ease-in-out), opacity 700ms var(--ease-out); }
+.sconce-beam { z-index: 0; height: 200px; mix-blend-mode: var(--beam-blend); }
+.sconce-drawing { z-index: 2; height: 110px; overflow: visible; }
+.sconce-stop-0 { stop-color: hsl(var(--lamp-beam)); stop-opacity: 0.6; }
+.sconce-stop-1 { stop-color: hsl(var(--lamp)); stop-opacity: 0.2; }
+.sconce-stop-2 { stop-color: hsl(var(--lamp)); stop-opacity: 0; }
 
 /* The room goes dark while the theme switches. */
 .light-curtain {
@@ -195,5 +211,7 @@ body {
 .light-curtain.is-dark { opacity: 1; transition-duration: 240ms; }
 
 @media (prefers-reduced-motion: reduce) {
-  .light-curtain, .lamp-chain, .scene-light, .scene-shadow-fill { transition: none; }
+  .light-curtain, .sconce-beam, .sconce-drawing { transition: none; }
+  .lamp-mote { display: none; }
+  .dark .is-lit.desk-lamp-beam, .dark .is-lit.clip-lamp-beam, .dark .is-lit.lamp-bloom, .dark .is-lit .lamp-halo { animation: none; }
 }

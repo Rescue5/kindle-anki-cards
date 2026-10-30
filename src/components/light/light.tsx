@@ -1,7 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-export { LightScene, Lit } from "./scene";
+export { ClipLamp, DeskLamp, Sconce } from "./lamps";
 
 /**
  * Switching between day and night is a lamp switch: the room goes dark,

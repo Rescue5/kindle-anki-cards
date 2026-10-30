@@ -144,3 +144,24 @@ export function repeatedLookupStats(entries: LexemeRecord[]): { words: number; e
   }
   return { words, extraLookups };
 }
+
+/** A greeting for the time of day, as the home screen opens. */
+export function greeting(date: Date): string {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 12) return "Доброе утро";
+  if (hour >= 12 && hour < 18) return "Добрый день";
+  if (hour >= 18 && hour < 23) return "Добрый вечер";
+  return "Доброй ночи";
+}
+
+/** Rough minutes a review session takes: about twenty seconds a card. */
+export function reviewMinutes(cards: number): number {
+  return cards > 0 ? Math.max(1, Math.round(cards / 3)) : 0;
+}
+
+const POS_SHORT: Record<string, string> = { n: "сущ.", v: "гл.", a: "прил.", s: "прил.", r: "нареч." };
+
+/** Dictionary-style abbreviation for a WordNet part-of-speech code, or "" when unknown. */
+export function partOfSpeechShort(pos: string | undefined): string {
+  return (pos && POS_SHORT[pos]) || "";
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LexemeRecord } from "@/types";
-import { activityDays, bookStats, repeatedLookupStats, ruCount } from "./reading-domain";
+import { activityDays, bookStats, greeting, partOfSpeechShort, repeatedLookupStats, reviewMinutes, ruCount } from "./reading-domain";
 
 function word(lemma: string, date: string, book: string, lookups: number): LexemeRecord {
   return {
@@ -35,5 +35,26 @@ describe("reading metrics", () => {
       ["2026-09-26", 0, 0], ["2026-09-27", 0, 0], ["2026-09-28", 1, 1],
     ]);
     expect([1, 3, 11, 21].map((value) => ruCount(value, "слово", "слова", "слов"))).toEqual(["слово", "слова", "слов", "слово"]);
+  });
+});
+
+describe("home helpers", () => {
+  it("greets by the time of day", () => {
+    expect(greeting(new Date(2026, 9, 30, 7))).toBe("Доброе утро");
+    expect(greeting(new Date(2026, 9, 30, 13))).toBe("Добрый день");
+    expect(greeting(new Date(2026, 9, 30, 21))).toBe("Добрый вечер");
+    expect(greeting(new Date(2026, 9, 30, 2))).toBe("Доброй ночи");
+  });
+
+  it("estimates review minutes and never shows zero for a non-empty session", () => {
+    expect(reviewMinutes(0)).toBe(0);
+    expect(reviewMinutes(1)).toBe(1);
+    expect(reviewMinutes(18)).toBe(6);
+  });
+
+  it("abbreviates parts of speech like a dictionary", () => {
+    expect(partOfSpeechShort("n")).toBe("сущ.");
+    expect(partOfSpeechShort("s")).toBe("прил.");
+    expect(partOfSpeechShort(undefined)).toBe("");
   });
 });

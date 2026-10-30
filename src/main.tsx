@@ -16,8 +16,10 @@ import "@fontsource-variable/caveat";
 import "@/index.css";
 import "@/design/night-reading.css";
 import "@/features/reading/reading.css";
-import { LightScene, Lit, useLightSwitch } from "@/components/light/light";
+import { Sconce, useLightSwitch } from "@/components/light/light";
 import { PencilDefs } from "@/components/sketch/sketch";
+import { ankiPendingCount } from "@/features/library/domain";
+import { ruCount } from "@/features/reading/reading-domain";
 
 type View = "home" | "books" | "words" | "review" | "insights" | "settings";
 const views: View[] = ["home", "books", "words", "review", "insights", "settings"];
@@ -56,6 +58,13 @@ function App() {
     setView("words");
   }
 
+  function searchWords(query: string) {
+    controller.setSelectedBookKey("");
+    controller.setQuickFilter("all");
+    controller.setQuery(query);
+    setView("words");
+  }
+
   function openNewWords() {
     controller.setQuery("");
     controller.setSelectedBookKey("");
@@ -81,6 +90,9 @@ function App() {
   const { toggle: pullCord, curtain } = useLightSwitch(flipLight);
 
   const busy = controller.operation.status === "running";
+  const ankiPending = React.useMemo(() => ankiPendingCount(controller.entries), [controller.entries]);
+  const activeIndex = navigation.findIndex((item) => item.view === view);
+  const wordCount = controller.entries.length;
   const status = busy
     ? controller.operation.message || controller.operation.title
     : controller.operation.status === "error"
@@ -95,26 +107,55 @@ function App() {
     <div className="reading-app">
       <PencilDefs />
       <aside className="reading-sidebar">
-        <LightScene onPullChain={pullCord} chainLabel={night ? "Включить дневной свет" : "Включить вечерний свет"}>
         <button type="button" className="reading-brand" onClick={() => setView("home")} aria-label="Kindle Cards — главная">
-          <span className="reading-brand-mark"><BookOpen size={23} strokeWidth={1.8} /></span>
-          <span><strong>Kindle Cards</strong><small>Слова из вашего чтения</small></span>
+          <svg className="reading-brand-mark" viewBox="0 0 28 28" aria-hidden="true">
+            <path d="M5 24.5h12 M9 24.5 13 13l-4-4" />
+            <path className="reading-brand-shade" d="M6.5 11.5 12.5 5.5l4.5 4.5-6 6z" />
+            <circle className="reading-brand-bulb" cx="17.5" cy="17" r="3" />
+          </svg>
+          <strong>Kindle Cards</strong>
         </button>
-        <nav className="reading-nav" aria-label="Основная навигация">
-          {navigation.map((item) => {
-            const Icon = item.icon;
-            const button = <button key={item.view} type="button" onClick={() => setView(item.view)} aria-current={view === item.view ? "page" : undefined} className={view === item.view ? "is-active" : ""}><Icon size={18} strokeWidth={1.6} /><span>{item.label}</span>{item.view === "review" && dueCount > 0 ? <em>{dueCount}</em> : null}</button>;
-            // The wall sconce lights the section you are in.
-            return view === item.view ? <Lit key={item.view} lamp="sconce" follow as="span">{button}</Lit> : button;
-          })}
+        <nav className="reading-nav lamp-host" aria-label="Основная навигация" style={{ "--sconce-index": Math.max(0, activeIndex) } as React.CSSProperties}>
+          {/* The wall sconce rides to the section you are in. */}
+          <Sconce lit />
+          <ul>
+            {navigation.map((item) => {
+              const Icon = item.icon;
+              const active = view === item.view;
+              return (
+                <li key={item.view}>
+                  <button type="button" onClick={() => setView(item.view)} aria-current={active ? "page" : undefined} className={active ? "is-active" : undefined}>
+                    <Icon size={18} strokeWidth={1.6} />
+                    <span>{item.label}</span>
+                    {item.view === "review" && dueCount > 0 ? <em aria-label={`${dueCount} к повторению`}>{dueCount}</em> : null}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </nav>
-        <div className="reading-sidebar-bottom"><span>В библиотеке</span><strong>{controller.entries.length} слов</strong></div>
-        </LightScene>
+        <div className="reading-sidebar-bottom">
+          <p>В библиотеке</p>
+          <p className="reading-sidebar-count">{wordCount.toLocaleString("ru-RU")} <span>{ruCount(wordCount, "слово", "слова", "слов")}</span></p>
+          <button type="button" className="reading-light-switch" onClick={pullCord} aria-label={night ? "Включить дневной свет" : "Зажечь лампы — ночной режим"}>
+            <svg viewBox="0 0 36 52" aria-hidden="true">
+              <path className="reading-light-switch-plate" d="M5.5 3.2 C14 2.6 23 3.4 31.2 2.9 C33 3 33.4 4.6 33.3 6.4 C33.6 20 32.9 34 33.4 46.2 C33.2 48.6 31.9 49.2 30.1 49.3 C21 49.6 13 48.9 5.4 49.4 C3.4 49.2 2.7 47.9 2.8 46 C2.5 32 3.3 18 2.7 5.8 C2.9 3.8 3.9 3.3 5.5 3.2 Z" />
+              <rect x="12.5" y="13" width="11" height="26" rx="3.5" />
+              <circle cx="18" cy="7.5" r="1" />
+              <circle cx="18" cy="44.5" r="1" />
+              <rect className="reading-light-switch-lever" x="14" y="14.5" width="8" height="13" rx="2.5" />
+            </svg>
+            <span>
+              <strong>{night ? "Ночной свет" : "Дневной свет"}</strong>
+              <small>{night ? "щёлкните, чтобы включить день" : "щёлкните, чтобы зажечь лампы"}</small>
+            </span>
+          </button>
+        </div>
       </aside>
 
       <div className="reading-app-main">
         <div className="reading-view-frame">
-          {view === "home" ? <ReadingHome bookOptions={controller.books} entries={controller.entries} connectors={controller.connectors} operation={controller.operation} queueStatus={controller.queueStatus} dueCount={dueCount} onSync={() => void controller.syncKindle()} onReview={() => setView("review")} onBooks={() => setView("books")} onWords={openWord} onNewWords={openNewWords} /> : null}
+          {view === "home" ? <ReadingHome bookOptions={controller.books} entries={controller.entries} connectors={controller.connectors} operation={controller.operation} dueCount={dueCount} ankiPending={ankiPending} onSync={() => void controller.syncKindle()} onReview={() => setView("review")} onBooks={() => setView("books")} onWords={openWord} onNewWords={openNewWords} onSearch={searchWords} onSendToAnki={() => void controller.exportAnki()} /> : null}
           {view === "books" ? <BooksView books={controller.books} entries={controller.entries} onOpenWord={openWord} onDownloadCovers={controller.downloadCovers} coversBusy={controller.coversBusy || controller.operation.status === "running"} coverSummary={controller.coverSummary} /> : null}
           {view === "words" ? <LibraryWorkspace controller={controller} /> : null}
           {view === "review" ? <ReviewView onCountsChange={setDueCount} onOpenWords={() => openWord()} /> : null}

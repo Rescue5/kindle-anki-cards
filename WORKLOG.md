@@ -1295,3 +1295,91 @@ Python, conda or the repository.
 - The published installer comes from a newer commit than the one installed
   and exercised locally earlier; the bridge smoke test (identical analyses to
   development Python on an empty APPDATA) ran in its CI build.
+
+## 2026-10-30 - Claude - Night Reading design: foundation and canvas concepts
+
+### Goal
+
+Give the app one visual world ("Night reading") before new features land,
+and reach a higher design level than the generic dashboard look.
+
+### Decisions (owner)
+
+- World: a room at night, the UI drawn in soft pencil, one warm lamp colour,
+  light and dark themes; transitions through switching the light.
+- Light must be functional: it lands on what matters now, unused areas stay in
+  shadow. The interface is a modern minimal layout stylised as pencil, not a
+  crooked drawing.
+- After two code iterations the owner asked for a higher bar; the next step
+  is concept exploration on a private Claude Design canvas, then the chosen
+  direction is implemented in code.
+
+### Changes
+
+- `e615a54`, `c654f0f` (local, not pushed): `DESIGN.md`, Night Reading tokens
+  and pencil kit (`src/design/night-reading.css`), roughjs sketch primitives,
+  light scene with exact beam geometry (`src/components/light/`), sidebar
+  sconce, home screen lamps, light-switch transition, Literata and Caveat
+  (OFL) fonts.
+- Private Design canvas with three home-screen directions, each with a
+  working day/night switch and tweaks that turn lamps on and off:
+  1. "Кабинет": one architect lamp lights the latest book and its actions,
+     a clip lamp lights the review card only when cards are due.
+  2. "Читальный зал": four pendant lamps over Kindle, new words, review and
+     Anki; a lamp is lit only when its desk has something to do.
+  3. "Разворот": the home screen is an open book under a clip-on book light;
+     the running head is the navigation, the light falls on the top halves.
+- Local previews of the concepts are in the ignored `build/concept/`.
+
+### Findings
+
+- In the concepts, a lamp-off rule lost to the warm-up animation rule on
+  specificity, and inline fills beat class rules; both fixed. The same trap
+  applies when porting the chosen concept to `night-reading.css`.
+
+### Remaining
+
+- Owner picks a direction (or a mix); then port it to all screens, decide
+  whether WebGL light is still needed, run the CI commands and push the design
+  commits.
+
+## 2026-10-30 - Claude - "Кабинет" direction in the app shell and home
+
+### Decision (owner)
+
+- Of the three canvas concepts the owner chose "Кабинет" as the base, plus
+  the reading-room rule (a lamp burns only where there is something to do)
+  and the open-book typography (dictionary entries, dot-leader ledgers).
+
+### Changes
+
+- `src/components/light/lamps.tsx`: `DeskLamp`, `ClipLamp`, `Sconce` replace
+  the measured `LightScene`/`Lit` system (`scene.tsx`, `geometry.ts`,
+  `lamps.ts` removed). Each lamp is anchored to a corner of its host and its
+  beam is a CSS clip-path cone from the same corner, so no measuring or
+  ResizeObserver is needed; `--lamp-s` scales the desk lamp and its beam
+  together by container width.
+- `src/components/sketch/sketch.tsx`: inline `PencilRule`, `PencilFrame`,
+  `CornerCurl`, `#pencil-graphite` filter; `roughjs` dependency removed.
+- Shell (`src/main.tsx`): brand lamp, the sconce rides the nav wall to the
+  active item, library count, a wall light switch for day/night.
+- Home (`reading-home.tsx`): greeting by time of day, search that opens the
+  word list, Kindle state; the latest book under the desk lamp (lit when
+  there are new words or Kindle is connected); recent words as dictionary
+  entries; review card with a clip lamp lit only when cards are due; library
+  shelf with a dot-leader ledger and "send to Anki".
+- `reading-domain.ts`: `greeting`, `reviewMinutes`, `partOfSpeechShort` with
+  tests. `DESIGN.md` updated with the lamp rule and the new primitives.
+
+### Verification
+
+- ruff (CI paths), `pytest` 71 passed / 1 skipped, `npm test` 22 passed,
+  `npm run build` passed.
+- Screenshots of the showcase data at 1120, 1320 and 1600 px in both themes;
+  the wall switch flips the theme through the curtain in the browser preview.
+
+### Remaining
+
+- Books, Words, Review, Insights and Settings still use the previous styles
+  (bright placeholder covers, coloured connector chips); port them next.
+- Not tried in the packaged Tauri window yet; design commits are not pushed.
