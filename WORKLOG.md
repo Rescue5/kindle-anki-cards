@@ -1233,3 +1233,28 @@ Python, conda or the repository.
   freshly compiled release build scripts (`os error 5/32`, also with another
   target directory). Security settings were not changed. The GitHub release
   workflow builds on a clean runner instead; it has not run yet (not pushed).
+
+## 2026-10-30 - Claude - First CI-built installer verified
+
+### Results
+
+- Pushed `main` (16 commits) with the owner's permission. CI passed on the
+  first run on `windows-latest` (lint, 71 Python tests, Vitest, build,
+  cargo check).
+- `release.yml` (manual dispatch) built `Kindle Cards_0.1.0_x64-setup.exe`
+  (41 MB) in 8 minutes, sidestepping the local Kaspersky block.
+- Silent per-user install (`/S`) succeeded into `%LOCALAPPDATA%\Kindle Cards`
+  with the bundled bridge. The installed app ran the full real flow on the
+  bundled bridge (`kindle-bridge.exe`, no system Python): connector probe,
+  automatic Kindle sync in 6 s, background covers, automatic offline
+  processing of 1,781 lexemes with zero failures.
+
+### Notes
+
+- Processes started from the Claude desktop app (an MSIX package) have their
+  `%APPDATA%` writes virtualized into the package's `LocalCache`. The test
+  run's library therefore lives there; launching the app normally uses the
+  real `%APPDATA%\com.kindlevocab.cards`.
+- GitHub annotates the Node 20 based actions as deprecated; they already run
+  on Node 24. Bump action majors when convenient.
+- The installer is unsigned; Windows SmartScreen will warn on first run.
