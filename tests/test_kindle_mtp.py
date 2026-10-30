@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+from contextlib import closing
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +15,7 @@ from kindle_vocab_app import kindle_device, kindle_mtp
 
 
 def _vocab_database(path: Path) -> None:
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         for table in ("WORDS", "LOOKUPS", "BOOK_INFO"):
             connection.execute(f"CREATE TABLE {table} (id TEXT)")
 
@@ -123,6 +125,7 @@ class MacKindleMtpTests(unittest.TestCase):
             self.assertEqual(summary["vocab_bytes"], source.stat().st_size)
             self.assertEqual((cache / "vocab.db").read_bytes(), source.read_bytes())
 
+    @unittest.skipIf(sys.platform == "win32", "macOS MTP worker relies on POSIX fcntl locks")
     def test_worker_timeout_and_invalid_json_are_errors(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             cache = Path(temporary)

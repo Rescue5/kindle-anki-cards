@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -97,7 +98,7 @@ class ReviewTests(unittest.TestCase):
             repository = repository_for(workspace)
             repository.save_catalog(_catalog())
             database = workspace / ".app-data" / DATABASE_FILENAME
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 connection.execute("DROP TABLE review_cards")
                 connection.execute("DELETE FROM schema_migrations")
                 connection.execute(
@@ -111,7 +112,7 @@ class ReviewTests(unittest.TestCase):
                 workspace,
             )
             self.assertEqual(result["due_count"], 1)
-            with sqlite3.connect(database) as connection:
+            with closing(sqlite3.connect(database)) as connection, connection:
                 self.assertEqual(
                     connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0],
                     2,

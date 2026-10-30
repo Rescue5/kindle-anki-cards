@@ -3,9 +3,11 @@ from __future__ import annotations
 import csv
 import html
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 from kindle_vocab_app.logging_config import get_logger
 
@@ -33,11 +35,20 @@ def normalize_timestamp(value: int | None) -> str:
         return str(value)
 
 
-def _connect(db_path: Path) -> sqlite3.Connection:
+@contextmanager
+def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
+    """Open the Kindle database read-only and always close it.
+
+    ``sqlite3.Connection`` as a context manager only ends the transaction; an
+    unclosed handle keeps the file locked on Windows, so cache replacement fails.
+    """
     logger.debug("Opening Kindle SQLite database path=%s", db_path)
     connection = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        yield connection
+    finally:
+        connection.close()
 
 
 def validate_vocab_db(db_path: Path) -> None:
