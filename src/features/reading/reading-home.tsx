@@ -2,6 +2,8 @@ import * as React from "react";
 import { ArrowRight, BookOpen, ChevronRight, RefreshCw, RotateCcw } from "lucide-react";
 import type { BookOption, ConnectorStatus, LexemeRecord, Operation, QueueStatus } from "@/types";
 import { ruCount } from "./reading-domain";
+import { DeskLamp } from "@/components/light/light";
+import { Flourish, SketchFrame } from "@/components/sketch/sketch";
 
 type Props = {
   bookOptions: BookOption[];
@@ -72,6 +74,7 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
         </div>
 
         <section className="reading-feature" aria-label="Последняя книга">
+          <DeskLamp />
           {latestBook ? (
             <>
               <BookJacket book={latestBook} index={0} />
@@ -106,6 +109,8 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
           )}
         </section>
 
+        <Flourish className="reading-home-flourish" />
+
         <div className="reading-home-columns">
           <section className="reading-recent">
             <div className="reading-section-heading"><h2 className="reading-display">Недавние слова</h2><button type="button" className="reading-text-button" onClick={() => onWords()}>Все слова <ArrowRight size={16} /></button></div>
@@ -121,12 +126,12 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
           </section>
 
           <aside className="reading-home-side">
-            <section className="reading-review-invite">
+            <SketchFrame as="section" ornate seed={11} className="reading-review-invite">
               <RotateCcw size={20} />
               <h2 className="reading-display">Пора повторить</h2>
               <p>{dueCount > 0 ? `${dueCount} ${ruCount(dueCount, "слово", "слова", "слов")} ${dueCount === 1 ? "ждёт" : "ждут"} вас сегодня.` : "На сегодня всё повторено. Новые карточки появятся из обработанных слов."}</p>
               <button className="reading-secondary-button" type="button" onClick={onReview}>Открыть повторение <ArrowRight size={16} /></button>
-            </section>
+            </SketchFrame>
             <section className="reading-library-glance">
               <div className="reading-section-heading"><h2 className="reading-display">Ваша библиотека</h2><button className="reading-text-button" type="button" onClick={onBooks}>Все книги <ArrowRight size={16} /></button></div>
               <div className="reading-library-covers">{books.slice(0, 3).map((book, index) => <button key={book.key} type="button" onClick={onBooks} title={book.title}><BookJacket book={book} index={index + 1} /><span>{book.title}</span></button>)}</div>

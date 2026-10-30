@@ -1,0 +1,205 @@
+/*
+ * "Night reading" world — tokens and shared styles. Rules live in DESIGN.md.
+ * Tokens keep the HSL-triplet form the Tailwind config and UI primitives use.
+ */
+
+/* Plain selectors: this file is imported after Tailwind's layers. */
+:root,
+.light {
+  color-scheme: light;
+  --background: 40 33% 94%;
+  --foreground: 222 14% 17%;
+  --panel: 40 30% 95.5%;
+  --panel-raised: 40 32% 97%;
+  --card: 40 32% 97%;
+  --card-foreground: 222 14% 17%;
+  --popover: 40 32% 97%;
+  --popover-foreground: 222 14% 17%;
+  --primary: 27 62% 34%;
+  --primary-foreground: 40 40% 97%;
+  --secondary: 38 20% 88%;
+  --secondary-foreground: 222 14% 17%;
+  --muted: 38 18% 90%;
+  --muted-foreground: 222 7% 38%;
+  --accent: 32 78% 46%;
+  --accent-foreground: 40 40% 97%;
+  --success: 120 14% 34%;
+  --warning: 28 55% 38%;
+  --destructive: 4 52% 42%;
+  --destructive-foreground: 40 40% 97%;
+  --border: 36 14% 78%;
+  --line: 36 14% 78%;
+  --input: 40 32% 97%;
+  --ring: 27 62% 34%;
+  --radius: 6px;
+
+  /* World tokens */
+  --lamp: 38 92% 56%;
+  --lamp-glow: 0;
+  --pencil: 222 8% 30%;
+  --shadow-color: 30 20% 30%;
+  --grain-opacity: 0.07;
+  --beam-blend: multiply;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: 222 24% 7.5%;
+  --foreground: 38 30% 86%;
+  --panel: 222 22% 9%;
+  --panel-raised: 222 20% 11%;
+  --card: 222 20% 11%;
+  --card-foreground: 38 30% 86%;
+  --popover: 222 20% 11%;
+  --popover-foreground: 38 30% 86%;
+  --primary: 37 88% 63%;
+  --primary-foreground: 222 30% 8%;
+  --secondary: 222 15% 14%;
+  --secondary-foreground: 38 30% 86%;
+  --muted: 222 14% 13%;
+  --muted-foreground: 36 9% 64%;
+  --accent: 37 88% 63%;
+  --accent-foreground: 222 30% 8%;
+  --success: 95 18% 62%;
+  --warning: 32 60% 64%;
+  --destructive: 6 55% 66%;
+  --destructive-foreground: 222 30% 8%;
+  --border: 222 11% 22%;
+  --line: 222 11% 22%;
+  --input: 222 22% 10%;
+  --ring: 37 88% 63%;
+
+  --lamp: 38 95% 62%;
+  --lamp-glow: 1;
+  --pencil: 36 8% 72%;
+  --shadow-color: 222 50% 2%;
+  --grain-opacity: 0.09;
+  --beam-blend: screen;
+}
+
+:root {
+  --font-reading: "Literata Variable", Georgia, "Times New Roman", serif;
+  --font-hand: "Caveat Variable", "Segoe Print", cursive;
+  --text-xs: 12px;
+  --text-sm: 13.5px;
+  --text-base: 15px;
+  --text-lg: 18px;
+  --text-xl: 23px;
+  --text-2xl: 31px;
+  --text-display: clamp(40px, 4.4vw, 64px);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+body {
+  font-family: var(--font-reading);
+  font-size: var(--text-base);
+  font-optical-sizing: auto;
+}
+
+/* Paper grain over the whole room; pointer-transparent and static. */
+.paper-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.45 0 0 0 0 0.4 0 0 0 0.9 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+/* ---------- Pencil ---------- */
+
+.sketch-frame { position: relative; }
+.sketch-overlay { position: absolute; inset: 0; overflow: visible; pointer-events: none; color: hsl(var(--pencil) / 0.55); }
+.sketch-curls path { fill: none; stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; }
+.sketch-rule { width: 100%; height: 8px; color: hsl(var(--pencil) / 0.45); }
+.sketch-rule svg { display: block; overflow: visible; }
+.flourish { display: block; margin: 0 auto; color: hsl(var(--pencil) / 0.6); overflow: visible; }
+.flourish path { fill: none; stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; }
+.flourish circle { fill: currentColor; }
+.hand { font-family: var(--font-hand); font-weight: 500; letter-spacing: 0; }
+
+/* ---------- Light ---------- */
+
+.lamp { position: absolute; pointer-events: none; color: hsl(var(--pencil) / 0.85); }
+.lamp-drawing { position: relative; z-index: 2; display: block; width: 100%; height: auto; overflow: visible; filter: url(#pencil-texture); }
+.lamp-halo { fill: hsl(var(--lamp) / calc(0.22 * var(--lamp-glow))); filter: blur(6px); }
+.lamp-filament { fill: hsl(var(--lamp) / calc(0.25 + 0.75 * var(--lamp-glow))); }
+.dark .lamp-filament { filter: drop-shadow(0 0 6px hsl(var(--lamp) / 0.9)); }
+
+.light-beam {
+  position: absolute;
+  z-index: 1;
+  transform-origin: 50% 0;
+  pointer-events: none;
+  mix-blend-mode: var(--beam-blend);
+  opacity: calc(var(--lamp-glow) * var(--beam-intensity, 1));
+  transition: opacity 420ms var(--ease-out);
+}
+.light-beam-cone {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, hsl(var(--lamp) / 0.42), hsl(var(--lamp) / 0.14) 55%, hsl(var(--lamp) / 0) 100%);
+  filter: blur(10px);
+}
+.light-beam-rays {
+  position: absolute;
+  inset: 0;
+  background: repeating-conic-gradient(from 160deg at 50% -8%, hsl(var(--lamp) / 0.16) 0deg 1.2deg, transparent 1.2deg 4.5deg, hsl(var(--lamp) / 0.08) 4.5deg 5.4deg, transparent 5.4deg 9deg);
+  mask-image: linear-gradient(to bottom, #000 0%, rgb(0 0 0 / 0.55) 45%, transparent 92%);
+  filter: blur(1.5px);
+}
+.light-beam-pool {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -14%;
+  height: 34%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, hsl(var(--lamp) / 0.22), hsl(var(--lamp) / 0.07) 60%, transparent);
+  filter: blur(4px);
+}
+.light-dust { position: absolute; inset: 0; color: hsl(var(--lamp)); }
+
+.lamp-desk { width: 220px; }
+.lamp-desk-beam { left: 87%; top: 35%; }
+.lamp-floor { width: 120px; }
+.lamp-floor-beam { left: 50%; top: 16.5%; }
+.lamp-sconce { width: 60px; }
+.lamp-sconce-beam { left: 58%; top: 48%; }
+
+.lamp-cord {
+  position: absolute;
+  left: 63%;
+  top: 16.5%;
+  z-index: 3;
+  width: 18px;
+  height: 78px;
+  padding: 0 3px;
+  pointer-events: auto;
+  color: hsl(var(--pencil) / 0.9);
+  transform-origin: 50% 0;
+  transition: transform 260ms var(--ease-out);
+}
+.lamp-cord svg { width: 100%; height: 100%; overflow: visible; }
+.lamp-cord-bead { fill: hsl(var(--lamp) / calc(0.35 + 0.65 * var(--lamp-glow))); stroke: currentColor; stroke-width: 0.8; }
+.lamp-cord:hover { transform: translateY(3px); }
+.lamp-cord:active { transform: translateY(9px); transition-duration: 90ms; }
+.lamp-cord:focus-visible { outline: 1.5px dashed hsl(var(--primary)); outline-offset: 3px; border-radius: 4px; }
+
+/* The room goes dark while the theme switches. */
+.light-curtain {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 80% 20%, hsl(222 40% 4% / 0.82), hsl(222 40% 3% / 0.97));
+  opacity: 0;
+  transition: opacity 360ms var(--ease-in-out);
+}
+.light-curtain.is-dark { opacity: 1; transition-duration: 240ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .light-beam, .light-curtain, .lamp-cord { transition: none; }
+}

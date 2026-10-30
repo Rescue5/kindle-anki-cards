@@ -10,8 +10,14 @@ import { ReadingHome } from "@/features/reading/reading-home";
 import { ReviewView } from "@/features/reading/review-view";
 import { callBackend } from "@/lib/backend";
 import type { LexemeRecord } from "@/types";
+import "@fontsource-variable/literata/opsz.css";
+import "@fontsource-variable/literata/opsz-italic.css";
+import "@fontsource-variable/caveat";
 import "@/index.css";
+import "@/design/night-reading.css";
 import "@/features/reading/reading.css";
+import { FloorLamp, Sconce, useLightSwitch } from "@/components/light/light";
+import { PencilDefs } from "@/components/sketch/sketch";
 
 type View = "home" | "books" | "words" | "review" | "insights" | "settings";
 const views: View[] = ["home", "books", "words", "review", "insights", "settings"];
@@ -57,6 +63,23 @@ function App() {
     setView("words");
   }
 
+  // The room's light: night when the theme resolves to dark.
+  const prefersDark = useMediaQuery("(prefers-color-scheme: dark)");
+  const theme = controller.settings.theme;
+  const night = theme === "dark" || (theme === "system" && prefersDark);
+  React.useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", night);
+    root.classList.toggle("light", !night);
+  }, [night]);
+  const { setSettings, settings } = controller;
+  const flipLight = React.useCallback(() => {
+    const next = { ...settings, theme: night ? "light" : "dark" } as typeof settings;
+    setSettings(next);
+    void callBackend("save_settings", { settings: next }).catch(() => undefined);
+  }, [night, setSettings, settings]);
+  const { toggle: pullCord, curtain } = useLightSwitch(flipLight);
+
   const busy = controller.operation.status === "running";
   const status = busy
     ? controller.operation.message || controller.operation.title
@@ -70,7 +93,9 @@ function App() {
 
   return (
     <div className="reading-app">
+      <PencilDefs />
       <aside className="reading-sidebar">
+        <Sconce />
         <button type="button" className="reading-brand" onClick={() => setView("home")} aria-label="Kindle Cards — главная">
           <span className="reading-brand-mark"><BookOpen size={23} strokeWidth={1.8} /></span>
           <span><strong>Kindle Cards</strong><small>Слова из вашего чтения</small></span>
@@ -81,6 +106,7 @@ function App() {
             return <button key={item.view} type="button" onClick={() => setView(item.view)} aria-current={view === item.view ? "page" : undefined} className={view === item.view ? "is-active" : ""}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{item.view === "review" && dueCount > 0 ? <em>{dueCount}</em> : null}</button>;
           })}
         </nav>
+        <FloorLamp lit={night} onPull={pullCord} />
         <div className="reading-sidebar-bottom"><span>В библиотеке</span><strong>{controller.entries.length} слов</strong></div>
       </aside>
 
@@ -93,10 +119,23 @@ function App() {
           {view === "insights" ? <InsightsView books={controller.books} entries={controller.entries} onOpenWord={openWord} /> : null}
           {view === "settings" ? <SettingsView settings={controller.settings} onChange={controller.setSettings} /> : null}
         </div>
+        {curtain}
+        <div className="paper-grain" aria-hidden="true" />
         <div className="reading-status" role="status"><span className={busy ? "reading-status-dot is-busy" : "reading-status-dot"} />{status}{controller.operation.status === "error" ? <button type="button" onClick={controller.retry}>Повторить</button> : null}</div>
       </div>
     </div>
   );
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = React.useState(() => window.matchMedia(query).matches);
+  React.useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [query]);
+  return matches;
 }
 
 const rootElement = document.getElementById("root")!;

@@ -78,17 +78,6 @@ export function SettingsView({ settings, onChange }: SettingsViewProps) {
     void persist({ ...settings, ...patch });
   }
 
-  React.useEffect(() => {
-    const root = document.documentElement;
-    const { theme } = settings;
-    root.classList.remove("light", "dark");
-    if (theme === "system") {
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      root.classList.add(prefersDark ? "dark" : "light");
-    } else {
-      root.classList.add(theme);
-    }
-  }, [settings.theme]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background/35">
