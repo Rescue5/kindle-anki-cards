@@ -68,7 +68,9 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
     if action == "download_covers":
         catalog = repository_for(workspace).load_catalog()
         _emit_progress(job_id, "covers", "Загружаем обложки книг", 0, 1)
-        summary = _download_book_covers(catalog, workspace, retry_errors=True)
+        summary = _download_book_covers(
+            catalog, workspace, retry_errors=bool(payload.get("retry_errors", True))
+        )
         _emit_progress(job_id, "completed", "Обложки сохранены", 1, 1)
         result = _catalog_response(catalog, workspace=workspace,
                                    connector_status=_connector_status(workspace, probe_kindle=False),
@@ -101,8 +103,10 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         catalog = vocab_cache.merge_kindle(catalog, entries, sync_id=sync_id, mark_new=True)
         _refresh_obsidian_destination_states(catalog)
         repository_for(workspace).save_catalog(catalog)
-        _emit_progress(job_id, "covers", "Сохраняем обложки книг", 4, 5)
-        _download_book_covers(catalog, workspace)
+        # Online cover lookup is slow (sequential requests), so sync only copies
+        # Kindle thumbnails; the frontend fetches the rest in the background.
+        _emit_progress(job_id, "covers", "Сохраняем обложки с Kindle", 4, 5)
+        _download_book_covers(catalog, workspace, network=False)
         _emit_progress(job_id, "completed", "Синхронизация Kindle завершена", 5, 5)
         logger.info(
             "Kindle synchronization completed job_id=%s sync_id=%s entries=%d lexemes=%d",
@@ -504,7 +508,13 @@ def _catalog_response(
     return result
 
 
-def _download_book_covers(catalog: dict[str, Any], workspace: Path, *, retry_errors: bool = False) -> dict[str, int]:
+def _download_book_covers(
+    catalog: dict[str, Any],
+    workspace: Path,
+    *,
+    retry_errors: bool = False,
+    network: bool = True,
+) -> dict[str, int]:
     books = vocab_cache.books_from_lexemes(catalog.get("lexemes") or [])
     db_path = workspace / ".app-data" / "cache" / "vocab.db"
     if db_path.is_file():
@@ -513,10 +523,14 @@ def _download_book_covers(catalog: dict[str, Any], workspace: Path, *, retry_err
             books = [{**book, "asin": identifiers.get(str(book.get("key")), "")} for book in books]
         except Exception:
             logger.warning("Could not read book cover identifiers from cached Kindle database")
+    cache_dir = workspace / ".app-data" / "covers"
+    thumbnail_dir = workspace / ".app-data" / "cache" / "kindle-thumbnails"
+    if not network:
+        return book_covers.prefer_local_covers(books, cache_dir, thumbnail_dir)
     return book_covers.download_covers(
         books,
-        workspace / ".app-data" / "covers",
-        local_thumbnail_dir=workspace / ".app-data" / "cache" / "kindle-thumbnails",
+        cache_dir,
+        local_thumbnail_dir=thumbnail_dir,
         retry_errors=retry_errors,
     )
 

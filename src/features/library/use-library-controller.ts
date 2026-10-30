@@ -235,6 +235,24 @@ export function useLibraryController() {
     });
   }, []);
 
+  const backgroundCoversInFlightRef = React.useRef(false);
+  // Online cover lookup can take a minute; it runs outside the operation slot so
+  // it never delays queue processing. Only books and covers are applied, because
+  // the entries in this response may predate concurrent processing results.
+  const fetchCoversInBackground = React.useCallback(async () => {
+    if (backgroundCoversInFlightRef.current) return;
+    backgroundCoversInFlightRef.current = true;
+    try {
+      const result = await callBackend<LibraryResult>("download_covers", { retry_errors: false });
+      setBooks(result.books.length ? result.books : [{ label: "Все книги", key: "" }]);
+      setCoverSummary(result.coverSummary);
+    } catch {
+      // Covers are decorative; the manual "Загрузить обложки" action reports errors.
+    } finally {
+      backgroundCoversInFlightRef.current = false;
+    }
+  }, []);
+
   const syncKindle = React.useCallback(async () => {
     lastAutoSyncAttemptAtRef.current = Date.now();
     const id = begin("kindle", "Синхронизация Kindle", "Проверяем подключение устройства");
@@ -246,6 +264,8 @@ export function useLibraryController() {
       if (connected && signature) {
         lastAutoSyncSignatureRef.current = signature;
       }
+      const covers = result.coverSummary;
+      if (connected && covers && covers.available < covers.total) void fetchCoversInBackground();
       setOperation((current) => ({
         ...current,
         status: connected ? "completed" : "error",
@@ -259,7 +279,7 @@ export function useLibraryController() {
     } finally {
       void probeConnectors(true);
     }
-  }, [applyLibrary, begin, fail, probeConnectors]);
+  }, [applyLibrary, begin, fail, fetchCoversInBackground, probeConnectors]);
   syncKindleRef.current = syncKindle;
 
   const downloadCovers = React.useCallback(async () => {

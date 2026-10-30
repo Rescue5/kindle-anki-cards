@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from kindle_vocab_app import vocab_cache
@@ -408,6 +409,42 @@ class BridgeSmokeTests(unittest.TestCase):
             self.assertIn("unsupported_language", processed["processing"]["analysis"]["warnings"])
             self.assertEqual(processed["destinations"]["obsidian"]["reason"], "unsupported_language")
             self.assertEqual(result["rejected_new"], 1)
+
+    def test_sync_kindle_copies_local_covers_without_network_lookup(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            source = SimpleNamespace(
+                label="Kindle",
+                copy_to_cache=lambda cache_dir: cache_dir / "vocab.db",
+            )
+            entry = {
+                "word": "glimpse",
+                "stem": "glimpse",
+                "context": "He caught a glimpse.",
+                "book_key": "book",
+                "book_title": "Book",
+                "authors": "Author",
+                "language": "en",
+                "looked_up_at": "2026-07-10",
+            }
+            with (
+                patch("kindle_vocab_app.tauri_bridge.find_kindle_source", return_value=source),
+                patch("kindle_vocab_app.tauri_bridge.find_kindle_presence", return_value=None),
+                patch("kindle_vocab_app.tauri_bridge.validate_vocab_db"),
+                patch("kindle_vocab_app.tauri_bridge.fetch_entries", return_value=[entry]),
+                patch(
+                    "kindle_vocab_app.book_covers.download_covers",
+                    side_effect=AssertionError("sync must not look up covers online"),
+                ),
+                patch(
+                    "kindle_vocab_app.book_covers.prefer_local_covers",
+                    return_value={"matched": 0, "copied": 0, "cached": 0, "errors": 0},
+                ) as local_covers,
+            ):
+                result = dispatch("sync_kindle", {}, workspace)
+
+            local_covers.assert_called_once()
+            self.assertEqual(result["queueStatus"]["pending"], 1)
 
     def _queue_with_failing_lexeme(self, workspace: Path):
         def entry(word: str, language: str, context: str) -> dict[str, str]:
