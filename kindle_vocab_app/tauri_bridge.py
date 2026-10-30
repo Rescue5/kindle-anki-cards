@@ -5,12 +5,14 @@ import hashlib
 import html
 import json
 import os
+import subprocess
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kindle_vocab_app import book_covers, obsidian_sync, settings, vocab_cache
+from kindle_vocab_app import anki_export, book_covers, obsidian_sync, settings, vocab_cache
 from kindle_vocab_app.kindle_db import fetch_entries, list_books, validate_vocab_db
 from kindle_vocab_app.kindle_device import find_kindle_presence, find_kindle_source
 from kindle_vocab_app.library_repository import repository_for
@@ -155,6 +157,12 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
                 lexeme["destinations"][export_format] = {"state": "exported", "last_exported_at": now}
         repository_for(workspace).save_catalog(catalog)
         return {"path": str(output), "exported": exported}
+
+    if action == "export_apkg":
+        return _export_apkg(payload, workspace, job_id=job_id)
+
+    if action == "open_path":
+        return _open_export_path(Path(str(payload.get("path") or "")), workspace, reveal=bool(payload.get("reveal")))
 
     if action in {"process_queue", "process_lexemes", "optimize"}:
         repository = repository_for(workspace)
@@ -371,6 +379,78 @@ def _process_queued_lexemes(
             }
         ],
     }
+
+
+def _exports_dir(workspace: Path) -> Path:
+    return workspace / ".app-data" / "exports"
+
+
+def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str) -> dict[str, Any]:
+    """Write an Anki package; by default only lexemes not exported to Anki yet."""
+    repository = repository_for(workspace)
+    catalog = repository.load_catalog()
+    requested = {str(value) for value in payload.get("ids") or []}
+    only_new = bool(payload.get("only_new", True))
+    candidates = [
+        lexeme
+        for lexeme in catalog["lexemes"]
+        if (not requested or str(lexeme.get("id") or "") in requested)
+        and anki_export.is_exportable(lexeme)
+        and not (only_new and (lexeme.get("destinations") or {}).get("anki", {}).get("state") == "exported")
+    ]
+    if not candidates:
+        return {"path": "", "exported": 0, "skipped": 0, "message": "Нет новых карточек для Anki"}
+
+    total = len(candidates)
+    _emit_progress(job_id, "preparing", f"Готовим карточек: {total}", 0, total)
+    lookups = 0
+
+    def definition_lookup(lemma: str, pos: str, context: str) -> str:
+        nonlocal lookups
+        lookups += 1
+        if lookups % 50 == 0:
+            _emit_progress(job_id, "building", f"Собрано карточек: {lookups} из {total}", lookups, total)
+        return anki_export.wordnet_definition(lemma, pos, context)
+
+    stamp = datetime.now().strftime("%Y-%m-%d %H-%M")
+    output = _exports_dir(workspace) / f"Kindle Cards {stamp}.apkg"
+    result = anki_export.write_apkg(
+        candidates,
+        output,
+        deck_name=str(payload.get("deck_name") or anki_export.DEFAULT_DECK_NAME),
+        definition_lookup=definition_lookup,
+    )
+    exported_ids = set(result.exported_ids)
+    now = vocab_cache.utc_now()
+    for lexeme in catalog["lexemes"]:
+        if lexeme.get("id") in exported_ids:
+            lexeme["destinations"]["anki"] = {"state": "exported", "last_exported_at": now}
+    repository.save_catalog(catalog)
+    _emit_progress(job_id, "completed", "Колода Anki готова", total, total)
+    return {
+        "path": str(result.path),
+        "exported": len(result.exported_ids),
+        "skipped": result.skipped,
+        "message": f"Карточек в колоде: {len(result.exported_ids)}",
+    }
+
+
+def _open_export_path(path: Path, workspace: Path, *, reveal: bool) -> dict[str, Any]:
+    """Open an exported file (Anki imports .apkg on open) or reveal it."""
+    exports = _exports_dir(workspace).resolve()
+    target = path.resolve()
+    if exports not in target.parents or not target.is_file():
+        raise ValueError("Можно открыть только файл из папки экспорта приложения")
+    if sys.platform == "win32":
+        if reveal:
+            subprocess.Popen(["explorer", "/select,", str(target)])
+        else:
+            os.startfile(target)  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", str(target)] if reveal else ["open", str(target)])
+    else:
+        subprocess.Popen(["xdg-open", str(target.parent if reveal else target)])
+    return {"opened": True}
 
 
 def _analysis_from_audit(raw: dict[str, Any]) -> dict[str, Any]:

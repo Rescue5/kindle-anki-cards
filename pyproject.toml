@@ -15,6 +15,7 @@ dependencies = [
     "python-dotenv>=1.0,<2",
     "wordfreq>=3.1,<4",
     "wordninja>=2,<3",
+    "genanki>=0.13,<1",
 ]
 
 [tool.setuptools.packages.find]
