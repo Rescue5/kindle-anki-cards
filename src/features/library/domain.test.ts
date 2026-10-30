@@ -165,6 +165,15 @@ describe("translation and Anki selectors", () => {
     expect(ankiPendingCount([entry, ready, translated, useless])).toBe(1);
   });
 
+  it("queues an exported card again once its translation is newer", () => {
+    const exportedEarly: LexemeRecord = {
+      ...translated,
+      enrichment: { ...translated.enrichment!, updated_at: "2026-10-02T00:00:00Z" },
+      destinations: { ...translated.destinations, anki: { state: "exported", last_exported_at: "2026-10-01T00:00:00Z" } },
+    };
+    expect(ankiPendingCount([exportedEarly])).toBe(1);
+  });
+
   it("auto-translates only when opted in and offline processing is done", () => {
     const base = { enabled: true, auto: true, loading: false, inFlight: false, pending: 3, processingPending: 0, operation: { kind: "idle", status: "idle" } as const };
     expect(shouldAutoEnrich(base)).toBe(true);

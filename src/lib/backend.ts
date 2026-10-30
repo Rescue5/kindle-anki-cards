@@ -167,6 +167,11 @@ function mockConnectors(): ConnectorStatus {
       checked_at: new Date().toISOString(),
       signature: scenario === "disconnected" ? undefined : ["preview-kindle", "12345678", "2026-07-10T10:00:00Z"],
     },
+    anki: {
+      state: scenario === "anki-connected" ? "connected" : "disconnected",
+      label: "Anki",
+      checked_at: new Date().toISOString(),
+    },
     obsidian: {
       state: scenario === "obsidian-error" ? "error" : "connected",
       label: "Obsidian",
@@ -271,10 +276,11 @@ async function mockBackend<T>(action: string, payload: unknown): Promise<T> {
     mockEntries = mockEntries.map((entry) => (ids.has(entry.id) ? { ...entry, enrichment: mockEnrichment(entry) } : entry));
     return { requested: ids.size, enriched: ids.size, failed: 0, error: "", message: `Переведено: ${ids.size}; без перевода: 0`, entries: mockEntries, queue_status: mockQueueStatus(), enrichmentQueue: mockEnrichmentQueue() } as T;
   }
-  if (action === "export_apkg") {
+  if (action === "export_apkg" || action === "push_anki") {
     const fresh = mockEntries.filter((entry) => isEnrichable(entry) && entry.destinations.anki.state !== "exported");
     mockEntries = mockEntries.map((entry) => (fresh.includes(entry) ? { ...entry, destinations: { ...entry.destinations, anki: { state: "exported", last_exported_at: new Date().toISOString() } } } : entry));
-    return { path: fresh.length ? "preview/Kindle Cards.apkg" : "", exported: fresh.length, skipped: 0, message: fresh.length ? `Карточек в колоде: ${fresh.length}` : "Нет новых карточек для Anki" } as T;
+    const pushed = action === "push_anki";
+    return { path: fresh.length ? "preview/Kindle Cards.apkg" : "", exported: fresh.length, skipped: 0, pushed, message: !fresh.length ? "Нет новых карточек для Anki" : pushed ? `Отправлено в Anki: ${fresh.length}` : `Карточек в колоде: ${fresh.length}` } as T;
   }
   if (action === "open_path") return { opened: true } as T;
   if (action === "save_settings") { mockSettings = (payload as { settings: AppSettings }).settings; return { saved: true } as T; }

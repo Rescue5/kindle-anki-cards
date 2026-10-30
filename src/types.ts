@@ -131,6 +131,8 @@ export type ConnectorInfo = {
 export type ConnectorStatus = {
   kindle: ConnectorInfo;
   obsidian: ConnectorInfo;
+  /** AnkiConnect add-on reachable on localhost; absent in older bridge responses. */
+  anki?: ConnectorInfo;
 };
 
 export type LibraryResult = {

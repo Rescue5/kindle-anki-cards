@@ -54,6 +54,7 @@ type ApkgResult = {
   path: string;
   exported: number;
   skipped: number;
+  pushed?: boolean;
   message: string;
 };
 
@@ -134,6 +135,7 @@ export function useLibraryController() {
     setConnectors((current) => ({
       kindle: result.connectors?.kindle?.state === "unknown" ? current.kindle : (result.connectors?.kindle ?? current.kindle),
       obsidian: result.connectors?.obsidian ?? current.obsidian,
+      anki: result.connectors?.anki?.state === "unknown" || !result.connectors?.anki ? current.anki : result.connectors.anki,
     }));
     setQueueStatus(result.queueStatus ?? emptyQueue);
   }, []);
@@ -434,18 +436,21 @@ export function useLibraryController() {
 
   const [lastExportPath, setLastExportPath] = React.useState("");
 
+  const ankiConnected = connectors.anki?.state === "connected";
+  // With AnkiConnect the same .apkg is imported straight into the open Anki;
+  // otherwise the user opens the file and Anki imports it.
   const exportAnki = React.useCallback(async () => {
     lastExportKindRef.current = "apkg";
-    const id = begin("export", "Колода Anki", "Собираем новые карточки");
+    const id = begin("export", "Колода Anki", ankiConnected ? "Отправляем карточки в Anki" : "Собираем новые карточки");
     try {
-      const result = await callBackend<ApkgResult>("export_apkg", { job_id: id });
-      setLastExportPath(result.path);
+      const result = await callBackend<ApkgResult>(ankiConnected ? "push_anki" : "export_apkg", { job_id: id });
+      setLastExportPath(result.pushed ? "" : result.path);
       if (result.exported) await loadLibrary();
-      setOperation((current) => ({ ...current, status: "completed", stage: "completed", title: result.exported ? "Колода Anki готова" : "Новых карточек нет", message: result.message, error: "" }));
+      setOperation((current) => ({ ...current, status: "completed", stage: "completed", title: result.exported ? (result.pushed ? "Карточки в Anki" : "Колода Anki готова") : "Новых карточек нет", message: result.message, error: "" }));
     } catch (error) {
       fail(id, "Экспорт в Anki остановлен", error);
     }
-  }, [begin, fail, loadLibrary]);
+  }, [ankiConnected, begin, fail, loadLibrary]);
 
   const openExport = React.useCallback(async (reveal = false) => {
     if (!lastExportPath) return;

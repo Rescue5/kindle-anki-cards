@@ -111,7 +111,13 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
               <option value="quizlet">Quizlet</option>
             </Select>
             {exportFormat === "anki" ? (
-              <Button variant="secondary" size="sm" onClick={() => void controller.exportAnki()} disabled={busy || controller.ankiPending === 0} title={controller.ankiPending ? "Собрать колоду Anki из ещё не выгруженных слов" : "Все подходящие слова уже выгружены в Anki"}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void controller.exportAnki()}
+                disabled={busy || controller.ankiPending === 0}
+                title={!controller.ankiPending ? "Все подходящие слова уже в Anki" : controller.connectors.anki?.state === "connected" ? "Отправить новые и обновлённые карточки в открытый Anki" : "Собрать колоду из новых и обновлённых карточек. Чтобы отправлять сразу в Anki, установите дополнение AnkiConnect (код 2055492159)"}
+              >
                 <Download size={14} /> В Anki <span className="tabular-nums text-muted-foreground">{controller.ankiPending}</span>
               </Button>
             ) : (

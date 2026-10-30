@@ -178,8 +178,15 @@ export function enrichmentCounts(entries: LexemeRecord[]) {
   );
 }
 
+/** Mirrors the backend: never exported, or translated after the last export. */
+export function needsAnkiUpdate(entry: LexemeRecord): boolean {
+  const anki = entry.destinations.anki;
+  if (anki.state !== "exported") return true;
+  return entry.enrichment?.status === "ready" && entry.enrichment.updated_at > anki.last_exported_at;
+}
+
 export function ankiPendingCount(entries: LexemeRecord[]): number {
-  return entries.filter((entry) => isCardEligible(entry) && entry.destinations.anki.state !== "exported").length;
+  return entries.filter((entry) => isCardEligible(entry) && needsAnkiUpdate(entry)).length;
 }
 
 /**

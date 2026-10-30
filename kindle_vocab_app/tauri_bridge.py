@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kindle_vocab_app import anki_export, book_covers, enrichment, obsidian_sync, settings, vocab_cache
+from kindle_vocab_app import anki_connect, anki_export, book_covers, enrichment, obsidian_sync, settings, vocab_cache
 from kindle_vocab_app.llm import presets as llm_presets
 from kindle_vocab_app.kindle_db import fetch_entries, list_books, validate_vocab_db
 from kindle_vocab_app.kindle_device import find_kindle_presence, find_kindle_source
@@ -165,6 +165,9 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
 
     if action == "export_apkg":
         return _export_apkg(payload, workspace, job_id=job_id)
+
+    if action == "push_anki":
+        return _export_apkg(payload, workspace, job_id=job_id, push=True)
 
     if action == "open_path":
         return _open_export_path(Path(str(payload.get("path") or "")), workspace, reveal=bool(payload.get("reveal")))
@@ -465,8 +468,12 @@ def _exports_dir(workspace: Path) -> Path:
     return workspace / ".app-data" / "exports"
 
 
-def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str) -> dict[str, Any]:
-    """Write an Anki package; by default only lexemes not exported to Anki yet."""
+def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str, push: bool = False) -> dict[str, Any]:
+    """Write an Anki package of new or newly translated words; optionally import it via AnkiConnect.
+
+    Words are marked as exported only after the file exists and, when pushing,
+    after Anki confirmed the import.
+    """
     repository = repository_for(workspace)
     catalog = repository.load_catalog()
     requested = {str(value) for value in payload.get("ids") or []}
@@ -476,7 +483,7 @@ def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str) -> di
         for lexeme in catalog["lexemes"]
         if (not requested or str(lexeme.get("id") or "") in requested)
         and anki_export.is_exportable(lexeme)
-        and not (only_new and (lexeme.get("destinations") or {}).get("anki", {}).get("state") == "exported")
+        and (not only_new or anki_export.needs_anki_update(lexeme))
     ]
     if not candidates:
         return {"path": "", "exported": 0, "skipped": 0, "message": "Нет новых карточек для Anki"}
@@ -500,6 +507,12 @@ def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str) -> di
         deck_name=str(payload.get("deck_name") or anki_export.DEFAULT_DECK_NAME),
         definition_lookup=definition_lookup,
     )
+    if push:
+        _emit_progress(job_id, "importing", "Импортируем колоду в Anki", total, total)
+        try:
+            anki_connect.import_package(result.path)
+        except anki_connect.AnkiConnectError as exc:
+            raise ValueError(f"{exc}. Колода сохранена в файл: {result.path.name}") from exc
     exported_ids = set(result.exported_ids)
     now = vocab_cache.utc_now()
     for lexeme in catalog["lexemes"]:
@@ -507,11 +520,13 @@ def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str) -> di
             lexeme["destinations"]["anki"] = {"state": "exported", "last_exported_at": now}
     repository.save_catalog(catalog)
     _emit_progress(job_id, "completed", "Колода Anki готова", total, total)
+    count = len(result.exported_ids)
     return {
         "path": str(result.path),
-        "exported": len(result.exported_ids),
+        "exported": count,
         "skipped": result.skipped,
-        "message": f"Карточек в колоде: {len(result.exported_ids)}",
+        "pushed": push,
+        "message": f"Отправлено в Anki: {count}" if push else f"Карточек в колоде: {count}",
     }
 
 
@@ -633,6 +648,8 @@ def _connector_status(workspace: Path, *, probe_kindle: bool) -> dict[str, Any]:
     obsidian_state = "disabled"
     if configured:
         obsidian_state = "connected" if cards_dir and cards_dir.exists() else "error"
+    anki = anki_connect.status() if probe_kindle else {"state": "unknown", "label": "Anki"}
+    anki["checked_at"] = vocab_cache.utc_now()
     return {
         "kindle": kindle,
         "obsidian": {
@@ -640,6 +657,7 @@ def _connector_status(workspace: Path, *, probe_kindle: bool) -> dict[str, Any]:
             "label": "Obsidian",
             "checked_at": vocab_cache.utc_now(),
         },
+        "anki": anki,
     }
 
 
