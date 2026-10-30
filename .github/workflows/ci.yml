@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m nltk.downloader -q wordnet averaged_perceptron_tagger_eng
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Lint new Python modules
+        run: python -m ruff check kindle_vocab_app/anki_export.py kindle_vocab_app/anki_connect.py kindle_vocab_app/enrichment.py kindle_vocab_app/llm packaging
+
+      - name: Python tests
+        run: python -m pytest -q
+
+      - name: Frontend tests
+        run: npm test
+
+      - name: Frontend build
+        run: npm run build
+
+      - name: Rust check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
