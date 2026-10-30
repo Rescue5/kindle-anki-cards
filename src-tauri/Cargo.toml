@@ -1,8 +1,10 @@
 [package]
 name = "kindle-cards"
 version = "0.1.0"
-description = "Premium Kindle Vocabulary Builder desktop app"
-authors = ["Kindle Cards"]
+description = "Kindle Vocabulary Builder words as Anki cards with the book context"
+authors = ["Gwyndolin"]
+license = "MIT"
+repository = "https://github.com/Rescue5/kindle-anki-cards"
 edition = "2021"
 
 [build-dependencies]

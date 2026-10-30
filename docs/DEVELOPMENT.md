@@ -1,4 +1,4 @@
-# Kindle Vocabulary Builder
+# Development guide
 
 Kindle Vocabulary Builder stores looked-up words in an SQLite database named
 `vocab.db`. On Kindle e-ink devices connected by USB it is usually here:
