@@ -40,7 +40,7 @@ type FieldProps = {
 function Field({ label, hint, children }: FieldProps) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium">{label}</span>
+      <span className="block text-sm font-medium">{label}</span>
       {children}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
     </label>
@@ -118,15 +118,6 @@ export function SettingsView({ settings, onChange }: SettingsViewProps) {
                 <option value="dark">Тёмная</option>
               </Select>
             </Field>
-            <Field label="Язык интерфейса">
-              <Select
-                value={settings.language}
-                onChange={(event) => update("language", event.target.value as AppSettings["language"])}
-              >
-                <option value="ru">Русский</option>
-                <option value="en">English</option>
-              </Select>
-            </Field>
             <Field label="Формат экспорта по умолчанию">
               <Select
                 value={settings.default_export_format}
@@ -137,13 +128,6 @@ export function SettingsView({ settings, onChange }: SettingsViewProps) {
                 <option value="anki">Anki</option>
                 <option value="quizlet">Quizlet</option>
               </Select>
-            </Field>
-            <Field label="Папка данных приложения" hint="Относительный или абсолютный путь">
-              <Input
-                value={settings.app_data_path}
-                onChange={(event) => update("app_data_path", event.target.value)}
-                placeholder=".app-data"
-              />
             </Field>
           </div>
         </SettingsSection>

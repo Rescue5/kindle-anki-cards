@@ -139,6 +139,13 @@ export function isMissingFromObsidian(entry: LexemeRecord): boolean {
   return entry.destinations.obsidian.eligible && entry.destinations.obsidian.state === "missing";
 }
 
+const POS_LABELS: Record<string, string> = { n: "существительное", v: "глагол", a: "прилагательное", s: "прилагательное", r: "наречие" };
+
+/** Human label for the optimizer's WordNet part-of-speech code. */
+export function partOfSpeechLabel(pos: string | undefined): string {
+  return (pos && POS_LABELS[pos]) || "не определена";
+}
+
 export function processingLabel(state: ProcessingState): string {
   return {
     pending: "Не обработано",

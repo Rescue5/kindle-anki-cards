@@ -21,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { counts, isAcceptedNew, isCardEligible, obsidianSyncReason, primaryOccurrence, processingLabel, processingTone, type QuickFilter } from "./domain";
+import { counts, isAcceptedNew, isCardEligible, obsidianSyncReason, partOfSpeechLabel, primaryOccurrence, processingLabel, processingTone, type QuickFilter } from "./domain";
 import type { useLibraryController } from "./use-library-controller";
 import type { ConnectorInfo, LexemeRecord, WordAnalysis } from "@/types";
 
@@ -302,8 +302,8 @@ function ProcessingMark({ entry }: { entry: LexemeRecord }) {
 function ObsidianMark({ entry }: { entry: LexemeRecord }) {
   const synced = entry.destinations.obsidian.state === "synced";
   const missing = entry.destinations.obsidian.eligible && entry.destinations.obsidian.state === "missing";
-  const label = synced ? "В Obsidian" : missing ? "Не в Obsidian" : "Не отправляется";
-  return <span className={`flex items-center gap-1.5 text-xs ${synced ? "text-purple-700" : "text-muted-foreground"}`} title={obsidianSyncReason(entry)}>{synced ? <Check size={12} /> : <Circle size={11} />}{label}</span>;
+  const label = synced ? "В Obsidian" : missing ? "Не в Obsidian" : "Не подходит";
+  return <span className={`flex items-center gap-1.5 whitespace-nowrap text-xs ${synced ? "text-purple-700" : "text-muted-foreground"}`} title={obsidianSyncReason(entry)}>{synced ? <Check size={12} /> : <Circle size={11} />}{label}</span>;
 }
 
 type LexemeInspectorProps = {
@@ -400,7 +400,7 @@ function AnalysisDetails({ analysis }: { analysis: WordAnalysis }) {
   return (
     <div className="mt-3 space-y-3 border-t border-line pt-3 text-sm">
       <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-2">
-        <dt className="text-muted-foreground">Часть речи</dt><dd>{analysis.pos && analysis.pos !== "offline" ? analysis.pos : "не определена"}</dd>
+        <dt className="text-muted-foreground">Часть речи</dt><dd>{partOfSpeechLabel(analysis.pos)}</dd>
         <dt className="text-muted-foreground">Полезность</dt><dd>{analysis.importance_score != null ? `${analysis.importance_score}/10` : "не рассчитана"}</dd>
         <dt className="text-muted-foreground">Частотность</dt><dd>{analysis.frequency_note || "нет данных"}</dd>
       </dl>
