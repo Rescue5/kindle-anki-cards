@@ -43,7 +43,7 @@ Kindle Cards забирает слова с подключённого Kindle, �
 
 ## Установка
 
-1. Скачайте `Kindle Cards_…_x64-setup.exe` со страницы [последнего релиза](https://github.com/Rescue5/kindle-anki-cards/releases/latest).
+1. Скачайте `Kindle.Cards_…_x64-setup.exe` со страницы [последнего релиза](https://github.com/Rescue5/kindle-anki-cards/releases/latest).
 2. Запустите. Установщик не подписан, поэтому Windows SmartScreen покажет предупреждение: «Подробнее» → «Выполнить в любом случае». Права администратора не нужны.
 3. Подключите Kindle по USB — синхронизация начнётся сама.
 
