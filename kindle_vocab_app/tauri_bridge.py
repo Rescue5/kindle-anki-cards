@@ -130,13 +130,17 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         repository = repository_for(workspace)
         catalog = repository.load_catalog()
         requested_ids: set[str] | None = None
+        # The automatic queue retries failed lexemes only on an explicit request;
+        # otherwise a deterministic failure would be re-run on every pass.
+        include_failed = bool(payload.get("include_failed"))
         if action != "process_queue":
+            include_failed = True
             requested_ids = {str(value) for value in payload.get("ids") or []}
             if not requested_ids and payload.get("entries"):
                 requested_ids = {
                     str(item.get("id") or "") for item in payload.get("entries") or []
                 }
-        queued_ids = repository.queued_ids(requested_ids)
+        queued_ids = repository.queued_ids(requested_ids, include_failed=include_failed)
         return _process_queued_lexemes(
             catalog,
             queued_ids,
@@ -239,6 +243,7 @@ def _process_queued_lexemes(
     rejected_new = 0
     processed_new = 0
     skipped_existing = 0
+    failed_new = 0
     _emit_progress(job_id, "preparing", f"В очереди лемм: {total}", 0, max(total, 1))
 
     for index, queued_id in enumerate(queued_ids, 1):
@@ -283,6 +288,10 @@ def _process_queued_lexemes(
             if repository.save_processed_lexeme(catalog, queued_id):
                 catalog = repository.load_catalog()
         except Exception as exc:
+            # One broken lexeme must not stop the rest of the queue: record the
+            # failure durably and continue. Storage errors still propagate from
+            # the save below.
+            logger.exception("Offline processing failed lexeme_id=%s", queued_id)
             lexeme["processing"] = {
                 "state": "failed",
                 "analysis": None,
@@ -291,8 +300,9 @@ def _process_queued_lexemes(
                 "origin": "sqlite_optimizer",
             }
             _refresh_obsidian_destination_states(catalog)
-            repository.save_processed_lexeme(catalog, queued_id)
-            raise
+            if repository.save_processed_lexeme(catalog, queued_id):
+                catalog = repository.load_catalog()
+            failed_new += 1
 
         _emit_progress(
             job_id,
@@ -306,13 +316,17 @@ def _process_queued_lexemes(
     _emit_progress(job_id, "completed", "Offline-обработка завершена", total, max(total, 1))
     message = (
         f"Обработано: {processed_new}; принято: {accepted_new}; "
-        f"отклонено: {rejected_new}; пропущено ранее: {skipped_existing}."
+        f"отклонено: {rejected_new}; пропущено ранее: {skipped_existing}"
     )
+    if failed_new:
+        message += f"; ошибок: {failed_new}"
+    message += "."
     return {
         "processed_new": processed_new,
         "accepted_new": accepted_new,
         "skipped_existing": skipped_existing,
         "rejected_new": rejected_new,
+        "failed_new": failed_new,
         "tsv_path": str(output_dir / "optimized.tsv"),
         "entries": catalog["lexemes"],
         "queue_status": repository.queue_status(),

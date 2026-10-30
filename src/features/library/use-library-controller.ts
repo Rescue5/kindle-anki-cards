@@ -5,6 +5,7 @@ import {
   idleOperation,
   kindleSignature,
   KINDLE_PROBE_INTERVAL_MS,
+  shouldAutoProcessQueue,
   shouldAutoSyncKindle,
   type QuickFilter,
 } from "./domain";
@@ -29,6 +30,7 @@ type ProcessingResult = {
   accepted_new: number;
   rejected_new: number;
   skipped_existing: number;
+  failed_new?: number;
   entries: LexemeRecord[];
   queue_status: QueueStatus;
   message?: string;
@@ -256,20 +258,35 @@ export function useLibraryController() {
   }, [applyLibrary, begin, fail, probeConnectors]);
   syncKindleRef.current = syncKindle;
 
-  const processQueue = React.useCallback(async () => {
+  const processQueue = React.useCallback(async (includeFailed = false) => {
     if (processingInFlightRef.current) return;
     processingInFlightRef.current = true;
-    const queueSize = queueStatus.pending + queueStatus.failed;
+    const queueSize = queueStatus.pending + (includeFailed ? queueStatus.failed : 0);
     const id = begin("processing", "Offline-обработка", `В очереди ${queueSize} лемм`);
     try {
-      const result = await callBackend<ProcessingResult>("process_queue", { job_id: id });
+      const result = await callBackend<ProcessingResult>("process_queue", { job_id: id, include_failed: includeFailed });
       setEntries(result.entries);
       setQueueStatus(result.queue_status ?? emptyQueue);
       const skipped = result.skipped_existing ?? 0;
-      const defaultMessage = skipped > 0
-        ? `Обработано: ${result.processed_new}; принято: ${result.accepted_new}; отклонено: ${result.rejected_new}; пропущено ранее: ${skipped}`
-        : `Обработано: ${result.processed_new}; принято: ${result.accepted_new}; отклонено: ${result.rejected_new}`;
-      setOperation((current) => ({ ...current, status: "completed", stage: "completed", title: "Обработка завершена", message: result.message || defaultMessage, current: queueSize, total: queueSize }));
+      const failed = result.failed_new ?? 0;
+      const defaultMessage = [
+        `Обработано: ${result.processed_new}`,
+        `принято: ${result.accepted_new}`,
+        `отклонено: ${result.rejected_new}`,
+        ...(skipped > 0 ? [`пропущено ранее: ${skipped}`] : []),
+        ...(failed > 0 ? [`ошибок: ${failed}`] : []),
+      ].join("; ");
+      const message = result.message || defaultMessage;
+      setOperation((current) => ({
+        ...current,
+        status: failed > 0 ? "error" : "completed",
+        stage: "completed",
+        title: failed > 0 ? "Обработка завершена с ошибками" : "Обработка завершена",
+        message,
+        error: failed > 0 ? message : "",
+        current: queueSize,
+        total: queueSize,
+      }));
     } catch (error) {
       void loadLibrary();
       fail(id, "Offline-обработка остановлена", error);
@@ -278,12 +295,12 @@ export function useLibraryController() {
     }
   }, [begin, fail, loadLibrary, queueStatus.failed, queueStatus.pending]);
 
+  const retryFailed = React.useCallback(() => processQueue(true), [processQueue]);
+
   React.useEffect(() => {
-    const pending = queueStatus.pending + queueStatus.failed;
-    if (loading || pending === 0 || processingInFlightRef.current) return;
-    if (["running", "error", "cancelled"].includes(operation.status)) return;
+    if (!shouldAutoProcessQueue({ loading, inFlight: processingInFlightRef.current, queue: queueStatus, operation })) return;
     void processQueue();
-  }, [loading, operation.status, processQueue, queueStatus.failed, queueStatus.pending]);
+  }, [loading, operation, processQueue, queueStatus]);
 
   const syncObsidian = React.useCallback(async () => {
     const id = begin("obsidian", "Синхронизация Obsidian", "Сверяем глобальную очередь карточек");
@@ -320,10 +337,10 @@ export function useLibraryController() {
   const retry = React.useCallback(() => {
     const kind = operationRef.current.kind;
     if (kind === "kindle") return void syncKindle();
-    if (kind === "processing") return void processQueue();
+    if (kind === "processing") return void retryFailed();
     if (kind === "obsidian") return void syncObsidian();
     if (kind === "export") return void exportVisible(settings.default_export_format);
-  }, [exportVisible, processQueue, settings.default_export_format, syncKindle, syncObsidian]);
+  }, [exportVisible, retryFailed, settings.default_export_format, syncKindle, syncObsidian]);
 
   const dismissOperation = React.useCallback(() => setOperation(idleOperation), []);
 
@@ -352,6 +369,7 @@ export function useLibraryController() {
       exportVisible,
       cancel,
       retry,
+      retryFailed,
       dismissOperation,
       loadLibrary,
     }),
@@ -379,6 +397,7 @@ export function useLibraryController() {
       exportVisible,
       cancel,
       retry,
+      retryFailed,
       dismissOperation,
       loadLibrary,
     ],

@@ -1,4 +1,4 @@
-import type { BookOption, ConnectorInfo, LexemeOccurrence, LexemeRecord, Operation, ProcessingState } from "@/types";
+import type { BookOption, ConnectorInfo, LexemeOccurrence, LexemeRecord, Operation, ProcessingState, QueueStatus } from "@/types";
 
 export type QuickFilter = "all" | "new" | "pending" | "ready" | "unsynced";
 
@@ -27,6 +27,27 @@ export function shouldAutoSyncKindle({
   if (previous.state !== "connected") return true;
   if (lastSyncedSignature === signature) return false;
   return now - lastAttemptAt >= KINDLE_AUTO_SYNC_RETRY_MS;
+}
+
+/**
+ * Automatic processing runs only for pending lexemes. Failed lexemes wait for an
+ * explicit retry, and only a failed or cancelled processing run pauses the queue;
+ * errors of other operations (for example a disconnected Kindle) do not.
+ */
+export function shouldAutoProcessQueue({
+  loading,
+  inFlight,
+  queue,
+  operation,
+}: {
+  loading: boolean;
+  inFlight: boolean;
+  queue: QueueStatus;
+  operation: Pick<Operation, "kind" | "status">;
+}): boolean {
+  if (loading || inFlight || queue.pending === 0) return false;
+  if (operation.status === "running") return false;
+  return !(operation.kind === "processing" && ["error", "cancelled"].includes(operation.status));
 }
 
 export const idleOperation: Operation = {

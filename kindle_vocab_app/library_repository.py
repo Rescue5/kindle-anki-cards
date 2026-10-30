@@ -179,14 +179,23 @@ class SQLiteVocabularyRepository:
         result["total"] = sum(result.values())
         return result
 
-    def queued_ids(self, requested_ids: set[str] | None = None) -> list[str]:
+    def queued_ids(
+        self,
+        requested_ids: set[str] | None = None,
+        *,
+        include_failed: bool = True,
+    ) -> list[str]:
+        """Return queued ids, pending first, so a failed item never blocks fresh ones."""
+        statuses = ("pending", "failed") if include_failed else ("pending",)
+        placeholders = ", ".join("?" for _ in statuses)
         with self.connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT lexeme_id FROM processing_queue
-                WHERE status IN ('pending', 'failed')
-                ORDER BY created_at, lexeme_id
-                """
+                WHERE status IN ({placeholders})
+                ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, created_at, lexeme_id
+                """,
+                statuses,
             ).fetchall()
         ids = [str(row["lexeme_id"]) for row in rows]
         return [item for item in ids if requested_ids is None or item in requested_ids]

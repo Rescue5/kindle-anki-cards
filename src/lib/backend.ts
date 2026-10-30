@@ -158,8 +158,13 @@ function buildBooks(entries: LexemeRecord[]): BookOption[] {
   return [{ label: "Все книги", key: "" }, ...Array.from(counts, ([key, count]) => ({ label: `${key} · ${count}`, key }))];
 }
 
+function mockQueueStatus() {
+  const pending = mockEntries.filter((entry) => entry.processing.state === "pending").length;
+  const failed = mockEntries.filter((entry) => entry.processing.state === "failed").length;
+  return { pending, processing: 0, failed, total: pending + failed };
+}
+
 function libraryResult(): LibraryResult {
-  const pending = mockEntries.filter((entry) => ["pending", "failed"].includes(entry.processing.state)).length;
   return {
     sourceName: "Preview library",
     sourceStatus: "Локальная библиотека готова",
@@ -167,7 +172,7 @@ function libraryResult(): LibraryResult {
     entries: mockEntries,
     last_kindle_sync_id: "preview-sync",
     connectors: mockConnectors(),
-    queueStatus: { pending, processing: 0, failed: 0, total: pending },
+    queueStatus: mockQueueStatus(),
   };
 }
 
@@ -185,21 +190,28 @@ async function mockBackend<T>(action: string, payload: unknown): Promise<T> {
   if (action === "connector_status") return mockConnectors() as T;
   if (["load_library", "load_cached", "sync_kindle", "scan"].includes(action)) return libraryResult() as T;
   if (["process_queue", "process_lexemes", "optimize"].includes(action)) {
-    const requested = (payload as { ids?: string[] })?.ids;
-    const ids = new Set(requested ?? mockEntries.filter((entry) => ["pending", "failed"].includes(entry.processing.state)).map((entry) => entry.id));
-    mockEntries = mockEntries.map((entry) =>
-      ids.has(entry.id)
-        ? {
-            ...entry,
-            processing: { state: "ready", analysis: analysis(entry.lemma, 6), updated_at: new Date().toISOString(), error: "" },
-            destinations: {
-              ...entry.destinations,
-              obsidian: { ...entry.destinations.obsidian, state: "missing", eligible: true, reason: "" },
-            },
-          }
-        : entry,
-    );
-    return { processed_new: ids.size, accepted_new: ids.size, rejected_new: 0, skipped_existing: 0, entries: mockEntries, queue_status: { pending: 0, processing: 0, failed: 0, total: 0 } } as T;
+    const request = payload as { ids?: string[]; include_failed?: boolean } | undefined;
+    const states = request?.include_failed || request?.ids ? ["pending", "failed"] : ["pending"];
+    const ids = new Set(request?.ids ?? mockEntries.filter((entry) => states.includes(entry.processing.state)).map((entry) => entry.id));
+    // `?scenario=lexeme-failure` fails one lexeme on the first pass to preview the retry flow.
+    const failingId = previewScenario() === "lexeme-failure" && !mockFailureConsumed ? mockEntries.find((entry) => ids.has(entry.id))?.id : undefined;
+    if (failingId) mockFailureConsumed = true;
+    mockEntries = mockEntries.map((entry) => {
+      if (!ids.has(entry.id)) return entry;
+      if (entry.id === failingId) {
+        return { ...entry, processing: { state: "failed", analysis: null, updated_at: new Date().toISOString(), error: "Тестовая ошибка анализа леммы" } };
+      }
+      return {
+        ...entry,
+        processing: { state: "ready", analysis: analysis(entry.lemma, 6), updated_at: new Date().toISOString(), error: "" },
+        destinations: {
+          ...entry.destinations,
+          obsidian: { ...entry.destinations.obsidian, state: "missing", eligible: true, reason: "" },
+        },
+      };
+    });
+    const failed = failingId ? 1 : 0;
+    return { processed_new: ids.size - failed, accepted_new: ids.size - failed, rejected_new: 0, skipped_existing: 0, failed_new: failed, entries: mockEntries, queue_status: mockQueueStatus() } as T;
   }
   if (action === "sync_obsidian") {
     const pendingSync = mockEntries.filter((entry) => entry.destinations.obsidian.eligible && entry.destinations.obsidian.state === "missing");

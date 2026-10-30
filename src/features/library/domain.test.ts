@@ -4,9 +4,10 @@ import {
   filterLexemes,
   KINDLE_AUTO_SYNC_RETRY_MS,
   obsidianSyncReason,
+  shouldAutoProcessQueue,
   shouldAutoSyncKindle,
 } from "./domain";
-import type { ConnectorInfo, LexemeRecord } from "@/types";
+import type { ConnectorInfo, LexemeRecord, QueueStatus } from "@/types";
 
 const entry = {
   id: "one",
@@ -107,5 +108,34 @@ describe("Kindle auto-sync policy", () => {
       lastAttemptAt: 10_000,
       now: 10_000 + KINDLE_AUTO_SYNC_RETRY_MS,
     })).toBe(true);
+  });
+});
+
+describe("automatic processing queue policy", () => {
+  const queue = (pending: number, failed: number): QueueStatus => ({ pending, processing: 0, failed, total: pending + failed });
+  const idle = { kind: "idle", status: "idle" } as const;
+
+  it("processes pending lexemes when nothing else is running", () => {
+    expect(shouldAutoProcessQueue({ loading: false, inFlight: false, queue: queue(2, 0), operation: idle })).toBe(true);
+  });
+
+  it("never re-runs failed lexemes automatically", () => {
+    expect(shouldAutoProcessQueue({ loading: false, inFlight: false, queue: queue(0, 3), operation: idle })).toBe(false);
+  });
+
+  it("pauses after a failed or cancelled processing run", () => {
+    for (const status of ["error", "cancelled"] as const) {
+      expect(shouldAutoProcessQueue({ loading: false, inFlight: false, queue: queue(1, 1), operation: { kind: "processing", status } })).toBe(false);
+    }
+  });
+
+  it("is not blocked by an unrelated operation error", () => {
+    expect(shouldAutoProcessQueue({ loading: false, inFlight: false, queue: queue(1, 0), operation: { kind: "kindle", status: "error" } })).toBe(true);
+  });
+
+  it("waits while loading, running, or already in flight", () => {
+    expect(shouldAutoProcessQueue({ loading: true, inFlight: false, queue: queue(1, 0), operation: idle })).toBe(false);
+    expect(shouldAutoProcessQueue({ loading: false, inFlight: true, queue: queue(1, 0), operation: idle })).toBe(false);
+    expect(shouldAutoProcessQueue({ loading: false, inFlight: false, queue: queue(1, 0), operation: { kind: "kindle", status: "running" } })).toBe(false);
   });
 });

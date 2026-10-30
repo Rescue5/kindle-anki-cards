@@ -409,52 +409,132 @@ class BridgeSmokeTests(unittest.TestCase):
             self.assertEqual(processed["destinations"]["obsidian"]["reason"], "unsupported_language")
             self.assertEqual(result["rejected_new"], 1)
 
-    def test_process_queue_commits_each_completed_lexeme_before_failure(self) -> None:
+    def _queue_with_failing_lexeme(self, workspace: Path):
+        def entry(word: str, language: str, context: str) -> dict[str, str]:
+            return {
+                "word": word,
+                "stem": word,
+                "context": context,
+                "book_key": "book",
+                "book_title": "Book",
+                "authors": "Author",
+                "language": language,
+                "looked_up_at": "2026-07-10",
+            }
+
+        catalog = vocab_cache.merge_kindle(
+            vocab_cache.empty_catalog(),
+            [
+                entry("большой", "ru", "Большой бюст."),
+                entry("glimpse", "en", "He caught a glimpse."),
+                entry("dread", "en", "A quiet dread settled."),
+            ],
+            sync_id="sync",
+        )
+        order = {"большой": "2026-01-01", "glimpse": "2026-01-02", "dread": "2026-01-03"}
+        for item in catalog["lexemes"]:
+            item["first_seen_at"] = order[item["lemma"]]
+        repository = repository_for(workspace)
+        repository.save_catalog(catalog)
+        return repository
+
+    @staticmethod
+    def _analysis_failing_for(*failing_words: str):
+        def analyze(entries, _output_dir):
+            word = entries[0]["word"]
+            if word in failing_words:
+                raise RuntimeError(f"test failure: {word}")
+            return [{"base_form": word, "accepted": True, "importance": {"score": 5}}]
+
+        return analyze
+
+    def test_process_queue_continues_after_a_failed_lexeme(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
-            catalog = vocab_cache.merge_kindle(
-                vocab_cache.empty_catalog(),
+            repository = self._queue_with_failing_lexeme(workspace)
+
+            with patch(
+                "kindle_vocab_app.tauri_bridge.analyze_entries_once",
+                side_effect=self._analysis_failing_for("glimpse"),
+            ):
+                result = dispatch("process_queue", {}, workspace)
+
+            self.assertEqual(result["failed_new"], 1)
+            self.assertEqual(result["accepted_new"], 1)
+            self.assertEqual(result["rejected_new"], 1)
+            self.assertIn("ошибок: 1", result["message"])
+            persisted = {item["lemma"]: item for item in repository.load_catalog()["lexemes"]}
+            self.assertEqual(persisted["большой"]["processing"]["state"], "rejected")
+            self.assertEqual(persisted["glimpse"]["processing"]["state"], "failed")
+            self.assertIn("test failure", persisted["glimpse"]["processing"]["error"])
+            self.assertEqual(persisted["dread"]["processing"]["state"], "ready")
+            self.assertEqual(repository.queue_status()["failed"], 1)
+            self.assertEqual(repository.queue_status()["pending"], 0)
+
+    def test_process_queue_retries_failed_lexemes_only_on_request(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            repository = self._queue_with_failing_lexeme(workspace)
+            with patch(
+                "kindle_vocab_app.tauri_bridge.analyze_entries_once",
+                side_effect=self._analysis_failing_for("glimpse"),
+            ):
+                dispatch("process_queue", {}, workspace)
+
+            with patch(
+                "kindle_vocab_app.tauri_bridge.analyze_entries_once",
+                side_effect=self._analysis_failing_for(),
+            ) as analyze:
+                automatic = dispatch("process_queue", {}, workspace)
+                self.assertEqual(analyze.call_count, 0)
+                self.assertEqual(automatic["processed_new"], 0)
+
+                retried = dispatch("process_queue", {"include_failed": True}, workspace)
+                self.assertEqual(analyze.call_count, 1)
+
+            self.assertEqual(retried["failed_new"], 0)
+            self.assertEqual(retried["accepted_new"], 1)
+            persisted = {item["lemma"]: item for item in repository.load_catalog()["lexemes"]}
+            self.assertEqual(persisted["glimpse"]["processing"]["state"], "ready")
+            self.assertEqual(persisted["glimpse"]["processing"]["error"], "")
+            self.assertEqual(repository.queue_status()["total"], 0)
+
+    def test_queued_ids_put_pending_before_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            repository = self._queue_with_failing_lexeme(workspace)
+            with patch(
+                "kindle_vocab_app.tauri_bridge.analyze_entries_once",
+                side_effect=self._analysis_failing_for("glimpse", "dread"),
+            ):
+                dispatch("process_queue", {}, workspace)
+            catalog = repository.load_catalog()
+            by_lemma = {item["lemma"]: item for item in catalog["lexemes"]}
+            # A newer Kindle word arrives after older lexemes have already failed.
+            fresh = vocab_cache.merge_kindle(
+                catalog,
                 [
                     {
-                        "word": "большой",
-                        "stem": "большой",
-                        "context": "Большой бюст.",
-                        "book_key": "book",
-                        "book_title": "Book",
-                        "authors": "Author",
-                        "language": "ru",
-                        "looked_up_at": "2026-07-10",
-                    },
-                    {
-                        "word": "glimpse",
-                        "stem": "glimpse",
-                        "context": "He caught a glimpse.",
+                        "word": "vigilant",
+                        "stem": "vigilant",
+                        "context": "They stayed vigilant.",
                         "book_key": "book",
                         "book_title": "Book",
                         "authors": "Author",
                         "language": "en",
-                        "looked_up_at": "2026-07-10",
-                    },
+                        "looked_up_at": "2026-07-11",
+                    }
                 ],
-                sync_id="sync",
+                sync_id="sync-2",
             )
-            for item in catalog["lexemes"]:
-                item["first_seen_at"] = "2026-01-01" if item["language"] == "ru" else "2026-01-02"
-            repository = repository_for(workspace)
-            repository.save_catalog(catalog)
+            repository.save_catalog(fresh)
+            vigilant_id = next(item["id"] for item in fresh["lexemes"] if item["lemma"] == "vigilant")
 
-            with patch(
-                "kindle_vocab_app.tauri_bridge.analyze_entries_once",
-                side_effect=RuntimeError("test failure"),
-            ):
-                with self.assertRaisesRegex(RuntimeError, "test failure"):
-                    dispatch("process_queue", {}, workspace)
-
-            persisted = repository.load_catalog()
-            by_language = {item["language"]: item for item in persisted["lexemes"]}
-            self.assertEqual(by_language["ru"]["processing"]["state"], "rejected")
-            self.assertEqual(by_language["en"]["processing"]["state"], "failed")
-            self.assertEqual(repository.queue_status()["failed"], 1)
+            self.assertEqual(repository.queued_ids(include_failed=False), [vigilant_id])
+            self.assertEqual(
+                repository.queued_ids(),
+                [vigilant_id, by_lemma["glimpse"]["id"], by_lemma["dread"]["id"]],
+            )
 
 
 if __name__ == "__main__":

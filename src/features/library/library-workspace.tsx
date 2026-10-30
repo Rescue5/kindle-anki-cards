@@ -54,7 +54,19 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
               {obsidianEnabled ? (
                 <ConnectorButton kind="obsidian" info={controller.connectors.obsidian} onClick={() => void controller.syncObsidian()} disabled={busy || controller.connectors.obsidian.state !== "connected"} />
               ) : null}
-              {controller.queueStatus.total > 0 ? (
+              {controller.queueStatus.failed > 0 && !busy ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="text-destructive hover:border-destructive/40"
+                  onClick={() => void controller.retryFailed()}
+                  title="Повторить offline-обработку лемм, завершившихся ошибкой"
+                >
+                  <AlertCircle size={13} />
+                  <span className="tabular-nums">Ошибки: {controller.queueStatus.failed}</span>
+                  <RefreshCw size={12} />
+                </Button>
+              ) : controller.queueStatus.total > 0 ? (
                 <div className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line bg-panel-raised/45 px-2.5 text-xs text-muted-foreground" title="Автоматическая очередь offline-обработки">
                   {controller.operation.kind === "processing" && busy ? <Loader2 size={13} className="animate-spin text-primary" /> : <Layers3 size={13} />}
                   <span className="tabular-nums">{controller.queueStatus.total}</span>
