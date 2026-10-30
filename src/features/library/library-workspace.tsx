@@ -10,6 +10,7 @@ import {
   Database,
   Download,
   HardDrive,
+  Languages,
   Layers3,
   Loader2,
   RefreshCw,
@@ -20,7 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { counts, isAcceptedNew, obsidianSyncReason, primaryOccurrence, processingLabel, processingTone, type QuickFilter } from "./domain";
+import { counts, isAcceptedNew, isCardEligible, obsidianSyncReason, primaryOccurrence, processingLabel, processingTone, type QuickFilter } from "./domain";
 import type { useLibraryController } from "./use-library-controller";
 import type { ConnectorInfo, LexemeRecord, WordAnalysis } from "@/types";
 
@@ -59,6 +60,23 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
               {obsidianEnabled ? (
                 <ConnectorButton kind="obsidian" info={controller.connectors.obsidian} onClick={() => void controller.syncObsidian()} disabled={busy || controller.connectors.obsidian.state !== "connected"} />
               ) : null}
+              {controller.settings.llm_enabled && !busy && (controller.enrichmentQueue.pending > 0 || controller.enrichmentQueue.failed > 0) ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void controller.enrichWords({ retryFailed: controller.enrichmentQueue.pending === 0 })}
+                  title={controller.enrichmentQueue.pending > 0 ? "Перевести слова без перевода через выбранного провайдера ИИ" : "Повторить перевод слов, для которых он не удался"}
+                >
+                  <Languages size={14} />
+                  {controller.enrichmentQueue.pending > 0 ? "Перевести" : "Повторить перевод"}
+                  <span className="tabular-nums text-muted-foreground">{controller.enrichmentQueue.pending || controller.enrichmentQueue.failed}</span>
+                </Button>
+              ) : controller.operation.kind === "enrich" && busy ? (
+                <div className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line bg-panel-raised/45 px-2.5 text-xs text-muted-foreground">
+                  <Loader2 size={13} className="animate-spin text-primary" />
+                  <span className="tabular-nums">{controller.operation.total ? `${controller.operation.current}/${controller.operation.total}` : "Перевод"}</span>
+                </div>
+              ) : null}
               {controller.queueStatus.failed > 0 && !busy ? (
                 <Button
                   variant="secondary"
@@ -88,13 +106,19 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
             <Select value={controller.selectedBookKey} onChange={(event) => controller.setSelectedBookKey(event.target.value)}>
               {controller.books.map((book) => <option key={book.key || "all"} value={book.key}>{book.label}</option>)}
             </Select>
-            <Select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "anki" | "quizlet")} disabled={busy}>
+            <Select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "anki" | "quizlet")} disabled={busy} aria-label="Формат экспорта">
               <option value="anki">Anki</option>
               <option value="quizlet">Quizlet</option>
             </Select>
-            <Button variant="secondary" size="sm" onClick={() => void controller.exportVisible(exportFormat)} disabled={busy || totals.ready === 0}>
-              <Download size={14} /> Экспорт
-            </Button>
+            {exportFormat === "anki" ? (
+              <Button variant="secondary" size="sm" onClick={() => void controller.exportAnki()} disabled={busy || controller.ankiPending === 0} title={controller.ankiPending ? "Собрать колоду Anki из ещё не выгруженных слов" : "Все подходящие слова уже выгружены в Anki"}>
+                <Download size={14} /> В Anki <span className="tabular-nums text-muted-foreground">{controller.ankiPending}</span>
+              </Button>
+            ) : (
+              <Button variant="secondary" size="sm" onClick={() => void controller.exportVisible(exportFormat)} disabled={busy || totals.ready === 0} title="Сохранить видимые слова в TSV для Quizlet">
+                <Download size={14} /> Экспорт
+              </Button>
+            )}
           </div>
 
           <div className="library-workspace-filters mt-3 flex items-center justify-between gap-3">
@@ -110,11 +134,25 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
         </header>
 
         <ConnectorNotice connector={controller.connectors.kindle} />
+        {controller.lastExportPath && controller.operation.kind === "export" && controller.operation.status === "completed" ? (
+          <div className="flex flex-wrap items-center gap-2 border-b border-line bg-primary/5 px-5 py-2 text-xs">
+            <Check size={14} className="text-success" />
+            <span className="mr-auto">{controller.operation.message}. Откройте файл — Anki сам предложит импорт, повторный импорт обновит карточки без дублей.</span>
+            <Button size="sm" onClick={() => void controller.openExport(false)}>Открыть в Anki</Button>
+            <Button variant="ghost" size="sm" onClick={() => void controller.openExport(true)}>Показать в папке</Button>
+          </div>
+        ) : null}
         <LexemeTable entries={controller.visibleEntries} selectedId={controller.selectedEntry?.id ?? ""} onSelect={selectWord} obsidianEnabled={obsidianEnabled} loading={controller.loading} />
       </main>
 
       <aside ref={inspectorRef} className="library-inspector flex min-h-0 flex-col bg-panel/65">
-        <LexemeInspector entry={controller.selectedEntry} obsidianEnabled={obsidianEnabled} />
+        <LexemeInspector
+          entry={controller.selectedEntry}
+          obsidianEnabled={obsidianEnabled}
+          llmEnabled={controller.settings.llm_enabled}
+          busy={busy}
+          onEnrich={(id, retry) => void controller.enrichWords({ ids: [id], retryFailed: retry })}
+        />
       </aside>
     </div>
   );
@@ -262,9 +300,18 @@ function ObsidianMark({ entry }: { entry: LexemeRecord }) {
   return <span className={`flex items-center gap-1.5 text-xs ${synced ? "text-purple-700" : "text-muted-foreground"}`} title={obsidianSyncReason(entry)}>{synced ? <Check size={12} /> : <Circle size={11} />}{label}</span>;
 }
 
-function LexemeInspector({ entry, obsidianEnabled }: { entry: LexemeRecord | null; obsidianEnabled: boolean }) {
+type LexemeInspectorProps = {
+  entry: LexemeRecord | null;
+  obsidianEnabled: boolean;
+  llmEnabled: boolean;
+  busy: boolean;
+  onEnrich: (id: string, retry: boolean) => void;
+};
+
+function LexemeInspector({ entry, obsidianEnabled, llmEnabled, busy, onEnrich }: LexemeInspectorProps) {
   if (!entry) return <div className="grid min-h-0 flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">Выберите лемму в библиотеке</div>;
   const analysis = entry.processing.analysis;
+  const enrichment = entry.enrichment?.status === "ready" ? entry.enrichment : null;
   const primary = primaryOccurrence(entry);
   return (
     <section className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-5">
@@ -282,8 +329,15 @@ function LexemeInspector({ entry, obsidianEnabled }: { entry: LexemeRecord | nul
         </div>
       </div>
 
-      {analysis?.russian_meanings ? <p className="mt-5 border-t border-line pt-4 font-serif text-xl leading-snug">{analysis.russian_meanings}</p> : null}
-      {primary?.context ? <div className="mt-5 border-l-2 border-primary/45 pl-3"><p className="font-serif text-[16px] italic leading-6">{primary.context}</p><p className="mt-2 text-[11px] text-muted-foreground">{primary.book_title || "Источник без названия"}{primary.authors ? ` · ${primary.authors}` : ""}</p></div> : null}
+      {enrichment?.meaning_ru ? <p className="mt-5 border-t border-line pt-4 font-serif text-xl leading-snug">{enrichment.meaning_ru}</p> : null}
+      {primary?.context ? (
+        <div className="mt-5 border-l-2 border-primary/45 pl-3">
+          <p className="font-serif text-[16px] italic leading-6">{primary.context}</p>
+          {enrichment?.context_ru ? <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{enrichment.context_ru}</p> : null}
+          <p className="mt-2 text-[11px] text-muted-foreground">{primary.book_title || "Источник без названия"}{primary.authors ? ` · ${primary.authors}` : ""}</p>
+        </div>
+      ) : null}
+      <TranslationDetails entry={entry} llmEnabled={llmEnabled} busy={busy} onEnrich={onEnrich} />
       <p className="mt-5 text-xs text-muted-foreground">{entry.occurrences.length} {entry.occurrences.length === 1 ? "встреча в книгах" : "встреч в книгах"}</p>
 
       <InspectorSection title="О слове">
@@ -307,6 +361,35 @@ function LexemeInspector({ entry, obsidianEnabled }: { entry: LexemeRecord | nul
   );
 }
 
+function TranslationDetails({ entry, llmEnabled, busy, onEnrich }: { entry: LexemeRecord; llmEnabled: boolean; busy: boolean; onEnrich: (id: string, retry: boolean) => void }) {
+  const enrichment = entry.enrichment;
+  if (enrichment?.status === "ready") {
+    if (!enrichment.definition_en && !enrichment.example_en && !enrichment.note_ru) return null;
+    return (
+      <div className="mt-4 space-y-2 text-sm leading-6">
+        {enrichment.definition_en ? <p className="text-foreground/85">{enrichment.definition_en}</p> : null}
+        {enrichment.example_en ? <p className="text-muted-foreground"><span className="italic">{enrichment.example_en}</span>{enrichment.example_ru ? ` — ${enrichment.example_ru}` : ""}</p> : null}
+        {enrichment.note_ru ? <p className="text-xs text-muted-foreground">{enrichment.note_ru}</p> : null}
+        <p className="text-[11px] text-muted-foreground/80">Перевод: {enrichment.model}</p>
+      </div>
+    );
+  }
+  if (!isCardEligible(entry)) return null;
+  const failed = enrichment?.status === "failed";
+  return (
+    <div className="mt-4 flex items-center justify-between gap-3 rounded-[10px] border border-line bg-panel-raised/40 px-3 py-2 text-xs">
+      <span className={failed ? "text-destructive" : "text-muted-foreground"}>
+        {failed ? `Перевод не удался: ${enrichment?.error}` : llmEnabled ? "Перевода по контексту ещё нет." : "Перевод по контексту можно включить в настройках."}
+      </span>
+      {llmEnabled ? (
+        <Button variant="secondary" size="sm" onClick={() => onEnrich(entry.id, failed)} disabled={busy}>
+          <Languages size={13} /> {failed ? "Повторить" : "Перевести"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function AnalysisDetails({ analysis }: { analysis: WordAnalysis }) {
   return (
     <div className="mt-3 space-y-3 border-t border-line pt-3 text-sm">
@@ -316,7 +399,6 @@ function AnalysisDetails({ analysis }: { analysis: WordAnalysis }) {
         <dt className="text-muted-foreground">Частотность</dt><dd>{analysis.frequency_note || "нет данных"}</dd>
       </dl>
       {analysis.importance_note ? <p className="leading-6 text-muted-foreground">{analysis.importance_note}</p> : null}
-      {!analysis.russian_meanings ? <p className="border-t border-line pt-3 text-xs leading-5 text-muted-foreground">Перевод пока не добавлен.</p> : null}
     </div>
   );
 }

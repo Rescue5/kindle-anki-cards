@@ -158,3 +158,53 @@ export function processingTone(state: ProcessingState): string {
     failed: "text-destructive",
   }[state];
 }
+
+/** Same eligibility as Anki/Obsidian cards on the backend: processed, accepted, useful. */
+export function isCardEligible(entry: LexemeRecord): boolean {
+  const analysis = entry.processing.analysis;
+  const score = analysis?.importance_score;
+  return entry.processing.state === "ready" && analysis?.accepted !== false && typeof score === "number" && score >= 3 && score <= 10;
+}
+
+export function enrichmentCounts(entries: LexemeRecord[]) {
+  return entries.reduce(
+    (result, entry) => {
+      if (!isCardEligible(entry)) return result;
+      if (!entry.enrichment) result.pending += 1;
+      else if (entry.enrichment.status === "failed") result.failed += 1;
+      return result;
+    },
+    { pending: 0, failed: 0 },
+  );
+}
+
+export function ankiPendingCount(entries: LexemeRecord[]): number {
+  return entries.filter((entry) => isCardEligible(entry) && entry.destinations.anki.state !== "exported").length;
+}
+
+/**
+ * Translate new words automatically only when the user opted in, offline
+ * processing has finished, and no other operation is running. A failed or
+ * cancelled enrichment run pauses automation until the user retries.
+ */
+export function shouldAutoEnrich({
+  enabled,
+  auto,
+  loading,
+  inFlight,
+  pending,
+  processingPending,
+  operation,
+}: {
+  enabled: boolean;
+  auto: boolean;
+  loading: boolean;
+  inFlight: boolean;
+  pending: number;
+  processingPending: number;
+  operation: Pick<Operation, "kind" | "status">;
+}): boolean {
+  if (!enabled || !auto || loading || inFlight || pending === 0 || processingPending > 0) return false;
+  if (operation.status === "running") return false;
+  return !(operation.kind === "enrich" && ["error", "cancelled"].includes(operation.status));
+}

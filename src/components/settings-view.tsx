@@ -1,5 +1,7 @@
 import * as React from "react";
-import { Brain, Palette, ScrollText, Shield } from "lucide-react";
+import { Brain, Check, KeyRound, Loader2, Palette, PlugZap, RefreshCw, ScrollText, Shield, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useLlmConfig } from "@/features/llm/use-llm-config";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -72,6 +74,10 @@ export function SettingsView({ settings, onChange }: SettingsViewProps) {
     void persist(next);
   }
 
+  function persistPatch(patch: Partial<AppSettings>) {
+    void persist({ ...settings, ...patch });
+  }
+
   React.useEffect(() => {
     const root = document.documentElement;
     const { theme } = settings;
@@ -90,7 +96,7 @@ export function SettingsView({ settings, onChange }: SettingsViewProps) {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-[22px] font-semibold leading-7">Настройки</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Параметры приложения, LLM-обогащения и синхронизации с Obsidian</p>
+            <p className="mt-1 text-sm text-muted-foreground">Внешний вид, перевод через ИИ и синхронизация с Obsidian</p>
           </div>
           {saving ? (
             <span className="text-xs text-muted-foreground">Сохранение…</span>
@@ -142,47 +148,7 @@ export function SettingsView({ settings, onChange }: SettingsViewProps) {
           </div>
         </SettingsSection>
 
-        <SettingsSection icon={Brain} title="LLM-обогащение">
-          <div className="flex items-start justify-between gap-4 rounded-[10px] border border-line bg-panel-raised/40 p-4">
-            <div className="flex items-start gap-3">
-              <div className="grid h-9 w-9 place-items-center rounded-[8px] bg-secondary text-primary">
-                <Shield size={16} />
-              </div>
-              <div>
-                <label htmlFor="llm-enabled-switch" className="text-sm font-medium">
-                  Включить LLM-обогащение
-                </label>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  Использовать OpenAI-совместимый API для переводов и оттенков значения.
-                </p>
-              </div>
-            </div>
-            <Switch
-              id="llm-enabled-switch"
-              checked={settings.llm_enabled}
-              onCheckedChange={(value) => update("llm_enabled", value)}
-              aria-label="Включить LLM-обогащение"
-            />
-          </div>
-          <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Модель">
-              <Input
-                value={settings.llm_model}
-                onChange={(event) => update("llm_model", event.target.value)}
-                disabled={!settings.llm_enabled}
-                placeholder="deepseek-v4-flash"
-              />
-            </Field>
-            <Field label="Базовый URL" hint="OpenAI-совместимый endpoint">
-              <Input
-                value={settings.llm_base_url}
-                onChange={(event) => update("llm_base_url", event.target.value)}
-                disabled={!settings.llm_enabled}
-                placeholder="https://api.dslab.tech/v1"
-              />
-            </Field>
-          </div>
-        </SettingsSection>
+        <LlmSettingsSection settings={settings} update={update} persistPatch={persistPatch} />
 
         <SettingsSection icon={ScrollText} title="Obsidian">
           <div
@@ -239,5 +205,124 @@ export function SettingsView({ settings, onChange }: SettingsViewProps) {
         </SettingsSection>
       </div>
     </div>
+  );
+}
+
+type LlmSettingsSectionProps = {
+  settings: AppSettings;
+  update: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+  persistPatch: (patch: Partial<AppSettings>) => void;
+};
+
+function LlmSettingsSection({ settings, update, persistPatch }: LlmSettingsSectionProps) {
+  const llm = useLlmConfig(settings, persistPatch);
+  const [apiKey, setApiKey] = React.useState("");
+  const [replacingKey, setReplacingKey] = React.useState(false);
+  const preset = llm.preset;
+  const showKeyInput = Boolean(preset?.needs_key) && (!llm.hasKey || replacingKey);
+  const models = llm.models.status === "done" ? llm.models.value : [];
+
+  async function saveKey() {
+    await llm.saveKey(apiKey);
+    setApiKey("");
+    setReplacingKey(false);
+  }
+
+  return (
+    <SettingsSection icon={Brain} title="Перевод через ИИ">
+      <div className="flex items-start justify-between gap-4 rounded-[10px] border border-line bg-panel-raised/40 p-4">
+        <div className="flex items-start gap-3">
+          <div className="grid h-9 w-9 place-items-center rounded-[8px] bg-secondary text-primary">
+            <Shield size={16} />
+          </div>
+          <div>
+            <label htmlFor="llm-enabled-switch" className="text-sm font-medium">Переводить слова по контексту</label>
+            <p className="mt-0.5 max-w-[520px] text-xs leading-5 text-muted-foreground">
+              ИИ определяет значение слова в предложении из книги и добавляет в карточку перевод, определение и пример.
+              Облачному провайдеру отправляются только слово и предложения из книги; локальные модели работают без интернета.
+            </p>
+          </div>
+        </div>
+        <Switch id="llm-enabled-switch" checked={settings.llm_enabled} onCheckedChange={(value) => update("llm_enabled", value)} aria-label="Переводить слова по контексту" />
+      </div>
+
+      {llm.configError ? <p className="text-xs text-destructive">Не удалось загрузить провайдеров: {llm.configError}</p> : null}
+
+      <div className="grid gap-5 sm:grid-cols-2">
+        <Field label="Провайдер" hint={preset?.hint}>
+          <Select value={settings.llm_provider} onChange={(event) => llm.selectProvider(event.target.value)} disabled={!llm.config}>
+            <option value="">Не выбран</option>
+            {llm.config?.presets.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </Select>
+        </Field>
+
+        <Field label="Модель" hint={llm.models.status === "error" ? llm.models.error : preset?.default_model ? `По умолчанию: ${preset.default_model}` : "Выберите из списка или впишите название"}>
+          <div className="flex gap-2">
+            <Input
+              list="llm-model-options"
+              value={settings.llm_model}
+              onChange={(event) => update("llm_model", event.target.value)}
+              placeholder={preset?.default_model || "название модели"}
+              disabled={!preset}
+            />
+            <datalist id="llm-model-options">{models.map((model) => <option key={model} value={model} />)}</datalist>
+            <Button type="button" variant="secondary" size="sm" className="h-9 shrink-0" onClick={() => void llm.loadModels()} disabled={!llm.ready || llm.models.status === "running"} title="Загрузить список моделей провайдера">
+              {llm.models.status === "running" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Список
+            </Button>
+          </div>
+        </Field>
+
+        {preset?.id === "custom" ? (
+          <Field label="Адрес API" hint="OpenAI-совместимый адрес, например https://example.com/v1">
+            <Input value={settings.llm_base_url} onChange={(event) => update("llm_base_url", event.target.value)} placeholder="https://…/v1" />
+          </Field>
+        ) : null}
+
+        {preset?.needs_key ? (
+          <Field label="Ключ API" hint="Хранится в системном хранилище паролей, а не в файлах приложения">
+            {showKeyInput ? (
+              <div className="flex gap-2">
+                <Input type="password" autoComplete="off" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="Вставьте ключ" />
+                <Button type="button" size="sm" className="h-9 shrink-0" onClick={() => void saveKey()} disabled={!apiKey.trim() || llm.keyState.status === "running"}>
+                  {llm.keyState.status === "running" ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+                  Сохранить
+                </Button>
+              </div>
+            ) : (
+              <div className="flex h-9 items-center justify-between gap-2 rounded-[10px] border border-line bg-panel-raised/40 px-3 text-sm">
+                <span className="flex items-center gap-2 text-success"><Check size={14} /> Ключ сохранён</span>
+                <span className="flex items-center gap-1">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setReplacingKey(true)}>Заменить</Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => void llm.deleteKey()} disabled={llm.keyState.status === "running"} aria-label="Удалить ключ"><Trash2 size={14} /></Button>
+                </span>
+              </div>
+            )}
+            {llm.keyState.status === "error" ? <p className="text-xs text-destructive">{llm.keyState.error}</p> : null}
+          </Field>
+        ) : null}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 rounded-[10px] border border-line bg-panel-raised/40 p-3">
+        <Button type="button" variant="secondary" size="sm" onClick={() => void llm.runTest()} disabled={!llm.ready || llm.test.status === "running"}>
+          {llm.test.status === "running" ? <Loader2 size={14} className="animate-spin" /> : <PlugZap size={14} />}
+          {llm.test.status === "running" ? "Проверяем…" : "Проверить подключение"}
+        </Button>
+        <p className="min-w-0 flex-1 text-xs leading-5" aria-live="polite">
+          {llm.test.status === "idle" ? <span className="text-muted-foreground">{llm.ready ? "Переведём одно пробное слово — ваши данные не отправляются." : "Выберите провайдера и добавьте ключ."}</span> : null}
+          {llm.test.status === "running" ? <span className="text-muted-foreground">Локальной модели может понадобиться до минуты.</span> : null}
+          {llm.test.status === "done" ? <span className="text-success">Работает: {llm.test.value.model}, {llm.test.value.seconds} с. glimpse → {llm.test.value.sample.meaning_ru}</span> : null}
+          {llm.test.status === "error" ? <span className="text-destructive">{llm.test.error}</span> : null}
+        </p>
+      </div>
+
+      <div className="flex items-center gap-3 rounded-[10px] border border-line bg-panel-raised/40 p-3 transition hover:bg-panel-raised">
+        <Switch id="llm-auto-switch" checked={settings.llm_auto_enrich} onCheckedChange={(value) => update("llm_auto_enrich", value)} disabled={!settings.llm_enabled} aria-label="Переводить новые слова автоматически" />
+        <div>
+          <label htmlFor="llm-auto-switch" className="text-sm font-medium">Переводить новые слова автоматически</label>
+          <p className="text-xs text-muted-foreground">Иначе — кнопкой «Перевести» на экране слов. Каждое слово отправляется провайдеру только один раз.</p>
+        </div>
+      </div>
+    </SettingsSection>
   );
 }

@@ -4,6 +4,9 @@ import {
   filterLexemes,
   KINDLE_AUTO_SYNC_RETRY_MS,
   obsidianSyncReason,
+  ankiPendingCount,
+  enrichmentCounts,
+  shouldAutoEnrich,
   shouldAutoProcessQueue,
   shouldAutoSyncKindle,
 } from "./domain";
@@ -137,5 +140,37 @@ describe("automatic processing queue policy", () => {
     expect(shouldAutoProcessQueue({ loading: true, inFlight: false, queue: queue(1, 0), operation: idle })).toBe(false);
     expect(shouldAutoProcessQueue({ loading: false, inFlight: true, queue: queue(1, 0), operation: idle })).toBe(false);
     expect(shouldAutoProcessQueue({ loading: false, inFlight: false, queue: queue(1, 0), operation: { kind: "kindle", status: "running" } })).toBe(false);
+  });
+});
+
+describe("translation and Anki selectors", () => {
+  const ready: LexemeRecord = {
+    ...entry,
+    processing: { state: "ready", analysis: { base_form: "admit", accepted: true, importance_score: 7 }, updated_at: "", error: "" },
+  };
+  const translated: LexemeRecord = {
+    ...ready,
+    id: "two",
+    enrichment: { status: "ready", meaning_ru: "признать", provider: "p", model: "m", prompt_version: 1, error: "", updated_at: "" },
+    destinations: { ...ready.destinations, anki: { state: "exported", last_exported_at: "now" } },
+  };
+  const failed: LexemeRecord = { ...ready, id: "three", enrichment: { ...translated.enrichment!, status: "failed", error: "x" } };
+  const useless: LexemeRecord = { ...ready, id: "four", processing: { ...ready.processing, analysis: { base_form: "the", accepted: true, importance_score: 1 } } };
+
+  it("counts only card-worthy words waiting for translation", () => {
+    expect(enrichmentCounts([entry, ready, translated, failed, useless])).toEqual({ pending: 1, failed: 1 });
+  });
+
+  it("counts words not yet exported to Anki", () => {
+    expect(ankiPendingCount([entry, ready, translated, useless])).toBe(1);
+  });
+
+  it("auto-translates only when opted in and offline processing is done", () => {
+    const base = { enabled: true, auto: true, loading: false, inFlight: false, pending: 3, processingPending: 0, operation: { kind: "idle", status: "idle" } as const };
+    expect(shouldAutoEnrich(base)).toBe(true);
+    expect(shouldAutoEnrich({ ...base, auto: false })).toBe(false);
+    expect(shouldAutoEnrich({ ...base, processingPending: 2 })).toBe(false);
+    expect(shouldAutoEnrich({ ...base, operation: { kind: "enrich", status: "error" } })).toBe(false);
+    expect(shouldAutoEnrich({ ...base, operation: { kind: "kindle", status: "error" } })).toBe(true);
   });
 });

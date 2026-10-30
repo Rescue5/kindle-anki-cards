@@ -57,6 +57,26 @@ export type WordAnalysis = {
   generated_context_ru?: string;
 };
 
+export type Enrichment = {
+  status: "ready" | "failed";
+  meaning_ru?: string;
+  definition_en?: string;
+  context_ru?: string;
+  example_en?: string;
+  example_ru?: string;
+  note_ru?: string;
+  provider: string;
+  model: string;
+  prompt_version: number;
+  error: string;
+  updated_at: string;
+};
+
+export type EnrichmentQueue = {
+  pending: number;
+  failed: number;
+};
+
 export type LexemeRecord = {
   id: string;
   lemma: string;
@@ -96,6 +116,7 @@ export type LexemeRecord = {
   first_seen_at: string;
   last_seen_at: string;
   last_kindle_sync_id: string;
+  enrichment?: Enrichment | null;
 };
 
 export type ConnectorState = "unknown" | "checking" | "connected" | "disconnected" | "disabled" | "error";
@@ -121,6 +142,7 @@ export type LibraryResult = {
   last_kindle_sync_id: string;
   connectors: ConnectorStatus;
   queueStatus: QueueStatus;
+  enrichmentQueue?: EnrichmentQueue;
 };
 
 export type QueueStatus = {
@@ -153,15 +175,17 @@ export type AppSettings = {
   default_export_format: "anki" | "quizlet";
   app_data_path: string;
   llm_enabled: boolean;
+  llm_provider: string;
   llm_model: string;
   llm_base_url: string;
+  llm_auto_enrich: boolean;
   obsidian_sync_enabled: boolean;
   obsidian_vault_path: string;
   obsidian_cards_path: string;
   obsidian_backup_enabled: boolean;
 };
 
-export type OperationKind = "idle" | "kindle" | "covers" | "processing" | "obsidian" | "export";
+export type OperationKind = "idle" | "kindle" | "covers" | "processing" | "enrich" | "obsidian" | "export";
 export type OperationStatus = "idle" | "running" | "completed" | "cancelled" | "error";
 
 export type Operation = {
@@ -174,4 +198,30 @@ export type Operation = {
   total: number;
   stage: string;
   error: string;
+};
+
+export type LlmPreset = {
+  id: string;
+  label: string;
+  kind: "openai_compatible" | "anthropic";
+  base_url: string;
+  default_model: string;
+  needs_key: boolean;
+  local: boolean;
+  hint: string;
+};
+
+export type LlmConfig = {
+  presets: LlmPreset[];
+  provider: string;
+  model: string;
+  base_url: string;
+  has_key: Record<string, boolean>;
+};
+
+export type LlmTestResult = {
+  ok: boolean;
+  model: string;
+  seconds: number;
+  sample: Partial<Enrichment>;
 };

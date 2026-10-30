@@ -34,7 +34,7 @@ SYSTEM_PROMPT = """You write vocabulary flashcards for a Russian-speaking adult 
 Each input item is a word the reader looked up, with its dictionary form, a part-of-speech guess and one or two sentences from the book.
 
 For every item, first decide which sense the word has in the book sentence, then fill:
-- meaning_ru: concise Russian translation of exactly that sense, 1-4 words; separate close alternatives with "; ".
+- meaning_ru: concise Russian translation of exactly that sense, 1-4 words, in dictionary form (infinitive for verbs, singular nominative for nouns) even if the book uses another form; separate close alternatives with "; ".
 - definition_en: short learner-friendly English definition of that sense, at most 15 words.
 - context_ru: natural Russian translation of the first book sentence; empty string if there is no sentence.
 - example_en: one new short everyday sentence using the word in the same sense. Do not reuse the book sentence.
@@ -88,6 +88,7 @@ class EnrichmentSummary:
     requested: int = 0
     enriched: int = 0
     failed: int = 0
+    skipped: int = 0
     batches: int = 0
     error: str = ""
     enriched_ids: list[str] = field(default_factory=list)
@@ -108,6 +109,9 @@ def build_client(provider: str, model: str, base_url: str = "") -> CompletionCli
         base_url=base_url or preset.base_url,
         api_key=api_key,
         model=model or preset.default_model,
+        # A slow local model would only be asked the same question again.
+        timeout=600.0 if preset.local else 120.0,
+        max_retries=0 if preset.local else 2,
     )
 
 
@@ -209,6 +213,14 @@ def enrich(
                 summary.error = str(exc)
                 logger.warning("Enrichment stopped by a fatal provider error: %s", exc)
                 break
+            if exc.transient:
+                # Nothing is known about these words; leave them for the next run.
+                consecutive_failures += 1
+                summary.skipped += len(batch)
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILED_BATCHES:
+                    summary.error = f"{exc}. Попробуйте позже или выберите модель быстрее"
+                    break
+                continue
             items, batch_error = {}, str(exc)
 
         for number, lexeme in enumerate(batch, 1):

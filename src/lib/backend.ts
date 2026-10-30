@@ -4,9 +4,11 @@ import type {
   AppSettings,
   BookOption,
   ConnectorStatus,
+  Enrichment,
   LexemeOccurrence,
   LexemeRecord,
   LibraryResult,
+  LlmPreset,
   ProgressEvent,
   WordAnalysis,
 } from "@/types";
@@ -19,8 +21,10 @@ export const defaultSettings: AppSettings = {
   default_export_format: "anki",
   app_data_path: ".app-data",
   llm_enabled: false,
-  llm_model: "deepseek-v4-flash",
-  llm_base_url: "https://api.dslab.tech/v1",
+  llm_provider: "",
+  llm_model: "",
+  llm_base_url: "",
+  llm_auto_enrich: false,
   obsidian_sync_enabled: false,
   obsidian_vault_path: "",
   obsidian_cards_path: "cards/Book Vocab",
@@ -193,6 +197,44 @@ function mockQueueStatus() {
   return { pending, processing: 0, failed, total: pending + failed };
 }
 
+const mockLlmPresets: LlmPreset[] = [
+  { id: "anthropic", label: "Anthropic (Claude)", kind: "anthropic", base_url: "", default_model: "claude-opus-5-5", needs_key: true, local: false, hint: "Ключ: console.anthropic.com" },
+  { id: "deepseek", label: "DeepSeek", kind: "openai_compatible", base_url: "https://api.deepseek.com/v1", default_model: "deepseek-chat", needs_key: true, local: false, hint: "Ключ: platform.deepseek.com" },
+  { id: "lmstudio", label: "LM Studio (локально)", kind: "openai_compatible", base_url: "http://localhost:1234/v1", default_model: "", needs_key: false, local: true, hint: "Бесплатно, слова не покидают компьютер. Медленнее облака" },
+  { id: "custom", label: "Другой OpenAI-совместимый", kind: "openai_compatible", base_url: "", default_model: "", needs_key: true, local: false, hint: "Укажите адрес API и модель" },
+];
+const mockKeys: Record<string, boolean> = {};
+let mockSettings: AppSettings = { ...defaultSettings, obsidian_sync_enabled: true, obsidian_vault_path: "preview" };
+
+function isEnrichable(entry: LexemeRecord) {
+  const score = entry.processing.analysis?.importance_score;
+  return entry.processing.state === "ready" && entry.processing.analysis?.accepted !== false && typeof score === "number" && score >= 3;
+}
+
+function mockEnrichmentQueue() {
+  return {
+    pending: mockEntries.filter((entry) => isEnrichable(entry) && !entry.enrichment).length,
+    failed: mockEntries.filter((entry) => isEnrichable(entry) && entry.enrichment?.status === "failed").length,
+  };
+}
+
+function mockEnrichment(entry: LexemeRecord): Enrichment {
+  return {
+    status: "ready",
+    meaning_ru: `перевод «${entry.lemma}»`,
+    definition_en: `a preview definition of ${entry.lemma}`,
+    context_ru: "Перевод предложения из книги.",
+    example_en: `A new example with ${entry.lemma}.`,
+    example_ru: "Новый пример.",
+    note_ru: "",
+    provider: "preview",
+    model: "preview-model",
+    prompt_version: 1,
+    error: "",
+    updated_at: new Date().toISOString(),
+  };
+}
+
 function libraryResult(): LibraryResult {
   return {
     sourceName: "Preview library",
@@ -202,6 +244,7 @@ function libraryResult(): LibraryResult {
     last_kindle_sync_id: "preview-sync",
     connectors: mockConnectors(),
     queueStatus: mockQueueStatus(),
+    enrichmentQueue: mockEnrichmentQueue(),
   };
 }
 
@@ -214,8 +257,27 @@ async function mockBackend<T>(action: string, payload: unknown): Promise<T> {
     mockFailureConsumed = true;
     throw new Error("Тестовая ошибка offline-обработки");
   }
-  if (action === "load_settings") return { ...defaultSettings, obsidian_sync_enabled: true, obsidian_vault_path: "preview" } as T;
-  if (action === "save_settings") return { saved: true } as T;
+  if (action === "load_settings") return mockSettings as T;
+  if (action === "llm_config") return { presets: mockLlmPresets, provider: mockSettings.llm_provider, model: mockSettings.llm_model, base_url: mockSettings.llm_base_url, has_key: { ...mockKeys } } as T;
+  if (action === "save_llm_key") { mockKeys[(payload as { provider: string }).provider] = true; return { has_key: true } as T; }
+  if (action === "delete_llm_key") { delete mockKeys[(payload as { provider: string }).provider]; return { has_key: false } as T; }
+  if (action === "list_llm_models") return { models: ["preview-small", "preview-large"] } as T;
+  if (action === "test_llm") {
+    if (previewScenario() === "llm-error") throw new Error("Ключ API не подошёл. Проверьте его в настройках");
+    return { ok: true, model: "preview-model", seconds: 1.4, sample: { meaning_ru: "мельком увидеть; проблеск", definition_en: "a brief look" } } as T;
+  }
+  if (action === "enrich_lexemes") {
+    const ids = new Set(mockEntries.filter((entry) => isEnrichable(entry) && entry.enrichment?.status !== "ready").map((entry) => entry.id));
+    mockEntries = mockEntries.map((entry) => (ids.has(entry.id) ? { ...entry, enrichment: mockEnrichment(entry) } : entry));
+    return { requested: ids.size, enriched: ids.size, failed: 0, error: "", message: `Переведено: ${ids.size}; без перевода: 0`, entries: mockEntries, queue_status: mockQueueStatus(), enrichmentQueue: mockEnrichmentQueue() } as T;
+  }
+  if (action === "export_apkg") {
+    const fresh = mockEntries.filter((entry) => isEnrichable(entry) && entry.destinations.anki.state !== "exported");
+    mockEntries = mockEntries.map((entry) => (fresh.includes(entry) ? { ...entry, destinations: { ...entry.destinations, anki: { state: "exported", last_exported_at: new Date().toISOString() } } } : entry));
+    return { path: fresh.length ? "preview/Kindle Cards.apkg" : "", exported: fresh.length, skipped: 0, message: fresh.length ? `Карточек в колоде: ${fresh.length}` : "Нет новых карточек для Anki" } as T;
+  }
+  if (action === "open_path") return { opened: true } as T;
+  if (action === "save_settings") { mockSettings = (payload as { settings: AppSettings }).settings; return { saved: true } as T; }
   if (action === "connector_status") return mockConnectors() as T;
   if (["load_library", "load_cached", "sync_kindle", "scan", "download_covers"].includes(action)) return libraryResult() as T;
   if (action === "load_review") return mockReviewResult((payload as { limit?: number } | undefined)?.limit ?? 20) as T;

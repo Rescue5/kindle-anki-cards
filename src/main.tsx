@@ -57,10 +57,10 @@ function App() {
     ? controller.operation.message || controller.operation.title
     : controller.operation.status === "error"
       ? controller.operation.error || controller.operation.message || controller.operation.title
-      : controller.operation.kind === "covers" && controller.operation.status === "completed"
-        ? controller.operation.message
       : controller.queueStatus.total > 0
         ? `Обработка: ${controller.queueStatus.total} слов`
+      : controller.operation.status === "completed" && controller.operation.message
+        ? controller.operation.message
         : "Библиотека готова";
 
   return (

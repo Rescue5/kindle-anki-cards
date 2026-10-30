@@ -1,10 +1,13 @@
 import * as React from "react";
 import { callBackend, cancelBackend, defaultSettings, listenProgress } from "@/lib/backend";
 import {
+  ankiPendingCount,
+  enrichmentCounts,
   filterLexemes,
   idleOperation,
   kindleSignature,
   KINDLE_PROBE_INTERVAL_MS,
+  shouldAutoEnrich,
   shouldAutoProcessQueue,
   shouldAutoSyncKindle,
   type QuickFilter,
@@ -35,6 +38,23 @@ type ProcessingResult = {
   entries: LexemeRecord[];
   queue_status: QueueStatus;
   message?: string;
+};
+
+type EnrichResult = {
+  requested: number;
+  enriched: number;
+  failed: number;
+  error: string;
+  message: string;
+  entries: LexemeRecord[];
+  queue_status: QueueStatus;
+};
+
+type ApkgResult = {
+  path: string;
+  exported: number;
+  skipped: number;
+  message: string;
 };
 
 type ObsidianResult = {
@@ -344,6 +364,8 @@ export function useLibraryController() {
     void processQueue();
   }, [loading, operation, processQueue, queueStatus]);
 
+  const lastExportKindRef = React.useRef<"apkg" | "tsv">("apkg");
+
   const syncObsidian = React.useCallback(async () => {
     const id = begin("obsidian", "Синхронизация Obsidian", "Сверяем глобальную очередь карточек");
     try {
@@ -357,6 +379,7 @@ export function useLibraryController() {
   }, [begin, fail]);
 
   const exportVisible = React.useCallback(async (format: "anki" | "quizlet") => {
+    lastExportKindRef.current = "tsv";
     const candidates = visibleEntries.filter((entry) => entry.processing.state === "ready");
     if (!candidates.length) return;
     const id = begin("export", `Экспорт ${format === "anki" ? "Anki" : "Quizlet"}`, `Готовим ${candidates.length} лемм`);
@@ -368,6 +391,70 @@ export function useLibraryController() {
       fail(id, "Экспорт остановлен", error);
     }
   }, [begin, fail, loadLibrary, visibleEntries]);
+
+  const enrichmentQueue = React.useMemo(() => enrichmentCounts(entries), [entries]);
+  const ankiPending = React.useMemo(() => ankiPendingCount(entries), [entries]);
+  const enrichInFlightRef = React.useRef(false);
+
+  const enrichWords = React.useCallback(async (options: { ids?: string[]; retryFailed?: boolean } = {}) => {
+    if (enrichInFlightRef.current || operationRef.current.status === "running") return;
+    enrichInFlightRef.current = true;
+    const id = begin("enrich", "Перевод по контексту", "Отправляем слова провайдеру ИИ");
+    try {
+      const result = await callBackend<EnrichResult>("enrich_lexemes", { job_id: id, ids: options.ids, retry_failed: options.retryFailed ?? false });
+      setEntries(result.entries);
+      setQueueStatus(result.queue_status ?? emptyQueue);
+      setOperation((current) => ({
+        ...current,
+        status: result.error ? "error" : "completed",
+        stage: "completed",
+        title: result.error ? "Перевод остановлен" : "Перевод готов",
+        message: result.message,
+        error: result.error,
+      }));
+    } catch (error) {
+      fail(id, "Перевод остановлен", error);
+    } finally {
+      enrichInFlightRef.current = false;
+    }
+  }, [begin, fail]);
+
+  React.useEffect(() => {
+    if (!shouldAutoEnrich({
+      enabled: settings.llm_enabled,
+      auto: settings.llm_auto_enrich,
+      loading,
+      inFlight: enrichInFlightRef.current,
+      pending: enrichmentQueue.pending,
+      processingPending: queueStatus.pending,
+      operation,
+    })) return;
+    void enrichWords();
+  }, [enrichWords, enrichmentQueue.pending, loading, operation, queueStatus.pending, settings.llm_auto_enrich, settings.llm_enabled]);
+
+  const [lastExportPath, setLastExportPath] = React.useState("");
+
+  const exportAnki = React.useCallback(async () => {
+    lastExportKindRef.current = "apkg";
+    const id = begin("export", "Колода Anki", "Собираем новые карточки");
+    try {
+      const result = await callBackend<ApkgResult>("export_apkg", { job_id: id });
+      setLastExportPath(result.path);
+      if (result.exported) await loadLibrary();
+      setOperation((current) => ({ ...current, status: "completed", stage: "completed", title: result.exported ? "Колода Anki готова" : "Новых карточек нет", message: result.message, error: "" }));
+    } catch (error) {
+      fail(id, "Экспорт в Anki остановлен", error);
+    }
+  }, [begin, fail, loadLibrary]);
+
+  const openExport = React.useCallback(async (reveal = false) => {
+    if (!lastExportPath) return;
+    try {
+      await callBackend<{ opened: boolean }>("open_path", { path: lastExportPath, reveal });
+    } catch (error) {
+      setOperation((current) => ({ ...current, status: "error", title: "Не удалось открыть файл", message: String(error), error: String(error) }));
+    }
+  }, [lastExportPath]);
 
   const cancel = React.useCallback(async () => {
     const current = operationRef.current;
@@ -381,9 +468,10 @@ export function useLibraryController() {
     if (kind === "kindle") return void syncKindle();
     if (kind === "covers") return void downloadCovers();
     if (kind === "processing") return void retryFailed();
+    if (kind === "enrich") return void enrichWords({ retryFailed: true });
     if (kind === "obsidian") return void syncObsidian();
-    if (kind === "export") return void exportVisible(settings.default_export_format);
-  }, [downloadCovers, exportVisible, retryFailed, settings.default_export_format, syncKindle, syncObsidian]);
+    if (kind === "export") return void (lastExportKindRef.current === "apkg" ? exportAnki() : exportVisible(settings.default_export_format));
+  }, [downloadCovers, enrichWords, exportAnki, exportVisible, retryFailed, settings.default_export_format, syncKindle, syncObsidian]);
 
   const dismissOperation = React.useCallback(() => setOperation(idleOperation), []);
 
@@ -416,6 +504,12 @@ export function useLibraryController() {
       cancel,
       retry,
       retryFailed,
+      enrichmentQueue,
+      ankiPending,
+      enrichWords,
+      exportAnki,
+      openExport,
+      lastExportPath,
       dismissOperation,
       loadLibrary,
     }),
@@ -447,6 +541,12 @@ export function useLibraryController() {
       cancel,
       retry,
       retryFailed,
+      enrichmentQueue,
+      ankiPending,
+      enrichWords,
+      exportAnki,
+      openExport,
+      lastExportPath,
       dismissOperation,
       loadLibrary,
     ],
