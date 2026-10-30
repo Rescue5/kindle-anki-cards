@@ -1110,3 +1110,67 @@ bring the local Windows branch up to date with work pushed from macOS.
 ### Commits
 
 - `7d4a67f` merge, `bf97e78` Windows fixes. Not pushed.
+
+## 2026-10-30 - Claude - Phase 1: Anki decks and contextual AI translation
+
+### Goal
+
+Make the cards worth installing the app for: a real Anki deck and the
+Russian meaning of each word in the sense used in the book.
+
+### Live Device Checks (Windows, Kindle over MTP)
+
+- Passive probe detected the Kindle in ~0.7 s. Live sync copied and merged
+  the library; 831 new lexemes were queued and processed in 83 s with no
+  failures. A repeated sync re-queued nothing.
+- Sync took 83 s because online cover lookup ran inside it (77 s). Sync now
+  copies only Kindle thumbnails; online lookup runs in the background
+  without occupying the operation slot. Sync now takes ~3 s.
+
+### Changes
+
+- `anki_export.py`: `.apkg` export via genanki with a fixed note type
+  ("Word in context"), GUIDs derived from lexeme ids (re-import updates
+  notes), escaped context with the looked-up form highlighted, offline
+  WordNet definition labelled with its source, light/dark card CSS.
+  Bridge actions `export_apkg` (new words only by default) and `open_path`
+  (restricted to the app export folder).
+- `llm/`: provider presets (Anthropic, OpenAI, DeepSeek, OpenRouter,
+  LM Studio, Ollama, custom), API keys in the OS keychain via `keyring`
+  (env override `KINDLE_CARDS_LLM_API_KEY` for development), an
+  OpenAI-compatible client with JSON-schema → json_object → plain fallback,
+  and a separate Anthropic SDK client (`claude-opus-5-5` default, low effort,
+  structured output, server-side refusal fallback).
+- `enrichment.py`: batches with short item numbers, per-batch persistence,
+  fatal errors stop the run, timeouts leave words queued, three failed
+  batches in a row stop the run. Local presets use batches of 2, a 600 s
+  timeout and no SDK retries.
+- SQLite schema v3: `enrichments` keyed by `(language, canonical_key)` so
+  results survive full catalog replacement; exposed as `lexeme.enrichment`.
+- Settings: `llm_provider`, `llm_auto_enrich`; old settings with a custom
+  endpoint migrate to the `custom` preset.
+- UI: "Перевод через ИИ" settings (provider, key, model list, connection test
+  with a built-in sample word), "Перевести N" and "В Anki N" actions, an
+  "Открыть в Anki" notice, translation details in the word inspector, and
+  completion messages in the status bar.
+
+### Verification
+
+- `pytest`: 67 passed, 1 skipped. `npm test`: 18 passed. `npm run build`: passed.
+- Real-library copy: 1,940 cards exported in 3.8 s; WordNet definitions for
+  1,921; the looked-up form highlighted in 1,939 contexts.
+- Local LM Studio model (9B): 8-word batches timed out; 2-word batches
+  translated 6 real words in 71 s with good quality. The prompt now asks
+  for dictionary forms (the model returned "казались" for "seem").
+- Browser preview: provider selection, key save/replace, connection test
+  success and error, translate, export and the open-in-Anki notice work;
+  no console errors or horizontal overflow. Screenshots were unavailable
+  because the app window was not drawn; checks used the DOM.
+
+### Remaining Risk
+
+- No cloud provider was exercised live (no key on this machine).
+- The full Tauri WebView flow and opening `.apkg` in a real Anki were not run.
+- The `kindle_app` conda env has an editable install pointing at another
+  checkout; scripts run outside the repo import that older package.
+- Offline lemmatization still produces some wrong lemmas (e.g. "felt").
