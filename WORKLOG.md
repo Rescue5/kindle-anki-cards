@@ -1070,3 +1070,43 @@ whole offline-processing queue.
    in-app review.
 
 No code changes in this entry.
+
+## 2026-10-30 - Claude - Tooling setup and macOS work integration
+
+### Goal
+
+Prepare for sustained product development and open-source promotion, and
+bring the local Windows branch up to date with work pushed from macOS.
+
+### Tooling
+
+- Installed into the `kindle_app` env: `pytest`, `ruff`, `genanki`.
+- Installed GitHub CLI; it still needs `gh auth login` by the owner.
+- Installed a reviewed subset of MIT-licensed marketing skills
+  (coreyhaines31/marketingskills) at user level, not in this repository.
+- Offered official Claude Code plugins (feature-dev, pr-review-toolkit,
+  code-simplifier, security-guidance, github) via the plugin catalog.
+
+### Integration
+
+- `origin/main` contained `59ac6de` (reading companion UI, review queue,
+  covers, macOS MTP) that diverged from the local queue fix. Merged with
+  `--no-ff`; resolved `WORKLOG.md` (both sides kept, chronological) and the
+  controller (covers + failed-lexeme retry both kept).
+- On Windows, `59ac6de` already failed 6 tests: `with sqlite3.connect()` does
+  not close the handle, so the Kindle `vocab.db` stayed locked.
+  `kindle_db._connect` now closes its connection; tests use `closing()`.
+- The macOS-only MTP worker test is skipped on Windows (`fcntl`).
+- `tests/conftest.py` ignores temp-dir cleanup errors on Windows, where
+  scanners briefly hold new files after assertions pass.
+
+### Verification
+
+- `pytest`: 51 passed, 1 skipped, stable across 4 runs.
+- `npm test`: 15 passed. `npm run build`: passed.
+- Browser preview (`?scenario=lexeme-failure`): status bar shows the failure
+  count with Retry; retry clears it; no console errors.
+
+### Commits
+
+- `7d4a67f` merge, `bf97e78` Windows fixes. Not pushed.
