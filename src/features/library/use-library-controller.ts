@@ -13,6 +13,7 @@ import type {
   AppSettings,
   BookOption,
   ConnectorStatus,
+  CoverSummary,
   LexemeRecord,
   LibraryResult,
   Operation,
@@ -52,6 +53,8 @@ function jobId() {
 export function useLibraryController() {
   const [entries, setEntries] = React.useState<LexemeRecord[]>([]);
   const [books, setBooks] = React.useState<BookOption[]>([{ label: "Все книги", key: "" }]);
+  const [coverSummary, setCoverSummary] = React.useState<CoverSummary>();
+  const [coversBusy, setCoversBusy] = React.useState(false);
   const [connectors, setConnectors] = React.useState<ConnectorStatus>(unknownConnectors);
   const [settings, setSettings] = React.useState<AppSettings>(defaultSettings);
   const [query, setQuery] = React.useState("");
@@ -107,6 +110,7 @@ export function useLibraryController() {
   const applyLibrary = React.useCallback((result: LibraryResult) => {
     setEntries(result.entries);
     setBooks(result.books.length ? result.books : [{ label: "Все книги", key: "" }]);
+    setCoverSummary(result.coverSummary);
     setConnectors((current) => ({
       kindle: result.connectors?.kindle?.state === "unknown" ? current.kindle : (result.connectors?.kindle ?? current.kindle),
       obsidian: result.connectors?.obsidian ?? current.obsidian,
@@ -258,6 +262,24 @@ export function useLibraryController() {
   }, [applyLibrary, begin, fail, probeConnectors]);
   syncKindleRef.current = syncKindle;
 
+  const downloadCovers = React.useCallback(async () => {
+    if (operationRef.current.status === "running") return;
+    const id = begin("covers", "Обложки книг", "Ищем и сохраняем обложки");
+    setCoversBusy(true);
+    try {
+      const result = await callBackend<LibraryResult>("download_covers", { job_id: id });
+      applyLibrary(result);
+      const available = result.coverSummary?.available ?? 0;
+      const total = result.coverSummary?.total ?? 0;
+      setOperation((current) => ({ ...current, status: "completed", stage: "completed",
+        title: "Обложки сохранены", message: `Найдено ${available} из ${total}. Доступны без интернета.`, error: "" }));
+    } catch (error) {
+      fail(id, "Не удалось загрузить обложки", error);
+    } finally {
+      setCoversBusy(false);
+    }
+  }, [applyLibrary, begin, fail]);
+
   const processQueue = React.useCallback(async (includeFailed = false) => {
     if (processingInFlightRef.current) return;
     processingInFlightRef.current = true;
@@ -337,10 +359,11 @@ export function useLibraryController() {
   const retry = React.useCallback(() => {
     const kind = operationRef.current.kind;
     if (kind === "kindle") return void syncKindle();
+    if (kind === "covers") return void downloadCovers();
     if (kind === "processing") return void retryFailed();
     if (kind === "obsidian") return void syncObsidian();
     if (kind === "export") return void exportVisible(settings.default_export_format);
-  }, [exportVisible, retryFailed, settings.default_export_format, syncKindle, syncObsidian]);
+  }, [downloadCovers, exportVisible, retryFailed, settings.default_export_format, syncKindle, syncObsidian]);
 
   const dismissOperation = React.useCallback(() => setOperation(idleOperation), []);
 
@@ -348,6 +371,9 @@ export function useLibraryController() {
     () => ({
       entries,
       books,
+      coverSummary,
+      coversBusy,
+      downloadCovers,
       connectors,
       settings,
       setSettings,
@@ -376,6 +402,9 @@ export function useLibraryController() {
     [
       entries,
       books,
+      coverSummary,
+      coversBusy,
+      downloadCovers,
       connectors,
       settings,
       setSettings,
