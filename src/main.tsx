@@ -16,7 +16,7 @@ import "@fontsource-variable/caveat";
 import "@/index.css";
 import "@/design/night-reading.css";
 import "@/features/reading/reading.css";
-import { FloorLamp, Sconce, useLightSwitch } from "@/components/light/light";
+import { LightScene, Lit, useLightSwitch } from "@/components/light/light";
 import { PencilDefs } from "@/components/sketch/sketch";
 
 type View = "home" | "books" | "words" | "review" | "insights" | "settings";
@@ -95,7 +95,7 @@ function App() {
     <div className="reading-app">
       <PencilDefs />
       <aside className="reading-sidebar">
-        <Sconce />
+        <LightScene onPullChain={pullCord} chainLabel={night ? "Включить дневной свет" : "Включить вечерний свет"}>
         <button type="button" className="reading-brand" onClick={() => setView("home")} aria-label="Kindle Cards — главная">
           <span className="reading-brand-mark"><BookOpen size={23} strokeWidth={1.8} /></span>
           <span><strong>Kindle Cards</strong><small>Слова из вашего чтения</small></span>
@@ -103,11 +103,13 @@ function App() {
         <nav className="reading-nav" aria-label="Основная навигация">
           {navigation.map((item) => {
             const Icon = item.icon;
-            return <button key={item.view} type="button" onClick={() => setView(item.view)} aria-current={view === item.view ? "page" : undefined} className={view === item.view ? "is-active" : ""}><Icon size={18} strokeWidth={1.8} /><span>{item.label}</span>{item.view === "review" && dueCount > 0 ? <em>{dueCount}</em> : null}</button>;
+            const button = <button key={item.view} type="button" onClick={() => setView(item.view)} aria-current={view === item.view ? "page" : undefined} className={view === item.view ? "is-active" : ""}><Icon size={18} strokeWidth={1.6} /><span>{item.label}</span>{item.view === "review" && dueCount > 0 ? <em>{dueCount}</em> : null}</button>;
+            // The wall sconce lights the section you are in.
+            return view === item.view ? <Lit key={item.view} lamp="sconce" follow as="span">{button}</Lit> : button;
           })}
         </nav>
-        <FloorLamp lit={night} onPull={pullCord} />
         <div className="reading-sidebar-bottom"><span>В библиотеке</span><strong>{controller.entries.length} слов</strong></div>
+        </LightScene>
       </aside>
 
       <div className="reading-app-main">

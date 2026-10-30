@@ -2,7 +2,7 @@ import * as React from "react";
 import { ArrowRight, BookOpen, ChevronRight, RefreshCw, RotateCcw } from "lucide-react";
 import type { BookOption, ConnectorStatus, LexemeRecord, Operation, QueueStatus } from "@/types";
 import { ruCount } from "./reading-domain";
-import { DeskLamp } from "@/components/light/light";
+import { LightScene, Lit } from "@/components/light/light";
 import { Flourish, SketchFrame } from "@/components/sketch/sketch";
 
 type Props = {
@@ -48,8 +48,10 @@ function summarizeBooks(entries: LexemeRecord[], bookOptions: BookOption[]): Boo
 
 function BookJacket({ book, index }: { book: BookSummary; index: number }) {
   return (
-    <div className={`reading-jacket reading-jacket-${index % 4}${book.coverDataUrl ? " is-real-cover" : ""}`} aria-hidden="true">
-      {book.coverDataUrl ? <img className="reading-jacket-image" src={book.coverDataUrl} alt="" /> : <><span className="reading-jacket-rule" /><span className="reading-jacket-title">{book.title}</span><span className="reading-jacket-author">{book.author || "Из библиотеки Kindle"}</span></>}
+    <div className="reading-jacket-drawn pencil-hatch-shadow pencil-box" aria-hidden="true">
+      <div className={`reading-jacket reading-jacket-${index % 4}${book.coverDataUrl ? " is-real-cover" : ""}`}>
+        {book.coverDataUrl ? <img className="reading-jacket-image" src={book.coverDataUrl} alt="" /> : <><span className="reading-jacket-rule" /><span className="reading-jacket-title">{book.title}</span><span className="reading-jacket-author">{book.author || "Из библиотеки Kindle"}</span></>}
+      </div>
     </div>
   );
 }
@@ -64,7 +66,7 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
 
   return (
     <main className="reading-page app-scrollbar">
-      <div className="reading-page-inner">
+      <LightScene className="reading-page-inner">
         <div className="reading-intro">
           <div>
             <h1 className="reading-display reading-page-title">Продолжайте читать</h1>
@@ -74,9 +76,8 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
         </div>
 
         <section className="reading-feature" aria-label="Последняя книга">
-          <DeskLamp />
           {latestBook ? (
-            <>
+            <Lit lamp="desk" className="reading-feature-body">
               <BookJacket book={latestBook} index={0} />
               <div className="reading-feature-content">
                 <span className="reading-eyebrow">Последняя книга в Kindle</span>
@@ -89,7 +90,7 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
                   <div><strong>{freshCount}</strong><span>новых в библиотеке</span></div>
                 </div>
                 <div className="reading-feature-actions">
-                  <button className="reading-primary-button" type="button" onClick={onSync} disabled={busy || connectors.kindle.state !== "connected"}>
+                  <button className="reading-primary-button pencil-box pencil-icon" type="button" onClick={onSync} disabled={busy || connectors.kindle.state !== "connected"}>
                     <RefreshCw size={16} className={busy && operation.kind === "kindle" ? "animate-spin" : ""} />
                     Синхронизировать Kindle
                   </button>
@@ -98,7 +99,7 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
                 </div>
                 {connectors.kindle.state !== "connected" ? <p className="reading-help">Подключите Kindle по USB для новой синхронизации.</p> : null}
               </div>
-            </>
+            </Lit>
           ) : (
             <div className="reading-empty-feature">
               <BookOpen size={32} />
@@ -114,9 +115,9 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
         <div className="reading-home-columns">
           <section className="reading-recent">
             <div className="reading-section-heading"><h2 className="reading-display">Недавние слова</h2><button type="button" className="reading-text-button" onClick={() => onWords()}>Все слова <ArrowRight size={16} /></button></div>
-            {recent.length ? <div className="reading-word-list">{recent.map((entry) => {
+            {recent.length ? <div className="reading-word-list pencil-rule-top">{recent.map((entry) => {
               const occurrence = entry.occurrences[0];
-              return <button key={entry.id} type="button" className="reading-word-row" onClick={() => onWords(entry.id)}>
+              return <button key={entry.id} type="button" className="reading-word-row pencil-rule-bottom pencil-icon" onClick={() => onWords(entry.id)}>
                 <span className="reading-word-title">{entry.lemma}</span>
                 <span className="reading-word-context">{occurrence?.context || entry.processing.analysis?.russian_meanings || "Контекст пока не найден"}</span>
                 <span className="reading-word-book">{occurrence?.book_title || "Без книги"}</span>
@@ -126,12 +127,14 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
           </section>
 
           <aside className="reading-home-side">
+            <Lit lamp="pendant" strength={0.85}>
             <SketchFrame as="section" ornate seed={11} className="reading-review-invite">
               <RotateCcw size={20} />
               <h2 className="reading-display">Пора повторить</h2>
               <p>{dueCount > 0 ? `${dueCount} ${ruCount(dueCount, "слово", "слова", "слов")} ${dueCount === 1 ? "ждёт" : "ждут"} вас сегодня.` : "На сегодня всё повторено. Новые карточки появятся из обработанных слов."}</p>
-              <button className="reading-secondary-button" type="button" onClick={onReview}>Открыть повторение <ArrowRight size={16} /></button>
+              <button className="reading-secondary-button pencil-box pencil-icon" type="button" onClick={onReview}>Открыть повторение <ArrowRight size={16} /></button>
             </SketchFrame>
+            </Lit>
             <section className="reading-library-glance">
               <div className="reading-section-heading"><h2 className="reading-display">Ваша библиотека</h2><button className="reading-text-button" type="button" onClick={onBooks}>Все книги <ArrowRight size={16} /></button></div>
               <div className="reading-library-covers">{books.slice(0, 3).map((book, index) => <button key={book.key} type="button" onClick={onBooks} title={book.title}><BookJacket book={book} index={index + 1} /><span>{book.title}</span></button>)}</div>
@@ -140,7 +143,7 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, queue
           </aside>
         </div>
         {queueStatus.total > 0 ? <p className="reading-queue-note">Обрабатывается в фоне: {queueStatus.total} слов</p> : null}
-      </div>
+      </LightScene>
     </main>
   );
 }
