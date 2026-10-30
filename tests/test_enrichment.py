@@ -112,6 +112,16 @@ class EnrichmentTests(unittest.TestCase):
         self.assertEqual(summary.error, "bad key")
         self.assertEqual(store.saved, {})
 
+    def test_timeouts_leave_words_for_the_next_run(self) -> None:
+        store = MemoryStore()
+        words = [_lexeme(f"word{i}") for i in range(20)]
+        client = FakeClient(error=LLMError("slow", transient=True))
+        summary = enrichment.enrich(words, client, store, provider="fake", batch_size=2)
+        self.assertEqual(store.saved, {})
+        self.assertEqual(len(client.calls), enrichment.MAX_CONSECUTIVE_FAILED_BATCHES)
+        self.assertEqual(summary.skipped, 2 * enrichment.MAX_CONSECUTIVE_FAILED_BATCHES)
+        self.assertIn("slow", summary.error)
+
     def test_repeated_batch_failures_stop_the_run(self) -> None:
         words = [_lexeme(f"word{i}") for i in range(40)]
         client = FakeClient(error=LLMError("broken json"))

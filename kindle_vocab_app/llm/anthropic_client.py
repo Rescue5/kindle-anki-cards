@@ -51,7 +51,7 @@ class AnthropicClient:
         except anthropic.BadRequestError as exc:
             raise LLMError(f"Anthropic отклонил запрос: {exc.message}") from exc
         except anthropic.APITimeoutError as exc:
-            raise LLMError("Anthropic не ответил вовремя") from exc
+            raise LLMError("Anthropic не ответил вовремя", transient=True) from exc
         except anthropic.APIConnectionError as exc:
             raise LLMError("Нет соединения с Anthropic", fatal=True) from exc
         except anthropic.APIStatusError as exc:

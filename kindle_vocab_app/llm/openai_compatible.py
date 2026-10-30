@@ -17,7 +17,7 @@ _RESPONSE_MODES = ("json_schema", "json_object", "plain")
 
 
 class OpenAICompatibleClient:
-    def __init__(self, *, base_url: str, api_key: str, model: str, timeout: float = 120.0) -> None:
+    def __init__(self, *, base_url: str, api_key: str, model: str, timeout: float = 120.0, max_retries: int = 2) -> None:
         if not base_url:
             raise LLMError("Укажите адрес API провайдера", fatal=True)
         if not model:
@@ -25,7 +25,7 @@ class OpenAICompatibleClient:
         from openai import OpenAI
 
         # Local servers ignore the key but the SDK requires a non-empty value.
-        self._client = OpenAI(base_url=base_url, api_key=api_key or "not-needed", timeout=timeout, max_retries=2)
+        self._client = OpenAI(base_url=base_url, api_key=api_key or "not-needed", timeout=timeout, max_retries=max_retries)
         self.model = model
         self._mode_index = 0
 
@@ -55,7 +55,7 @@ class OpenAICompatibleClient:
             except openai.RateLimitError as exc:
                 raise LLMError("Превышен лимит запросов или закончился баланс у провайдера", fatal=True) from exc
             except openai.APITimeoutError as exc:
-                raise LLMError("Провайдер не ответил вовремя") from exc
+                raise LLMError("Модель не ответила вовремя", transient=True) from exc
             except openai.APIConnectionError as exc:
                 raise LLMError("Нет соединения с провайдером. Для локальной модели запустите сервер", fatal=True) from exc
             except openai.APIStatusError as exc:

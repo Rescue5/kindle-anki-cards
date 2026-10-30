@@ -23,6 +23,12 @@ class ProviderPreset:
     local: bool
     hint: str
 
+    @property
+    def batch_size(self) -> int:
+        # Local models often reason before answering; small batches finish
+        # within the timeout and show progress sooner.
+        return 2 if self.local else 8
+
 
 PRESETS: dict[str, ProviderPreset] = {
     preset.id: preset
@@ -45,11 +51,11 @@ PRESETS: dict[str, ProviderPreset] = {
         ),
         ProviderPreset(
             "lmstudio", "LM Studio (локально)", "openai_compatible", "http://localhost:1234/v1", "", False, True,
-            "Бесплатно, слова не покидают компьютер. Запустите сервер в LM Studio",
+            "Бесплатно, слова не покидают компьютер. Медленнее облака: запустите сервер в LM Studio",
         ),
         ProviderPreset(
             "ollama", "Ollama (локально)", "openai_compatible", "http://localhost:11434/v1", "", False, True,
-            "Бесплатно, слова не покидают компьютер",
+            "Бесплатно, слова не покидают компьютер. Медленнее облака",
         ),
         ProviderPreset(
             "custom", "Другой OpenAI-совместимый", "openai_compatible", "", "", True, False,
@@ -67,7 +73,7 @@ def preset_for(provider: str) -> ProviderPreset:
 
 
 def presets_payload() -> list[dict[str, Any]]:
-    return [asdict(preset) for preset in PRESETS.values()]
+    return [{**asdict(preset), "batch_size": preset.batch_size} for preset in PRESETS.values()]
 
 
 class _KeyringBackend(Protocol):

@@ -441,11 +441,14 @@ def _llm_action(action: str, payload: dict[str, Any], workspace: Path, *, job_id
         client,
         repository,
         provider=provider,
+        batch_size=llm_presets.preset_for(provider).batch_size,
         progress=lambda done, total: _emit_progress(job_id, "enriching", f"Переведено {done} из {total}", done, total),
     )
     catalog = repository.load_catalog()
     _emit_progress(job_id, "completed", "Перевод завершён", len(selected), max(len(selected), 1))
     message = f"Переведено: {summary.enriched}; без перевода: {summary.failed}"
+    if summary.skipped:
+        message += f"; отложено: {summary.skipped}"
     return {
         "requested": summary.requested,
         "enriched": summary.enriched,
