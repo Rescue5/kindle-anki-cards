@@ -1,3 +1,6 @@
+// Release builds are GUI apps: no console window behind the main window.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -7,9 +10,60 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 const PROGRESS_PREFIX: &str = "KINDLE_PROGRESS ";
+
+/// How to start the Python bridge for one request.
+struct BridgeCommand {
+    program: PathBuf,
+    args: Vec<String>,
+    /// Working directory of the child process (the repository in development).
+    cwd: PathBuf,
+    /// Where the bridge keeps `.app-data`.
+    workspace: PathBuf,
+}
+
+/// Development runs `python -m kindle_vocab_app.tauri_bridge` from the repository;
+/// installed builds run the frozen bridge shipped in the app resources and keep
+/// user data in the per-user app data directory.
+fn resolve_bridge(app: &AppHandle) -> Result<BridgeCommand, String> {
+    let python_module = |python: String, root: PathBuf| BridgeCommand {
+        program: PathBuf::from(python),
+        args: vec!["-m".to_string(), "kindle_vocab_app.tauri_bridge".to_string()],
+        cwd: root.clone(),
+        workspace: root,
+    };
+    if let Ok(python) = std::env::var("KINDLE_CARDS_PYTHON") {
+        let root = workspace_dir().map_err(|error| format!("failed to resolve workspace directory: {error}"))?;
+        return Ok(python_module(python, root));
+    }
+    let executable = if cfg!(windows) { "kindle-bridge.exe" } else { "kindle-bridge" };
+    if let Some(bundled) = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|resources| resources.join("bridge").join(executable))
+        .filter(|path| path.is_file())
+    {
+        let workspace = match std::env::var("KINDLE_CARDS_WORKSPACE") {
+            Ok(value) => PathBuf::from(value),
+            Err(_) => app
+                .path()
+                .app_data_dir()
+                .map_err(|error| format!("failed to resolve app data directory: {error}"))?,
+        };
+        std::fs::create_dir_all(&workspace).map_err(|error| format!("failed to create app data directory: {error}"))?;
+        return Ok(BridgeCommand {
+            program: bundled,
+            args: Vec::new(),
+            cwd: workspace.clone(),
+            workspace,
+        });
+    }
+    let root = workspace_dir().map_err(|error| format!("failed to resolve workspace directory: {error}"))?;
+    Ok(python_module("python".to_string(), root))
+}
 
 #[derive(Default)]
 struct OperationState {
@@ -38,8 +92,7 @@ async fn python_bridge(
     action: String,
     payload: Value,
 ) -> Result<Value, String> {
-    let python = std::env::var("KINDLE_CARDS_PYTHON").unwrap_or_else(|_| "python".to_string());
-    let workspace = workspace_dir().map_err(|error| format!("failed to resolve workspace directory: {error}"))?;
+    let bridge = resolve_bridge(&app)?;
     let job_id = payload
         .get("job_id")
         .and_then(Value::as_str)
@@ -65,7 +118,7 @@ async fn python_bridge(
     };
 
     let result = tauri::async_runtime::spawn_blocking(move || {
-        run_python_bridge(app, python, workspace, request, Arc::clone(&cancellation))
+        run_python_bridge(app, bridge, request, Arc::clone(&cancellation))
     })
     .await;
 
@@ -77,20 +130,27 @@ async fn python_bridge(
 
 fn run_python_bridge(
     app: AppHandle,
-    python: String,
-    workspace: PathBuf,
+    bridge: BridgeCommand,
     request: Value,
     cancellation: Arc<AtomicBool>,
 ) -> Result<Value, String> {
-    let mut child = Command::new(python)
-        .args(["-m", "kindle_vocab_app.tauri_bridge"])
-        .current_dir(&workspace)
-        .env("KINDLE_CARDS_WORKSPACE", &workspace)
+    let mut command = Command::new(&bridge.program);
+    command
+        .args(&bridge.args)
+        .current_dir(&bridge.cwd)
+        .env("KINDLE_CARDS_WORKSPACE", &bridge.workspace)
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        // CREATE_NO_WINDOW: the bridge runs for every action and must not flash a console.
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let mut child = command
         .spawn()
         .map_err(|error| format!("failed to start Python bridge: {error}"))?;
 

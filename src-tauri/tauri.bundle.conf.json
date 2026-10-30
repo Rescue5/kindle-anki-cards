@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": ["nsis"],
+    "publisher": "Kindle Cards",
+    "shortDescription": "Kindle Vocabulary Builder → Anki cards with context",
+    "longDescription": "Turns words you look up on Kindle into Anki cards with the book sentence, offline filtering and optional AI translation in context.",
+    "resources": {
+      "../build/bridge/kindle-bridge/": "bridge/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Russian", "English"],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}

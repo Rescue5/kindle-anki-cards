@@ -72,6 +72,24 @@ Then verify the package is importable:
 python -c "import kindle_vocab_app; print(kindle_vocab_app.__file__)"
 ```
 
+## Building the Windows installer
+
+The installer bundles a frozen copy of the Python bridge (PyInstaller, with the
+NLTK corpora), so end users need neither Python nor conda. Installed builds keep
+the library in the per-user app data folder
+(`%APPDATA%\com.kindlevocab.cards\.app-data`) instead of the repository.
+
+```powershell
+conda activate kindle_app
+python -m pip install "pyinstaller>=6,<7"
+.\scripts\build-installer.ps1
+```
+
+The NSIS installer appears in `src-tauri/target/release/bundle/nsis/`. It
+installs per user and needs no administrator rights. Development runs
+(`kindle-vocab-app`, `npm run tauri dev`) keep using the conda Python and the
+repository `.app-data` folder.
+
 ## Runtime diagnostics
 
 Run this when setup succeeds but the app still does not start:
