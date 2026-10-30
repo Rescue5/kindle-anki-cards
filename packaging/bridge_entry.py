@@ -15,7 +15,8 @@ if getattr(sys, "frozen", False):
     if bundled not in nltk.data.path:
         nltk.data.path.insert(0, bundled)
 
-from kindle_vocab_app.tauri_bridge import main  # noqa: E402 - must follow the NLTK path setup
+# Imported only after the NLTK path setup above.
+from kindle_vocab_app.tauri_bridge import main
 
 if __name__ == "__main__":
     raise SystemExit(main())
