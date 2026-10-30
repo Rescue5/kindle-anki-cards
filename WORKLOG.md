@@ -1258,3 +1258,40 @@ Python, conda or the repository.
 - GitHub annotates the Node 20 based actions as deprecated; they already run
   on Node 24. Bump action majors when convenient.
 - The installer is unsigned; Windows SmartScreen will warn on first run.
+
+## 2026-10-30 - Claude - README and first public release v0.1.0
+
+### Decisions (owner)
+
+- License: MIT (copyright holder "Gwyndolin", matching the git identity).
+- Repository renamed `kindle_app` → `kindle-anki-cards` (GitHub keeps a
+  redirect; the local remote was updated; the Mac checkout can keep working
+  through the redirect or run `git remote set-url`).
+- Personal traces already in the public history (a real book title in tests
+  and demo data, commit e-mail, a Mac host name in one commit, library counts
+  in this log) were reviewed with the owner and intentionally left as is.
+
+### Changes
+
+- New user-facing `README.md` (Russian with an English summary, badges,
+  screenshots, install, usage, AI providers, privacy, limitations); the former
+  README moved to `docs/DEVELOPMENT.md`.
+- Screenshots in `docs/screenshots/` captured with headless Chrome from the
+  browser preview (`?scenario=showcase&view=...`, demo data only) plus an
+  Anki card rendered by `packaging/render_card_preview.py`.
+- UI fixes found on the screenshots: part of speech shown as a raw WordNet
+  code ("n", "v"); settings labels rendered inline with selects; the Obsidian
+  column label wrapped. Removed the "language" and "app data folder" settings,
+  which had no effect anywhere.
+- Repository description and topics set for discovery.
+- Tag `v0.1.0` → `release.yml` built the installer and attached it to a draft
+  release, which was then published with release notes as the latest release.
+
+### Verification
+
+- `npm test`: 19 passed; `npm run build`: passed.
+- The release asset downloads anonymously (42.6 MB); the release badge,
+  README screenshots and MIT license detection work on GitHub.
+- The published installer comes from a newer commit than the one installed
+  and exercised locally earlier; the bridge smoke test (identical analyses to
+  development Python on an empty APPDATA) ran in its CI build.
