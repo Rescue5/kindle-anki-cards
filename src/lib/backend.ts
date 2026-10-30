@@ -208,8 +208,42 @@ const mockLlmPresets: LlmPreset[] = [
   { id: "lmstudio", label: "LM Studio (локально)", kind: "openai_compatible", base_url: "http://localhost:1234/v1", default_model: "", needs_key: false, local: true, hint: "Бесплатно, слова не покидают компьютер. Медленнее облака" },
   { id: "custom", label: "Другой OpenAI-совместимый", kind: "openai_compatible", base_url: "", default_model: "", needs_key: true, local: false, hint: "Укажите адрес API и модель" },
 ];
-const mockKeys: Record<string, boolean> = {};
-let mockSettings: AppSettings = { ...defaultSettings, obsidian_sync_enabled: true, obsidian_vault_path: "preview" };
+const showcase = previewScenario() === "showcase";
+const mockKeys: Record<string, boolean> = showcase ? { anthropic: true } : {};
+let mockSettings: AppSettings = {
+  ...defaultSettings,
+  obsidian_sync_enabled: true,
+  obsidian_vault_path: "preview",
+  ...(showcase ? { llm_enabled: true, llm_provider: "anthropic", llm_model: "claude-opus-5-5" } : {}),
+};
+
+// `?scenario=showcase`: processed words with realistic translations for screenshots.
+const showcaseTranslations: Record<string, Partial<Enrichment>> = {
+  admit: { meaning_ru: "признавать; сознаваться", definition_en: "to agree, often unwillingly, that something is true", context_ru: "Она знала ответ, но не решалась его признать.", example_en: "He admitted that he had made a mistake.", example_ru: "Он признал, что ошибся." },
+  glimpse: { meaning_ru: "мельком увидеть; проблеск", definition_en: "a brief, incomplete look at something", context_ru: "На мгновение он мельком увидел город внизу.", example_en: "I caught a glimpse of her in the crowd.", example_ru: "Я мельком увидел её в толпе." },
+  dread: { meaning_ru: "страх; тревожное предчувствие", definition_en: "a strong fear of something that may happen", context_ru: "Комнату накрыл тихий страх.", example_en: "She thought about the exam with dread.", example_ru: "Она думала об экзамене со страхом.", note_ru: "Книжное: о гнетущем ожидании беды." },
+  resilient: { meaning_ru: "стойкий; жизнестойкий", definition_en: "able to recover quickly from difficulties", context_ru: "Её стойкий дух так и не сломался.", example_en: "Children are often more resilient than adults.", example_ru: "Дети часто стойче взрослых." },
+};
+
+function applyShowcase(entries: LexemeRecord[]): LexemeRecord[] {
+  return entries.map((entry) => {
+    const translation = showcaseTranslations[entry.lemma];
+    const pos: Record<string, string> = { admit: "v", glimpse: "n", dread: "n", submerge: "v", resilient: "a", vigilant: "a" };
+    const ready = entry.processing.state === "ready" || (entry.processing.state === "pending" && entry.lemma !== "submerge");
+    const base = ready && entry.processing.state === "pending" ? analysis(entry.lemma, 7) : entry.processing.analysis;
+    const processed: LexemeRecord = {
+      ...entry,
+      processing: ready && base ? { state: "ready", analysis: { ...base, pos: pos[entry.lemma] }, updated_at: "2026-07-10T10:00:00Z", error: "" } : entry.processing,
+      destinations: ready && entry.destinations.obsidian.state !== "synced"
+        ? { ...entry.destinations, obsidian: { ...entry.destinations.obsidian, state: "missing", eligible: true, reason: "" } }
+        : entry.destinations,
+    };
+    if (!translation) return processed;
+    return { ...processed, enrichment: { status: "ready", provider: "anthropic", model: "claude-opus-5-5", prompt_version: 1, error: "", updated_at: "2026-07-10T10:00:00Z", ...translation } };
+  });
+}
+
+if (showcase) mockEntries = applyShowcase(mockEntries);
 
 function isEnrichable(entry: LexemeRecord) {
   const score = entry.processing.analysis?.importance_score;

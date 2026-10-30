@@ -14,6 +14,7 @@ import "@/index.css";
 import "@/features/reading/reading.css";
 
 type View = "home" | "books" | "words" | "review" | "insights" | "settings";
+const views: View[] = ["home", "books", "words", "review", "insights", "settings"];
 
 const navigation = [
   { label: "Главная", icon: Home, view: "home" as const },
@@ -26,7 +27,11 @@ const navigation = [
 
 function App() {
   const controller = useLibraryController();
-  const [view, setView] = React.useState<View>("home");
+  // `?view=` opens a screen directly; used for browser previews and README screenshots.
+  const [view, setView] = React.useState<View>(() => {
+    const requested = new URLSearchParams(window.location.search).get("view");
+    return views.includes(requested as View) ? (requested as View) : "home";
+  });
   const [dueCount, setDueCount] = React.useState(0);
 
   React.useEffect(() => {
