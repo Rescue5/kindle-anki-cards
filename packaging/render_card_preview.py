@@ -13,7 +13,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from kindle_vocab_app import anki_export  # noqa: E402 - repository import for a standalone script
+# Imported after sys.path points at the repository (standalone script).
+from kindle_vocab_app import anki_export
 
 SAMPLE = {
     "id": "sample-dread",
