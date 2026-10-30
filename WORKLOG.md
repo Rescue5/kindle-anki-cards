@@ -656,3 +656,111 @@ destination rather than a source of vocabulary state.
   device boundary rather than a live USB sync.
 - The standalone optimizer CLI intentionally retains snapshot compatibility;
   application runtime state is SQLite-only.
+
+## 2026-10-30 - Claude - Read-only project audit
+
+### Goal
+
+Study the current architecture and state after the SQLite redesign. No source
+files were changed.
+
+### Findings
+
+- Library state: 1,158 lexemes (1,142 ready, 16 rejected), empty queue;
+  Obsidian destinations: 1,022 synced, 120 missing, 16 not applicable.
+- `save_catalog` rewrites every table (`DELETE FROM lexemes` + reinsert) and
+  `load_catalog` issues several queries per lexeme; acceptable at ~1k lexemes.
+- `vocab_cache._merge_entry` scans the whole catalog per Kindle entry (quadratic
+  sync merge).
+- `_process_queued_lexemes` re-raises on the first failure; a deterministically
+  failing lexeme stays first in the `failed` queue and blocks the rest on retry.
+  The frontend also pauses auto-processing while the last operation is `error`.
+- Unused bridge helpers remain: `_entry_updates_from_analysis`,
+  `missing_kindle_state`, `load_database_state`; `_analysis_by_lemma` is only
+  referenced by a test.
+- Obsidian lemma normalization (`_normalize_base`) differs slightly from
+  `vocab_cache.normalize_lemma`.
+- The Rust bridge spawns Python without a no-console-window flag and the binary
+  has no `windows_subsystem` attribute; release builds may show console windows.
+
+### Verification
+
+- `python -m unittest discover -s tests`: 21 passed.
+- `python -m compileall -q kindle_vocab_app`: passed.
+- `npm test`: 8 passed. `npm run build`: passed. `cargo check`: passed.
+- Bridge `load_library` ~0.4 s, `connector_status` ~0.5 s (Kindle disconnected).
+- Note: `conda run` does not forward stdin; bridge smoke checks must call the
+  env's `python.exe` directly.
+
+## 2026-10-30 - Claude - Processing queue no longer stalls on a failed lexeme
+
+### Goal
+
+Fix the audit finding that one deterministically failing lexeme blocked the
+whole offline-processing queue.
+
+### Decisions
+
+- A per-lexeme analysis failure is recorded durably as `failed` and the run
+  continues; storage errors still propagate.
+- The automatic `process_queue` handles only `pending` items. Failed items are
+  retried only with `include_failed: true` (Retry in the operation rail or the
+  new header button). Explicit `process_lexemes` still includes failed ids.
+- Queue order is pending first, then failed, each by `created_at`.
+- Auto-processing pauses only after a failed/cancelled processing run, not after
+  unrelated operation errors (for example a disconnected Kindle).
+
+### Changes
+
+- `kindle_vocab_app/library_repository.py`: `queued_ids(..., include_failed=)`
+  with pending-first ordering.
+- `kindle_vocab_app/tauri_bridge.py`: continue after per-lexeme failures, new
+  `failed_new` response field, `ошибок: N` in the completion message,
+  `include_failed` payload flag.
+- `src/features/library/domain.ts`: pure `shouldAutoProcessQueue` policy.
+- `src/features/library/use-library-controller.ts`: auto-run via the policy,
+  `retryFailed`, partial failures surface as an error operation with Retry.
+- `src/features/library/library-workspace.tsx`: header "Ошибки: N" retry button
+  when failed lexemes exist and nothing is running.
+- `src/lib/backend.ts`: mock respects `include_failed`, reports failed queue
+  items, and adds `?scenario=lexeme-failure` for preview QA.
+- Tests: replaced the old "stop on first failure" bridge test with continue,
+  retry-on-request, and pending-first ordering tests; added Vitest policy tests.
+
+### Verification
+
+- `python -m unittest discover -s tests`: 23 passed.
+- `npm test`: 13 passed. `npm run build`: passed.
+- Browser QA at 1440x900 with `?scenario=lexeme-failure`: the queue processed
+  the remaining lexemes, showed the partial-failure rail and header button,
+  did not loop automatically; dismiss + header retry processed the failed
+  lexeme; no console errors.
+
+### Remaining Risk
+
+- No Rust changes, so `cargo check` was not re-run. The real Tauri path was not
+  exercised end to end; behaviour is covered by bridge tests and the mock.
+
+## 2026-10-30 - Claude - Product direction agreed with the user
+
+### Decisions
+
+- Goal: turn the personal tool into a product another person can install and
+  use; possible modest demand.
+- First audience: Russian-speaking readers of English books on Kindle.
+- Contextual meaning/translation via the user's own API key (OpenAI-compatible
+  providers and Anthropic). Offline mode stays honest: no fabricated fields.
+- Outputs: Anki (direct deck via AnkiConnect and `.apkg`) and Obsidian with a
+  configurable, non-personal format. Built-in spaced repetition (FSRS) is
+  deferred to a later phase as a complement to Anki, not a replacement.
+
+### Proposed Phases
+
+1. Card value: contextual LLM enrichment, direct Anki export, generalized
+   Obsidian format.
+2. Shippable: single installer (Python sidecar), data in the OS app-data
+   directory, first-run onboarding, manual `vocab.db` selection.
+3. Product: English UI, auto-update, code signing, landing page, optional
+   in-app review.
+
+No code changes in this entry.
