@@ -7,12 +7,14 @@ import json
 import os
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kindle_vocab_app import anki_export, book_covers, obsidian_sync, settings, vocab_cache
+from kindle_vocab_app import anki_export, book_covers, enrichment, obsidian_sync, settings, vocab_cache
+from kindle_vocab_app.llm import presets as llm_presets
 from kindle_vocab_app.kindle_db import fetch_entries, list_books, validate_vocab_db
 from kindle_vocab_app.kindle_device import find_kindle_presence, find_kindle_source
 from kindle_vocab_app.library_repository import repository_for
@@ -157,6 +159,9 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
                 lexeme["destinations"][export_format] = {"state": "exported", "last_exported_at": now}
         repository_for(workspace).save_catalog(catalog)
         return {"path": str(output), "exported": exported}
+
+    if action in _LLM_ACTIONS:
+        return _llm_action(action, payload, workspace, job_id=job_id)
 
     if action == "export_apkg":
         return _export_apkg(payload, workspace, job_id=job_id)
@@ -381,6 +386,78 @@ def _process_queued_lexemes(
     }
 
 
+_LLM_ACTIONS = {"llm_config", "save_llm_key", "delete_llm_key", "list_llm_models", "test_llm", "enrich_lexemes"}
+
+
+def _llm_action(action: str, payload: dict[str, Any], workspace: Path, *, job_id: str) -> dict[str, Any]:
+    """Provider configuration, key storage, connection test and enrichment runs.
+
+    API keys are written to the OS keychain and never returned to the frontend.
+    """
+    app_settings = settings.load(workspace)
+    provider = str(payload.get("provider") or app_settings.llm_provider)
+    model = str(payload.get("model") if "model" in payload else app_settings.llm_model)
+    base_url = str(payload.get("base_url") if "base_url" in payload else app_settings.llm_base_url)
+
+    if action == "llm_config":
+        return {
+            "presets": llm_presets.presets_payload(),
+            "provider": app_settings.llm_provider,
+            "model": app_settings.llm_model,
+            "base_url": app_settings.llm_base_url,
+            "has_key": {preset_id: llm_presets.has_api_key(preset_id) for preset_id in llm_presets.PRESETS},
+        }
+    if action == "save_llm_key":
+        llm_presets.set_api_key(provider, str(payload.get("api_key") or ""))
+        return {"has_key": True}
+    if action == "delete_llm_key":
+        llm_presets.delete_api_key(provider)
+        return {"has_key": llm_presets.has_api_key(provider)}
+    if action == "list_llm_models":
+        client = enrichment.build_client(provider, model or "placeholder", base_url)
+        return {"models": client.list_models()}
+    if action == "test_llm":
+        client = enrichment.build_client(provider, model, base_url)
+        started = time.monotonic()
+        sample = enrichment.test_connection(client)
+        return {"ok": True, "model": client.model, "seconds": round(time.monotonic() - started, 1), "sample": sample}
+
+    # enrich_lexemes
+    if not app_settings.llm_enabled:
+        raise ValueError("Включите перевод через ИИ в настройках")
+    repository = repository_for(workspace)
+    catalog = repository.load_catalog()
+    requested = {str(value) for value in payload.get("ids") or []} or None
+    selected = enrichment.candidates(
+        catalog["lexemes"], ids=requested, retry_failed=bool(payload.get("retry_failed"))
+    )
+    limit = int(payload.get("limit") or 0)
+    if limit > 0:
+        selected = selected[:limit]
+    client = enrichment.build_client(provider, model, base_url)
+    _emit_progress(job_id, "preparing", f"Слов для перевода: {len(selected)}", 0, max(len(selected), 1))
+    summary = enrichment.enrich(
+        selected,
+        client,
+        repository,
+        provider=provider,
+        progress=lambda done, total: _emit_progress(job_id, "enriching", f"Переведено {done} из {total}", done, total),
+    )
+    catalog = repository.load_catalog()
+    _emit_progress(job_id, "completed", "Перевод завершён", len(selected), max(len(selected), 1))
+    message = f"Переведено: {summary.enriched}; без перевода: {summary.failed}"
+    return {
+        "requested": summary.requested,
+        "enriched": summary.enriched,
+        "failed": summary.failed,
+        "error": summary.error,
+        "message": f"{message}. {summary.error}" if summary.error else message,
+        "entries": catalog["lexemes"],
+        "queue_status": repository.queue_status(),
+        "enrichmentQueue": enrichment.queue_counts(catalog["lexemes"]),
+    }
+
+
 def _exports_dir(workspace: Path) -> Path:
     return workspace / ".app-data" / "exports"
 
@@ -585,6 +662,7 @@ def _catalog_response(
                               "errors": sum(book.get("cover_status") == "error" for book in real_books)}
     result["connectors"] = connector_status or _connector_status(_workspace_root(), probe_kindle=False)
     result["queueStatus"] = queue_status or {"pending": 0, "processing": 0, "failed": 0, "total": 0}
+    result["enrichmentQueue"] = enrichment.queue_counts(catalog.get("lexemes") or [])
     return result
 
 

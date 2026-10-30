@@ -15,7 +15,7 @@ from kindle_vocab_app.logging_config import get_logger
 logger = get_logger(__name__)
 
 DATABASE_FILENAME = "kindle_cards.sqlite3"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class VocabularyRepository(Protocol):
@@ -55,6 +55,10 @@ class SQLiteVocabularyRepository:
             meta = {
                 row["key"]: row["value"]
                 for row in connection.execute("SELECT key, value FROM metadata")
+            }
+            enrichments = {
+                (str(item["language"]), str(item["canonical_key"])): _enrichment_from_row(item)
+                for item in connection.execute("SELECT * FROM enrichments")
             }
             lexemes: list[dict[str, Any]] = []
             for row in connection.execute(
@@ -156,6 +160,7 @@ class SQLiteVocabularyRepository:
                         "first_seen_at": str(row["first_seen_at"]),
                         "last_seen_at": str(row["last_seen_at"]),
                         "last_kindle_sync_id": str(row["last_kindle_sync_id"]),
+                        "enrichment": enrichments.get((str(row["language"]), str(row["canonical_key"]))),
                     }
                 )
         return {
@@ -417,6 +422,39 @@ class SQLiteVocabularyRepository:
             )
         return False
 
+    def save_enrichment(
+        self,
+        language: str,
+        canonical_key: str,
+        *,
+        status: str,
+        provider: str,
+        model: str,
+        prompt_version: int,
+        payload: dict[str, Any] | None,
+        error: str = "",
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO enrichments(
+                    language, canonical_key, status, provider, model,
+                    prompt_version, payload_json, error, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    language,
+                    canonical_key,
+                    status,
+                    provider,
+                    model,
+                    prompt_version,
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True) if payload else None,
+                    error,
+                    vocab_cache.utc_now(),
+                ),
+            )
+
     def record_sync_run(
         self,
         connector: str,
@@ -542,6 +580,20 @@ class SQLiteVocabularyRepository:
                 last_rating TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_review_cards_due ON review_cards(due_at);
+            -- Keyed by canonical identity, not lexeme id, so enrichments survive
+            -- full catalog replacement and lexeme merges without a cascade.
+            CREATE TABLE IF NOT EXISTS enrichments(
+                language TEXT NOT NULL,
+                canonical_key TEXT NOT NULL,
+                status TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                prompt_version INTEGER NOT NULL,
+                payload_json TEXT,
+                error TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(language, canonical_key)
+            );
             """
         )
 
@@ -733,6 +785,19 @@ class SQLiteVocabularyRepository:
                 "INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)",
                 (key, value),
             )
+
+
+def _enrichment_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    payload = json.loads(str(row["payload_json"])) if row["payload_json"] else {}
+    return {
+        **payload,
+        "status": str(row["status"]),
+        "provider": str(row["provider"]),
+        "model": str(row["model"]),
+        "prompt_version": int(row["prompt_version"]),
+        "error": str(row["error"]),
+        "updated_at": str(row["updated_at"]),
+    }
 
 
 def repository_for(workspace: Path) -> SQLiteVocabularyRepository:

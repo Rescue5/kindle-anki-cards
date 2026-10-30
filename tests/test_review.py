@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from kindle_vocab_app import vocab_cache
-from kindle_vocab_app.library_repository import DATABASE_FILENAME, repository_for
+from kindle_vocab_app.library_repository import DATABASE_FILENAME, SCHEMA_VERSION, repository_for
 from kindle_vocab_app.tauri_bridge import dispatch
 
 
@@ -115,7 +115,7 @@ class ReviewTests(unittest.TestCase):
             with closing(sqlite3.connect(database)) as connection, connection:
                 self.assertEqual(
                     connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0],
-                    2,
+                    SCHEMA_VERSION,
                 )
 
     def test_invalid_rating_and_rejected_card_do_not_create_state(self) -> None:

@@ -26,8 +26,12 @@ class AppSettings:
     default_export_format: str = "anki"
     app_data_path: str = ""
     llm_enabled: bool = False
-    llm_model: str = "deepseek-v4-flash"
-    llm_base_url: str = "https://api.dslab.tech/v1"
+    # Provider preset id from kindle_vocab_app.llm.presets; the API key itself
+    # lives in the OS keychain, never in this file.
+    llm_provider: str = ""
+    llm_model: str = ""
+    llm_base_url: str = ""
+    llm_auto_enrich: bool = False
     obsidian_sync_enabled: bool = False
     obsidian_vault_path: str = ""
     obsidian_cards_path: str = "cards/Book Vocab"
@@ -78,8 +82,10 @@ def to_dict(settings: AppSettings) -> dict[str, Any]:
         "default_export_format": settings.default_export_format,
         "app_data_path": settings.app_data_path,
         "llm_enabled": settings.llm_enabled,
+        "llm_provider": settings.llm_provider,
         "llm_model": settings.llm_model,
         "llm_base_url": settings.llm_base_url,
+        "llm_auto_enrich": settings.llm_auto_enrich,
         "obsidian_sync_enabled": settings.obsidian_sync_enabled,
         "obsidian_vault_path": settings.obsidian_vault_path,
         "obsidian_cards_path": settings.obsidian_cards_path,
@@ -106,6 +112,12 @@ def from_dict(data: dict[str, Any]) -> AppSettings:
             f"expected one of {_VALID_EXPORT_FORMATS}"
         )
 
+    llm_base_url = str(data.get("llm_base_url", ""))
+    llm_provider = str(data.get("llm_provider", ""))
+    if "llm_provider" not in data and llm_base_url:
+        # Settings written before provider presets: keep the configured endpoint.
+        llm_provider = "custom"
+
     return AppSettings(
         version=int(data.get("version", SETTINGS_VERSION)),
         theme=theme,
@@ -113,8 +125,10 @@ def from_dict(data: dict[str, Any]) -> AppSettings:
         default_export_format=default_export_format,
         app_data_path=str(data.get("app_data_path", "")),
         llm_enabled=bool(data.get("llm_enabled", False)),
-        llm_model=str(data.get("llm_model", "deepseek-v4-flash")),
-        llm_base_url=str(data.get("llm_base_url", "https://api.dslab.tech/v1")),
+        llm_provider=llm_provider,
+        llm_model=str(data.get("llm_model", "")),
+        llm_base_url=llm_base_url,
+        llm_auto_enrich=bool(data.get("llm_auto_enrich", False)),
         obsidian_sync_enabled=bool(data.get("obsidian_sync_enabled", False)),
         obsidian_vault_path=str(data.get("obsidian_vault_path", "")),
         obsidian_cards_path=str(data.get("obsidian_cards_path", "cards/Book Vocab")),
