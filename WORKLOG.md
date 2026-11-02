@@ -1472,3 +1472,13 @@ whole app reads as one room.
 - Obsidian cards still use only LLM translations.
 - The other ~16%: rare words and lemmatisation misses; English Wiktionary
   translation tables could fill part of it.
+
+## 2026-11-02 - Claude - Release 0.2.0
+
+- Owner approved releasing the design and the offline dictionary.
+- Version 0.2.0 in `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`,
+  `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `pyproject.toml`.
+- README screenshots (`docs/screenshots/home|words|books|settings.png`)
+  recaptured from the browser preview with showcase demo data only.
+- Tag `v0.2.0` -> `release.yml` builds the installer into a draft release,
+  which is published with release notes once the build passes.
