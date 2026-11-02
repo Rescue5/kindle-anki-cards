@@ -128,7 +128,7 @@ export function ReviewView({ onCountsChange, onOpenWords }: { onCountsChange: (d
                 </header>
                 <PencilRule variant={1} className="review-card-rule" />
                 <h2 className="review-lemma">{card.lemma}</h2>
-                {context ? <blockquote className="word-context review-context"><p>{context}</p></blockquote> : <p className="review-muted">Контекст из Kindle не найден.</p>}
+                {context ? <blockquote className="word-context review-context"><p>{context}</p></blockquote> : <p className="review-muted">Предложение из книги не сохранилось.</p>}
                 {card.occurrences[0]?.book_title ? <p className="review-source"><BookOpen size={14} />{card.occurrences[0].book_title}</p> : null}
                 {revealed ? (
                   <div className="review-answer">

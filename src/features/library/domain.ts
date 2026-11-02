@@ -185,6 +185,13 @@ export function enrichmentCounts(entries: LexemeRecord[]) {
   );
 }
 
+/** A short name for the connected reader: "Kindle", "PocketBook", "Kobo"… */
+export function readerName(info: ConnectorInfo | undefined): string {
+  const label = info?.label?.trim() ?? "";
+  if (!label || /kindle/i.test(label)) return "Kindle";
+  return label.split(" · ")[0] || label;
+}
+
 /** Cards exported before this date had no offline dictionary meanings. */
 export const DICTIONARY_RELEASED_AT = "2026-11-02";
 

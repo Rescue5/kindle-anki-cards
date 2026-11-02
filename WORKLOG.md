@@ -1482,3 +1482,46 @@ whole app reads as one room.
   recaptured from the browser preview with showcase demo data only.
 - Tag `v0.2.0` -> `release.yml` builds the installer into a draft release,
   which is published with release notes once the build passes.
+- Published: CI and `release.yml` passed for `v0.2.0`; the release
+  "Kindle Cards 0.2.0" is the latest release and
+  `Kindle.Cards_0.2.0_x64-setup.exe` (44.8 MB) downloads anonymously.
+
+## 2026-11-02 - Claude - KOReader, Kobo and file import
+
+### Goal
+
+Reach readers beyond Kindle (PocketBook dominates the Russian market) and give
+a path that does not depend on USB detection.
+
+### Changes
+
+- `kindle_vocab_app/reader_sources.py`: KOReader `vocabulary_builder.sqlite3`
+  (current schema with `title`, old schema with `book_title`; the sentence is
+  cut from `prev_context`/`next_context`), Kobo `WordList` joined to `content`
+  (no context sentence exists there), format detection by tables, discovery on
+  mounted volumes (`applications/koreader` on PocketBook, `.adds/koreader` on
+  Kobo, `koreader/` at the root, `.kobo/KoboReader.sqlite`), and caching that
+  copies and checkpoints KOReader's WAL journal so fresh lookups are not lost.
+- Bridge: `sync_kindle` merges Kindle and every reader found in one sync;
+  `connector_status` reports a KOReader/Kobo reader as connected with its own
+  label and a file-based signature, so auto-sync works for it; new
+  `import_reader_file` action merges a picked file (base64), refuses non-word
+  databases with a clear message, and re-imports without duplicates.
+- UI: "Импорт файла" in Words, an inline file link on Home when no reader is
+  connected and in the first-run state with the file paths for each reader;
+  copy speaks of "читалка" and shows the reader's name instead of "Kindle".
+- README, `AGENTS.md`, CI ruff list updated; lamp text reserve widened so a
+  long title never touches the shade at 1320 px.
+
+### Verification
+
+- New tests: synthetic KOReader (both schemas, WAL), Kobo, detection,
+  discovery, sentence cutting; bridge sync of a PocketBook volume without a
+  Kindle, file import and refusal. `pytest` 91 passed / 1 skipped, `npm test`
+  25 passed, build passed; the import path exercised in the browser preview.
+
+### Remaining risks
+
+- Not tried on a real PocketBook, Kobo or Boox; schemas follow KOReader's
+  `db.lua` and community notes on Kobo's `WordList`.
+- Android/Boox over MTP is not scanned automatically; the file import covers it.

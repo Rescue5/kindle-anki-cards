@@ -20,9 +20,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ClipLamp } from "@/components/light/light";
+import { ImportFileButton } from "@/components/import-file-button";
 import { Flourish, PencilFrame, PencilRule } from "@/components/sketch/sketch";
 import { cn } from "@/lib/utils";
-import { counts, isAcceptedNew, isCardEligible, obsidianSyncReason, partOfSpeechLabel, primaryOccurrence, processingLabel, processingTone, russianMeaning, type QuickFilter } from "./domain";
+import { counts, isAcceptedNew, isCardEligible, obsidianSyncReason, partOfSpeechLabel, primaryOccurrence, processingLabel, processingTone, readerName, russianMeaning, type QuickFilter } from "./domain";
 import type { useLibraryController } from "./use-library-controller";
 import type { ConnectorInfo, LexemeRecord, WordAnalysis } from "@/types";
 
@@ -58,6 +59,7 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
                 </Button>
               ) : null}
               <ConnectorButton kind="kindle" info={controller.connectors.kindle} onClick={() => void controller.syncKindle()} disabled={busy || controller.connectors.kindle.state !== "connected"} />
+              <ImportFileButton onFile={(file) => void controller.importReaderFile(file)} disabled={busy}>Импорт файла</ImportFileButton>
               {obsidianEnabled ? (
                 <ConnectorButton kind="obsidian" info={controller.connectors.obsidian} onClick={() => void controller.syncObsidian()} disabled={busy || controller.connectors.obsidian.state !== "connected"} />
               ) : null}
@@ -134,7 +136,7 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
           </div>
         </header>
 
-        <ConnectorNotice connector={controller.connectors.kindle} />
+        <ConnectorNotice connector={controller.connectors.kindle} onImportFile={(file) => void controller.importReaderFile(file)} busy={busy} />
         {controller.lastExportPath && controller.operation.kind === "export" && controller.operation.status === "completed" ? (
           <div className="words-notice">
             <Check size={15} />
@@ -164,18 +166,18 @@ function ConnectorButton({ kind, info, onClick, disabled }: { kind: "kindle" | "
   return (
     <Button variant="secondary" size="sm" onClick={onClick} disabled={disabled} title={`${info.label}: ${connectorLabel(info.state)}`}>
       <Icon size={15} />
-      {kind === "obsidian" ? "Obsidian" : "Kindle"}
+      {kind === "obsidian" ? "Obsidian" : readerName(info)}
       <span className={cn("words-connector-mark", `is-${info.state}`)} aria-label={connectorLabel(info.state)} />
     </Button>
   );
 }
 
-function ConnectorNotice({ connector }: { connector: ConnectorInfo }) {
+function ConnectorNotice({ connector, onImportFile, busy }: { connector: ConnectorInfo; onImportFile: (file: File) => void; busy: boolean }) {
   if (connector.state !== "disconnected") return null;
   return (
     <div className="words-notice is-quiet">
       <CloudOff size={15} />
-      <span className="words-notice-text">Kindle не подключён. Библиотека доступна, синхронизация продолжится, когда вы подключите Kindle по USB.</span>
+      <span className="words-notice-text">Читалка не подключена. Библиотека доступна; подключите Kindle, PocketBook или Kobo по USB — или <ImportFileButton look="text" onFile={onImportFile} disabled={busy} />.</span>
     </div>
   );
 }

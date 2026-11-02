@@ -327,6 +327,7 @@ async function mockBackend<T>(action: string, payload: unknown): Promise<T> {
   if (action === "save_settings") { mockSettings = (payload as { settings: AppSettings }).settings; return { saved: true } as T; }
   if (action === "connector_status") return mockConnectors() as T;
   if (["load_library", "load_cached", "sync_kindle", "scan", "download_covers"].includes(action)) return libraryResult() as T;
+  if (action === "import_reader_file") return { ...libraryResult(), imported: { format: "koreader", label: "KOReader", lookups: mockEntries.length, new_words: 0 } } as T;
   if (action === "load_review") return mockReviewResult((payload as { limit?: number } | undefined)?.limit ?? 20) as T;
   if (action === "rate_review") {
     const { lexeme_id, rating } = payload as { lexeme_id: string; rating: "again" | "hard" | "good" };

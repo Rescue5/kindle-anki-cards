@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import csv
 import hashlib
 import html
@@ -13,10 +15,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kindle_vocab_app import anki_connect, anki_export, book_covers, enrichment, obsidian_sync, offline_dictionary, settings, vocab_cache
+from kindle_vocab_app import anki_connect, anki_export, book_covers, enrichment, obsidian_sync, offline_dictionary, reader_sources, settings, vocab_cache
 from kindle_vocab_app.llm import presets as llm_presets
 from kindle_vocab_app.kindle_db import fetch_entries, list_books, validate_vocab_db
-from kindle_vocab_app.kindle_device import find_kindle_presence, find_kindle_source
+from kindle_vocab_app.kindle_device import find_kindle_presence, find_kindle_source, mounted_volume_roots
 from kindle_vocab_app.library_repository import repository_for
 from kindle_vocab_app.logging_config import configure_logging, get_logger
 from kindle_vocab_app.tsv_schema import OPTIMIZED_TSV_HEADER
@@ -86,11 +88,12 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         return result
 
     if action in {"sync_kindle", "scan"}:
-        _emit_progress(job_id, "detecting", "Ищем подключённый Kindle", 0, 5)
+        _emit_progress(job_id, "detecting", "Ищем подключённую читалку", 0, 5)
         source = find_kindle_source()
+        readers = reader_sources.find_reader_files(mounted_volume_roots())
         catalog = _load_catalog_with_sources(workspace, reconcile_kindle=False, reconcile_obsidian=False)
-        if source is None:
-            logger.info("Kindle synchronization skipped job_id=%s reason=disconnected", job_id)
+        if source is None and not readers:
+            logger.info("Reader synchronization skipped job_id=%s reason=disconnected", job_id)
             disconnected = _connector_status(workspace, probe_kindle=False)
             disconnected["kindle"] = {"state": "disconnected", "label": "Kindle", "checked_at": vocab_cache.utc_now()}
             return _catalog_response(
@@ -99,11 +102,19 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
                 connector_status=disconnected,
                 queue_status=repository_for(workspace).queue_status(),
             )
-        _emit_progress(job_id, "copying", "Копируем vocab.db и обложки в локальный кэш", 1, 5)
-        db_path = source.copy_to_cache(workspace / ".app-data" / "cache")
-        validate_vocab_db(db_path)
+        _emit_progress(job_id, "copying", "Копируем слова и обложки в локальный кэш", 1, 5)
+        entries: list[dict[str, str]] = []
+        labels: list[str] = []
+        if source is not None:
+            db_path = source.copy_to_cache(workspace / ".app-data" / "cache")
+            validate_vocab_db(db_path)
+            entries.extend(_entry_for_frontend(entry) for entry in fetch_entries(db_path))
+            labels.append(source.label)
+        for reader in readers:
+            cached = reader_sources.copy_to_cache(reader.path, workspace / ".app-data" / "cache" / "readers", reader.kind)
+            entries.extend(_entry_for_frontend(entry) for entry in reader_sources.fetch_entries(cached, reader.kind))
+            labels.append(reader.label)
         _emit_progress(job_id, "parsing", "Читаем слова и контексты", 2, 5)
-        entries = [_entry_for_frontend(entry) for entry in fetch_entries(db_path)]
         sync_id = uuid.uuid4().hex
         _emit_progress(job_id, "merging", "Объединяем формы и известные леммы", 3, 5)
         catalog = vocab_cache.merge_kindle(catalog, entries, sync_id=sync_id, mark_new=True)
@@ -111,13 +122,16 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         repository_for(workspace).save_catalog(catalog)
         # Online cover lookup is slow (sequential requests), so sync only copies
         # Kindle thumbnails; the frontend fetches the rest in the background.
-        _emit_progress(job_id, "covers", "Сохраняем обложки с Kindle", 4, 5)
-        _download_book_covers(catalog, workspace, network=False)
-        _emit_progress(job_id, "completed", "Синхронизация Kindle завершена", 5, 5)
+        _emit_progress(job_id, "covers", "Сохраняем обложки с читалки", 4, 5)
+        if source is not None:
+            _download_book_covers(catalog, workspace, network=False)
+        label = " + ".join(labels)
+        _emit_progress(job_id, "completed", "Синхронизация завершена", 5, 5)
         logger.info(
-            "Kindle synchronization completed job_id=%s sync_id=%s entries=%d lexemes=%d",
+            "Reader synchronization completed job_id=%s sync_id=%s sources=%s entries=%d lexemes=%d",
             job_id,
             sync_id,
+            label,
             len(entries),
             len(catalog["lexemes"]),
         )
@@ -125,17 +139,20 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         if connector_status["kindle"]["state"] != "connected":
             connector_status["kindle"] = {
                 "state": "connected",
-                "label": source.label,
+                "label": label,
                 "checked_at": vocab_cache.utc_now(),
             }
         return _catalog_response(
             catalog,
             workspace=workspace,
-            source_name=source.label,
-            source_status="Vocabulary Builder синхронизирован",
+            source_name=label,
+            source_status="Слова с читалки синхронизированы",
             connector_status=connector_status,
             queue_status=repository_for(workspace).queue_status(),
         )
+
+    if action == "import_reader_file":
+        return _import_reader_file(payload, workspace, job_id=job_id)
 
     if action == "load_demo":
         raw = demo_state()["entries"]
@@ -640,13 +657,20 @@ def _load_catalog_with_sources(workspace: Path, *, reconcile_kindle: bool = True
 def _connector_status(workspace: Path, *, probe_kindle: bool) -> dict[str, Any]:
     app_settings = settings.load(workspace)
     presence = find_kindle_presence() if probe_kindle else None
+    label, signature = (presence.label, list(presence.signature)) if presence is not None else ("Kindle", None)
+    if probe_kindle and presence is None:
+        # KOReader and Kobo readers mount as ordinary USB drives: their word files are the identity.
+        readers = reader_sources.find_reader_files(mounted_volume_roots())
+        if readers:
+            label = " + ".join(reader.label for reader in readers)
+            signature = [part for reader in readers for part in reader.signature]
     kindle: dict[str, Any] = {
-        "state": "connected" if presence is not None else ("disconnected" if probe_kindle else "unknown"),
-        "label": presence.label if presence is not None else "Kindle",
+        "state": "connected" if signature is not None else ("disconnected" if probe_kindle else "unknown"),
+        "label": label,
         "checked_at": vocab_cache.utc_now(),
     }
-    if presence is not None:
-        kindle["signature"] = list(presence.signature)
+    if signature is not None:
+        kindle["signature"] = signature
     cards_dir = Path(app_settings.obsidian_vault_path) / app_settings.obsidian_cards_path if app_settings.obsidian_vault_path else None
     configured = bool(app_settings.obsidian_sync_enabled and cards_dir)
     obsidian_state = "disabled"
@@ -932,6 +956,51 @@ def load_database_state(db_path: Path, source_label: str) -> dict[str, Any]:
         "books": books,
         "entries": entries,
     }
+
+
+# A Kobo database with many books can be large; anything past this is not a words file.
+MAX_IMPORT_BYTES = 300 * 1024 * 1024
+
+
+def _import_reader_file(payload: dict[str, Any], workspace: Path, *, job_id: str) -> dict[str, Any]:
+    """Merge words from a database file the user picked: Kindle vocab.db, KOReader or Kobo."""
+    name = Path(str(payload.get("file_name") or "words.sqlite")).name
+    try:
+        data = base64.b64decode(str(payload.get("data_base64") or ""), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Не удалось прочитать файл") from exc
+    if not data:
+        raise ValueError("Файл пустой")
+    if len(data) > MAX_IMPORT_BYTES:
+        raise ValueError("Файл слишком большой для базы слов")
+    _emit_progress(job_id, "reading", f"Читаем {name}", 0, 3)
+    import_dir = workspace / ".app-data" / "cache" / "import"
+    import_dir.mkdir(parents=True, exist_ok=True)
+    upload = import_dir / "upload.sqlite"
+    upload.write_bytes(data)
+    kind = reader_sources.detect_format(upload)
+    if kind is None:
+        raise ValueError(f"{name}: это не база слов Kindle (vocab.db), KOReader (vocabulary_builder.sqlite3) или Kobo (KoboReader.sqlite)")
+    entries = [_entry_for_frontend(entry) for entry in reader_sources.fetch_entries(upload, kind)]
+    _emit_progress(job_id, "merging", "Объединяем формы и известные леммы", 1, 3)
+    catalog = _load_catalog_with_sources(workspace, reconcile_kindle=False, reconcile_obsidian=False)
+    before = len(catalog["lexemes"])
+    catalog = vocab_cache.merge_kindle(catalog, entries, sync_id=uuid.uuid4().hex, mark_new=True)
+    _refresh_obsidian_destination_states(catalog)
+    repository_for(workspace).save_catalog(catalog)
+    added = len(catalog["lexemes"]) - before
+    label = reader_sources.FORMAT_LABELS[kind]
+    _emit_progress(job_id, "completed", f"Импортировано из {label}: {added} новых слов", 3, 3)
+    logger.info("Imported reader file job_id=%s kind=%s entries=%d new_lexemes=%d", job_id, kind, len(entries), added)
+    result = _catalog_response(
+        catalog,
+        workspace=workspace,
+        source_name=f"{label} · {name}",
+        source_status="Слова из файла добавлены",
+        queue_status=repository_for(workspace).queue_status(),
+    )
+    result["imported"] = {"format": kind, "label": label, "lookups": len(entries), "new_words": added}
+    return result
 
 
 def _entry_for_frontend(entry: dict[str, object]) -> dict[str, str]:

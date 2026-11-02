@@ -62,7 +62,7 @@ export function BooksView({ books, entries, onOpenWord, selectedBookKey, onSelec
   return (
     <main className="reading-page app-scrollbar">
       <div className="screen-page">
-        <PageHead title="Книги" lede="Ваши книги и слова, которые вы искали в словаре Kindle.">
+        <PageHead title="Книги" lede="Ваши книги и слова, которые вы искали в словаре читалки.">
           <span className="reading-count">{stats.length} {ruCount(stats.length, "книга", "книги", "книг")} · обложки {availableCovers}/{stats.length}</span>
           {onDownloadCovers && stats.length > 0 ? (
             <Button type="button" size="sm" variant="secondary" onClick={onDownloadCovers} disabled={coversBusy} aria-busy={coversBusy}>
@@ -77,7 +77,7 @@ export function BooksView({ books, entries, onOpenWord, selectedBookKey, onSelec
           <div className="screen-empty">
             <Flourish />
             <h2>Здесь появятся ваши книги</h2>
-            <p>После синхронизации Kindle книги и найденные в них слова встанут на эту полку.</p>
+            <p>После синхронизации читалки книги и найденные в них слова встанут на эту полку.</p>
           </div>
         ) : (
           <div className="books-layout">

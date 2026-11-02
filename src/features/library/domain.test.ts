@@ -6,6 +6,7 @@ import {
   obsidianSyncReason,
   ankiPendingCount,
   needsAnkiUpdate,
+  readerName,
   russianMeaning,
   enrichmentCounts,
   shouldAutoEnrich,
@@ -206,5 +207,15 @@ describe("offline dictionary meanings", () => {
     expect(needsAnkiUpdate(exported("2026-10-30T10:00:00Z"))).toBe(true);
     expect(needsAnkiUpdate(exported("2026-11-03T10:00:00Z"))).toBe(false);
     expect(needsAnkiUpdate({ ...exported("2026-10-30T10:00:00Z"), dictionary: null })).toBe(false);
+  });
+});
+
+describe("reader names", () => {
+  it("shortens connector labels to the reader people know", () => {
+    const info = (label: string): ConnectorInfo => ({ state: "connected", label, checked_at: "" });
+    expect(readerName(info("Kindle · Paperwhite"))).toBe("Kindle");
+    expect(readerName(info("PocketBook · KOReader"))).toBe("PocketBook");
+    expect(readerName(info("Kobo"))).toBe("Kobo");
+    expect(readerName(undefined)).toBe("Kindle");
   });
 });

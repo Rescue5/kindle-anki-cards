@@ -155,7 +155,7 @@ function App() {
 
       <div className="reading-app-main">
         <div className="reading-view-frame">
-          {view === "home" ? <ReadingHome bookOptions={controller.books} entries={controller.entries} connectors={controller.connectors} operation={controller.operation} dueCount={dueCount} ankiPending={ankiPending} onSync={() => void controller.syncKindle()} onReview={() => setView("review")} onBooks={() => setView("books")} onWords={openWord} onNewWords={openNewWords} onSearch={searchWords} onSendToAnki={() => void controller.exportAnki()} /> : null}
+          {view === "home" ? <ReadingHome bookOptions={controller.books} entries={controller.entries} connectors={controller.connectors} operation={controller.operation} dueCount={dueCount} ankiPending={ankiPending} onSync={() => void controller.syncKindle()} onReview={() => setView("review")} onBooks={() => setView("books")} onWords={openWord} onNewWords={openNewWords} onSearch={searchWords} onSendToAnki={() => void controller.exportAnki()} onImportFile={(file) => void controller.importReaderFile(file)} /> : null}
           {view === "books" ? <BooksView books={controller.books} entries={controller.entries} onOpenWord={openWord} onDownloadCovers={controller.downloadCovers} coversBusy={controller.coversBusy || controller.operation.status === "running"} coverSummary={controller.coverSummary} /> : null}
           {view === "words" ? <LibraryWorkspace controller={controller} /> : null}
           {view === "review" ? <ReviewView onCountsChange={setDueCount} onOpenWords={() => openWord()} /> : null}

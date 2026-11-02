@@ -153,6 +153,8 @@ export type LibraryResult = {
   connectors: ConnectorStatus;
   queueStatus: QueueStatus;
   enrichmentQueue?: EnrichmentQueue;
+  /** Present after `import_reader_file`: what the picked file was and what it added. */
+  imported?: { format: "kindle" | "koreader" | "kobo"; label: string; lookups: number; new_words: number };
 };
 
 export type QueueStatus = {

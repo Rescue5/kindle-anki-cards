@@ -33,7 +33,7 @@ export function InsightsView({ books, entries, onOpenWord }: InsightsViewProps) 
           <div className="screen-empty">
             <Flourish />
             <h2>Пока нечего считать</h2>
-            <p>Когда слова из Kindle появятся в библиотеке, здесь будут ваши обращения к словарю и их даты.</p>
+            <p>Когда слова с читалки появятся в библиотеке, здесь будут ваши обращения к словарю и их даты.</p>
           </div>
         ) : (
           <>

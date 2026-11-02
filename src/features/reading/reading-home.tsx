@@ -4,7 +4,8 @@ import type { BookOption, ConnectorStatus, LexemeRecord, Operation } from "@/typ
 import { cn } from "@/lib/utils";
 import { ClipLamp, DeskLamp } from "@/components/light/light";
 import { CornerCurl, PencilFrame, PencilRule } from "@/components/sketch/sketch";
-import { russianMeaning } from "@/features/library/domain";
+import { readerName, russianMeaning } from "@/features/library/domain";
+import { ImportFileButton, READER_FILE_HELP } from "@/components/import-file-button";
 import { BookJacket } from "./book-jacket";
 import { formatDate, greeting, partOfSpeechShort, reviewMinutes, ruCount } from "./reading-domain";
 
@@ -22,6 +23,7 @@ type Props = {
   onNewWords: () => void;
   onSearch: (query: string) => void;
   onSendToAnki: () => void;
+  onImportFile: (file: File) => void;
 };
 
 type BookSummary = { key: string; title: string; author: string; coverDataUrl?: string; lookups: number; words: number; latest: string; latestAt: number };
@@ -61,7 +63,7 @@ function meaningOf(entry: LexemeRecord): string {
 
 function KindleStatus({ connectors }: { connectors: ConnectorStatus }) {
   const state = connectors.kindle.state;
-  const label = state === "connected" ? "Kindle подключён" : state === "unknown" ? "Ищем Kindle…" : "Kindle не подключён";
+  const label = state === "connected" ? `${readerName(connectors.kindle)} подключён` : state === "unknown" ? "Ищем читалку…" : "Читалка не подключена";
   return (
     <p className={cn("home-kindle", state === "connected" && "is-connected")}>
       <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -73,7 +75,7 @@ function KindleStatus({ connectors }: { connectors: ConnectorStatus }) {
   );
 }
 
-export function ReadingHome({ bookOptions, entries, connectors, operation, dueCount, ankiPending, onSync, onReview, onBooks, onWords, onNewWords, onSearch, onSendToAnki }: Props) {
+export function ReadingHome({ bookOptions, entries, connectors, operation, dueCount, ankiPending, onSync, onReview, onBooks, onWords, onNewWords, onSearch, onSendToAnki, onImportFile }: Props) {
   const books = React.useMemo(() => summarizeBooks(entries, bookOptions), [entries, bookOptions]);
   const recent = React.useMemo(() => [...entries].sort((a, b) => timestamp(b.last_seen_at) - timestamp(a.last_seen_at)).slice(0, 5), [entries]);
   const freshCount = React.useMemo(() => entries.filter((entry) => entry.freshness === "new").length, [entries]);
@@ -84,6 +86,7 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, dueCo
   const busy = operation.status === "running";
   const syncing = busy && operation.kind === "kindle";
   const kindleConnected = connectors.kindle.state === "connected";
+  const reader = readerName(connectors.kindle);
   // A lamp burns only where there is something to do.
   const deskLit = freshCount > 0 || kindleConnected;
   const reviewLit = dueCount > 0;
@@ -93,7 +96,7 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, dueCo
     <button type="button" className={primary ? "reading-primary-button" : "reading-secondary-button"} onClick={onSync} disabled={busy || !kindleConnected}>
       {primary ? null : <PencilFrame />}
       <RefreshCw size={17} strokeWidth={1.7} className={syncing ? "animate-spin" : undefined} />
-      {primary ? "Синхронизировать Kindle" : "Синхронизировать"}
+      {primary ? `Синхронизировать ${reader}` : "Синхронизировать"}
     </button>
   );
 
@@ -124,20 +127,20 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, dueCo
             <>
               <BookJacket title={latestBook.title} author={latestBook.author} coverDataUrl={latestBook.coverDataUrl} lit={deskLit} />
               <div className="home-hero-text">
-                <p className="home-eyebrow">Последняя книга в Kindle</p>
+                <p className="home-eyebrow">Последняя книга</p>
                 <h2 id="home-hero-title" className="home-book-title">{latestBook.title}</h2>
                 {latestBook.author ? <p className="home-book-author">{latestBook.author}</p> : null}
                 <p className="home-lede">
                   {freshCount > 0
                     ? "Новые находки из ваших книг уже в библиотеке и ждут разбора."
                     : kindleConnected
-                      ? "Kindle подключён — заберите слова, которые вы искали, пока читали."
-                      : "Все находки разобраны. Подключите Kindle, когда дочитаете следующую главу."}
+                      ? `${reader} подключён — заберите слова, которые вы искали, пока читали.`
+                      : "Все находки разобраны. Подключите читалку, когда дочитаете следующую главу."}
                 </p>
                 <div className="home-metrics-row">
                   <dl className="home-metrics">
                     <div><dt>{ruCount(latestBook.words, "слово из книги", "слова из книги", "слов из книги")}</dt><dd>{latestBook.words}</dd></div>
-                    <div><dt>{ruCount(latestBook.lookups, "просмотр в Kindle", "просмотра в Kindle", "просмотров в Kindle")}</dt><dd>{latestBook.lookups}</dd></div>
+                    <div><dt>{ruCount(latestBook.lookups, "поиск в словаре", "поиска в словаре", "поисков в словаре")}</dt><dd>{latestBook.lookups}</dd></div>
                     <div><dt>{ruCount(freshCount, "новое в библиотеке", "новых в библиотеке", "новых в библиотеке")}</dt><dd>{freshCount}</dd></div>
                   </dl>
                   {latestBook.latest ? <p className="home-note home-metrics-note">← последний поиск {formatDate(latestBook.latest, { day: "numeric", month: "long" })}</p> : null}
@@ -158,20 +161,22 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, dueCo
                     </>
                   )}
                 </div>
-                {!kindleConnected && connectors.kindle.state !== "unknown" ? <p className="home-hint">Подключите Kindle по USB, чтобы забрать новые слова.</p> : null}
+                {!kindleConnected && connectors.kindle.state !== "unknown" ? <p className="home-hint">Подключите читалку по USB или <ImportFileButton look="text" onFile={onImportFile} disabled={busy} />.</p> : null}
               </div>
             </>
           ) : (
             <div className="home-hero-text home-hero-empty">
               <p className="home-eyebrow">Первая синхронизация</p>
               <h2 id="home-hero-title" className="home-book-title">Ваша история чтения начинается здесь</h2>
-              <p className="home-lede">Подключите Kindle по USB: книги и слова, которые вы искали в словаре, появятся здесь.</p>
+              <p className="home-lede">Подключите Kindle, PocketBook или Kobo по USB: книги и слова, которые вы искали в словаре, появятся здесь. Без провода — выберите файл со словами.</p>
               <div className="home-actions">
                 <button type="button" className="reading-primary-button" onClick={onSync} disabled={busy}>
                   <RefreshCw size={17} strokeWidth={1.7} className={syncing ? "animate-spin" : undefined} />
-                  Проверить Kindle
+                  Проверить читалку
                 </button>
+                <ImportFileButton onFile={onImportFile} disabled={busy}>Выбрать файл</ImportFileButton>
               </div>
+              <p className="home-hint">{READER_FILE_HELP}</p>
             </div>
           )}
           <PencilRule variant={2} className="home-desk-line" />

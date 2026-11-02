@@ -109,6 +109,12 @@ python -m nltk.downloader -q wordnet omw-1.4 averaged_perceptron_tagger_eng punk
   frontend.
 - `kindle_vocab_app/kindle_device.py` detects and copies the Kindle `vocab.db`
   from mounted drives, Windows MTP/WPD, or macOS MTP.
+- `kindle_vocab_app/reader_sources.py` reads KOReader's
+  `vocabulary_builder.sqlite3` (PocketBook, Kobo, Boox, Android, jailbroken
+  Kindle) and Kobo's `WordList` into Kindle-shaped entries, detects a file's
+  format, and finds those databases on mounted volumes. Their book keys and
+  lookup IDs are prefixed `koreader:`/`kobo:`; lexemes keep `sources.kindle`,
+  which means "from an e-reader".
 - `kindle_vocab_app/kindle_mtp.py` runs read-only macOS USB transfers in an
   isolated worker using an installed OpenMTP Kalam runtime. Passive detection
   uses USB identity only; never bind native write operations.
@@ -143,9 +149,14 @@ python -m nltk.downloader -q wordnet omw-1.4 averaged_perceptron_tagger_eng punk
 
 The Tauri bridge currently supports these actions:
 
-- `scan` / `sync_kindle`: find Kindle, copy `vocab.db` into `.app-data/cache`,
-  validate it, merge forms and contexts into SQLite, and enqueue only unseen
-  canonical lexemes for processing.
+- `scan` / `sync_kindle`: find Kindle and any KOReader/Kobo databases on
+  mounted volumes, copy them into `.app-data/cache` (with KOReader's WAL
+  journal), merge forms and contexts into SQLite, and enqueue only unseen
+  canonical lexemes for processing. `connector_status` reports such a reader
+  as the `kindle` connector with its own label.
+- `import_reader_file`: merge a words database the user picked (base64 in
+  `data_base64`): Kindle `vocab.db`, KOReader or Kobo, detected by its tables;
+  re-importing the same file adds nothing.
 - `load_demo`: return demo vocabulary state without touching a Kindle or cache.
 - `download_covers`: read cached Kindle book identifiers, cache local thumbnails
   and exact Open Library matches, and return the refreshed library and counts.

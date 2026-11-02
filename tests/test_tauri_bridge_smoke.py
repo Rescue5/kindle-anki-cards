@@ -430,6 +430,7 @@ class BridgeSmokeTests(unittest.TestCase):
             with (
                 patch("kindle_vocab_app.tauri_bridge.find_kindle_source", return_value=source),
                 patch("kindle_vocab_app.tauri_bridge.find_kindle_presence", return_value=None),
+                patch("kindle_vocab_app.tauri_bridge.mounted_volume_roots", return_value=[]),
                 patch("kindle_vocab_app.tauri_bridge.validate_vocab_db"),
                 patch("kindle_vocab_app.tauri_bridge.fetch_entries", return_value=[entry]),
                 patch(

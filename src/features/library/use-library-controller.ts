@@ -277,7 +277,7 @@ export function useLibraryController() {
 
   const syncKindle = React.useCallback(async () => {
     lastAutoSyncAttemptAtRef.current = Date.now();
-    const id = begin("kindle", "Синхронизация Kindle", "Проверяем подключение устройства");
+    const id = begin("kindle", "Синхронизация", "Ищем подключённую читалку");
     try {
       const result = await callBackend<LibraryResult>("sync_kindle", { job_id: id });
       applyLibrary(result);
@@ -292,17 +292,39 @@ export function useLibraryController() {
         ...current,
         status: connected ? "completed" : "error",
         stage: connected ? "completed" : "failed",
-        title: connected ? "Kindle синхронизирован" : "Kindle не подключён",
-        message: connected ? `В библиотеке ${result.entries.length} лемм` : "Локальная библиотека сохранена; подключите Kindle по USB",
+        title: connected ? `Синхронизировано: ${result.connectors.kindle.label}` : "Читалка не подключена",
+        message: connected ? `В библиотеке ${result.entries.length} лемм` : "Библиотека сохранена; подключите читалку по USB или выберите файл со словами",
         error: connected ? "" : "Устройство не найдено",
       }));
     } catch (error) {
-      fail(id, "Синхронизация Kindle остановлена", error);
+      fail(id, "Синхронизация остановлена", error);
     } finally {
       void probeConnectors(true);
     }
   }, [applyLibrary, begin, fail, fetchCoversInBackground, probeConnectors]);
   syncKindleRef.current = syncKindle;
+
+  // A words database picked by hand: Kindle vocab.db, KOReader or Kobo. The bridge detects which.
+  const importReaderFile = React.useCallback(async (file: File) => {
+    if (operationRef.current.status === "running") return;
+    const id = begin("kindle", "Импорт слов", `Читаем ${file.name}`);
+    try {
+      if (file.size > MAX_IMPORT_BYTES) throw new Error(`${file.name} слишком большой для базы слов`);
+      const result = await callBackend<LibraryResult>("import_reader_file", { job_id: id, file_name: file.name, data_base64: await fileToBase64(file) });
+      applyLibrary(result);
+      const imported = result.imported;
+      setOperation((current) => ({
+        ...current,
+        status: "completed",
+        stage: "completed",
+        title: imported ? `Импорт из ${imported.label}` : "Импорт завершён",
+        message: imported ? `Новых слов: ${imported.new_words}; записей в файле: ${imported.lookups}` : `В библиотеке ${result.entries.length} лемм`,
+        error: "",
+      }));
+    } catch (error) {
+      fail(id, "Не удалось импортировать файл", error);
+    }
+  }, [applyLibrary, begin, fail]);
 
   const downloadCovers = React.useCallback(async () => {
     if (operationRef.current.status === "running") return;
@@ -504,6 +526,7 @@ export function useLibraryController() {
       queueStatus,
       loading,
       syncKindle,
+      importReaderFile,
       syncObsidian,
       exportVisible,
       cancel,
@@ -541,6 +564,7 @@ export function useLibraryController() {
       queueStatus,
       loading,
       syncKindle,
+      importReaderFile,
       syncObsidian,
       exportVisible,
       cancel,
@@ -556,4 +580,15 @@ export function useLibraryController() {
       loadLibrary,
     ],
   );
+}
+
+const MAX_IMPORT_BYTES = 300 * 1024 * 1024;
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""));
+    reader.onerror = () => reject(reader.error ?? new Error("Не удалось прочитать файл"));
+    reader.readAsDataURL(file);
+  });
 }
