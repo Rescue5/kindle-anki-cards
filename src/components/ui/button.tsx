@@ -2,32 +2,29 @@ import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
+import { PencilFrame } from "@/components/sketch/sketch";
 
-const buttonVariants = cva(
-  "inline-flex h-9 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] px-3 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-45 data-[loading=true]:cursor-wait data-[loading=true]:opacity-70",
-  {
-    variants: {
-      variant: {
-        default:
-          "bg-primary text-primary-foreground hover:bg-primary/92 active:scale-[0.99]",
-        secondary:
-          "border border-border bg-secondary/70 text-foreground hover:border-primary/35 hover:bg-secondary active:scale-[0.99]",
-        ghost: "text-muted-foreground hover:bg-secondary/70 hover:text-foreground active:bg-secondary",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-      },
-      size: {
-        default: "h-9 px-3",
-        sm: "h-8 rounded-[8px] px-2.5 text-xs",
-        lg: "h-10 rounded-[10px] px-4",
-        icon: "h-9 w-9 px-0",
-      },
+// Night reading buttons: `default` is lit by the lamp, `secondary` is drawn in pencil.
+const buttonVariants = cva("ui-button", {
+  variants: {
+    variant: {
+      default: "ui-button-lit",
+      secondary: "ui-button-drawn",
+      ghost: "ui-button-ghost",
+      destructive: "ui-button-drawn ui-button-danger",
     },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
+    size: {
+      default: "h-10 px-4 text-[14.5px]",
+      sm: "h-9 px-3 text-[13.5px]",
+      lg: "h-11 px-5 text-[15.5px]",
+      icon: "h-10 w-10 px-0",
     },
   },
-);
+  defaultVariants: {
+    variant: "default",
+    size: "default",
+  },
+});
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -36,9 +33,15 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
-    return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />;
+  ({ className, variant, size, asChild = false, children, ...props }, ref) => {
+    if (asChild) return <Slot className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props}>{children}</Slot>;
+    const drawn = variant === "secondary" || variant === "destructive";
+    return (
+      <button className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props}>
+        {drawn ? <PencilFrame /> : null}
+        {children}
+      </button>
+    );
   },
 );
 Button.displayName = "Button";

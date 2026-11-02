@@ -1,10 +1,8 @@
 import * as React from "react";
 import {
   AlertCircle,
-  BookMarked,
   BookOpen,
   Check,
-  ChevronDown,
   Circle,
   CloudOff,
   Database,
@@ -21,6 +19,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { ClipLamp } from "@/components/light/light";
+import { Flourish, PencilFrame, PencilRule } from "@/components/sketch/sketch";
+import { cn } from "@/lib/utils";
 import { counts, isAcceptedNew, isCardEligible, obsidianSyncReason, partOfSpeechLabel, primaryOccurrence, processingLabel, processingTone, type QuickFilter } from "./domain";
 import type { useLibraryController } from "./use-library-controller";
 import type { ConnectorInfo, LexemeRecord, WordAnalysis } from "@/types";
@@ -42,18 +43,18 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
   }, [controller.setSelectedId]);
 
   return (
-    <div className="library-workspace grid min-h-0 flex-1 grid-cols-[minmax(560px,1fr)_340px] overflow-hidden bg-background/35">
-      <main className="flex min-h-0 min-w-0 flex-col border-r border-line">
-        <header className="flex-none border-b border-line px-5 pb-3 pt-4">
-          <div className="flex items-start justify-between gap-4">
+    <div className="library-workspace words-screen">
+      <main className="words-main">
+        <header className="words-head">
+          <div className="words-head-top">
             <div>
-              <h1 className="font-serif text-[27px] leading-7">Слова</h1>
-              <p className="mt-1 text-xs text-muted-foreground">Слова и контексты из ваших книг</p>
+              <h1>Слова</h1>
+              <p className="page-head-lede">Слова и контексты из ваших книг</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="words-head-tools">
               {busy ? (
                 <Button variant="secondary" size="sm" onClick={() => void controller.cancel()}>
-                  <Square size={14} /> Отменить
+                  <Square size={13} /> Отменить
                 </Button>
               ) : null}
               <ConnectorButton kind="kindle" info={controller.connectors.kindle} onClick={() => void controller.syncKindle()} disabled={busy || controller.connectors.kindle.state !== "connected"} />
@@ -67,43 +68,37 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
                   onClick={() => void controller.enrichWords({ retryFailed: controller.enrichmentQueue.pending === 0 })}
                   title={controller.enrichmentQueue.pending > 0 ? "Перевести слова без перевода через выбранного провайдера ИИ" : "Повторить перевод слов, для которых он не удался"}
                 >
-                  <Languages size={14} />
+                  <Languages size={15} />
                   {controller.enrichmentQueue.pending > 0 ? "Перевести" : "Повторить перевод"}
-                  <span className="tabular-nums text-muted-foreground">{controller.enrichmentQueue.pending || controller.enrichmentQueue.failed}</span>
+                  <span className="words-count">{controller.enrichmentQueue.pending || controller.enrichmentQueue.failed}</span>
                 </Button>
               ) : controller.operation.kind === "enrich" && busy ? (
-                <div className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line bg-panel-raised/45 px-2.5 text-xs text-muted-foreground">
-                  <Loader2 size={13} className="animate-spin text-primary" />
-                  <span className="tabular-nums">{controller.operation.total ? `${controller.operation.current}/${controller.operation.total}` : "Перевод"}</span>
-                </div>
+                <span className="words-activity">
+                  <Loader2 size={14} className="animate-spin" />
+                  {controller.operation.total ? `Перевод ${controller.operation.current}/${controller.operation.total}` : "Перевод"}
+                </span>
               ) : null}
               {controller.queueStatus.failed > 0 && !busy ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="text-destructive hover:border-destructive/40"
-                  onClick={() => void controller.retryFailed()}
-                  title="Повторить offline-обработку лемм, завершившихся ошибкой"
-                >
-                  <AlertCircle size={13} />
-                  <span className="tabular-nums">Ошибки: {controller.queueStatus.failed}</span>
-                  <RefreshCw size={12} />
+                <Button variant="destructive" size="sm" onClick={() => void controller.retryFailed()} title="Повторить offline-обработку лемм, завершившихся ошибкой">
+                  <AlertCircle size={14} />
+                  Ошибки: {controller.queueStatus.failed}
+                  <RefreshCw size={13} />
                 </Button>
               ) : controller.queueStatus.total > 0 ? (
-                <div className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line bg-panel-raised/45 px-2.5 text-xs text-muted-foreground" title="Автоматическая очередь offline-обработки">
-                  {controller.operation.kind === "processing" && busy ? <Loader2 size={13} className="animate-spin text-primary" /> : <Layers3 size={13} />}
-                  <span className="tabular-nums">{controller.queueStatus.total}</span>
-                </div>
+                <span className="words-activity" title="Автоматическая очередь offline-обработки">
+                  {controller.operation.kind === "processing" && busy ? <Loader2 size={14} className="animate-spin" /> : <Layers3 size={14} />}
+                  В очереди: {controller.queueStatus.total}
+                </span>
               ) : null}
             </div>
           </div>
 
-          <div className="library-workspace-toolbar mt-4 grid grid-cols-[minmax(240px,1fr)_200px_90px_auto] gap-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input className="pl-9" value={controller.query} onChange={(event) => controller.setQuery(event.target.value)} placeholder="Поиск слова, контекста или книги..." />
+          <div className="library-workspace-toolbar words-toolbar">
+            <div className="screen-search">
+              <Search size={16} strokeWidth={1.7} aria-hidden="true" />
+              <Input aria-label="Поиск слова, контекста или книги" value={controller.query} onChange={(event) => controller.setQuery(event.target.value)} placeholder="Слово, контекст, книга" />
             </div>
-            <Select value={controller.selectedBookKey} onChange={(event) => controller.setSelectedBookKey(event.target.value)}>
+            <Select value={controller.selectedBookKey} onChange={(event) => controller.setSelectedBookKey(event.target.value)} aria-label="Книга">
               {controller.books.map((book) => <option key={book.key || "all"} value={book.key}>{book.label}</option>)}
             </Select>
             <Select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "anki" | "quizlet")} disabled={busy} aria-label="Формат экспорта">
@@ -112,38 +107,38 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
             </Select>
             {exportFormat === "anki" ? (
               <Button
-                variant="secondary"
+                variant={controller.ankiPending > 0 ? "default" : "secondary"}
                 size="sm"
                 onClick={() => void controller.exportAnki()}
                 disabled={busy || controller.ankiPending === 0}
                 title={!controller.ankiPending ? "Все подходящие слова уже в Anki" : controller.connectors.anki?.state === "connected" ? "Отправить новые и обновлённые карточки в открытый Anki" : "Собрать колоду из новых и обновлённых карточек. Чтобы отправлять сразу в Anki, установите дополнение AnkiConnect (код 2055492159)"}
               >
-                <Download size={14} /> В Anki <span className="tabular-nums text-muted-foreground">{controller.ankiPending}</span>
+                <Download size={15} /> В Anki <span className="words-count">{controller.ankiPending}</span>
               </Button>
             ) : (
               <Button variant="secondary" size="sm" onClick={() => void controller.exportVisible(exportFormat)} disabled={busy || totals.ready === 0} title="Сохранить видимые слова в TSV для Quizlet">
-                <Download size={14} /> Экспорт
+                <Download size={15} /> Экспорт
               </Button>
             )}
           </div>
 
-          <div className="library-workspace-filters mt-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1">
+          <div className="library-workspace-filters words-filters">
+            <div className="words-filter-tabs" role="group" aria-label="Быстрые фильтры">
               <QuickFilterButton label="Все" value={totals.all} filter="all" current={controller.quickFilter} onChange={controller.setQuickFilter} />
               <QuickFilterButton label="Новые" value={totals.new} filter="new" current={controller.quickFilter} onChange={controller.setQuickFilter} />
               <QuickFilterButton label="На обработку" value={totals.pending} filter="pending" current={controller.quickFilter} onChange={controller.setQuickFilter} />
               <QuickFilterButton label="Готовые" value={totals.ready} filter="ready" current={controller.quickFilter} onChange={controller.setQuickFilter} />
-              {obsidianEnabled ? <QuickFilterButton label="Не в Obsidian" value={totals.unsynced} filter="unsynced" current={controller.quickFilter} onChange={controller.setQuickFilter} obsidian /> : null}
+              {obsidianEnabled ? <QuickFilterButton label="Не в Obsidian" value={totals.unsynced} filter="unsynced" current={controller.quickFilter} onChange={controller.setQuickFilter} /> : null}
             </div>
-            <span className="text-xs tabular-nums text-muted-foreground">{controller.visibleEntries.length} из {controller.entries.length}</span>
+            <span className="words-count">{controller.visibleEntries.length} из {controller.entries.length}</span>
           </div>
         </header>
 
         <ConnectorNotice connector={controller.connectors.kindle} />
         {controller.lastExportPath && controller.operation.kind === "export" && controller.operation.status === "completed" ? (
-          <div className="flex flex-wrap items-center gap-2 border-b border-line bg-primary/5 px-5 py-2 text-xs">
-            <Check size={14} className="text-success" />
-            <span className="mr-auto">{controller.operation.message}. Откройте файл — Anki сам предложит импорт, повторный импорт обновит карточки без дублей.</span>
+          <div className="words-notice">
+            <Check size={15} />
+            <span className="words-notice-text">{controller.operation.message}. Откройте файл — Anki сам предложит импорт, повторный импорт обновит карточки без дублей.</span>
             <Button size="sm" onClick={() => void controller.openExport(false)}>Открыть в Anki</Button>
             <Button variant="ghost" size="sm" onClick={() => void controller.openExport(true)}>Показать в папке</Button>
           </div>
@@ -151,7 +146,7 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
         <LexemeTable entries={controller.visibleEntries} selectedId={controller.selectedEntry?.id ?? ""} onSelect={selectWord} obsidianEnabled={obsidianEnabled} loading={controller.loading} />
       </main>
 
-      <aside ref={inspectorRef} className="library-inspector flex min-h-0 flex-col bg-panel/65">
+      <aside ref={inspectorRef} className="library-inspector words-inspector" aria-label="Слово">
         <LexemeInspector
           entry={controller.selectedEntry}
           obsidianEnabled={obsidianEnabled}
@@ -165,17 +160,12 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
 });
 
 function ConnectorButton({ kind, info, onClick, disabled }: { kind: "kindle" | "obsidian"; info: ConnectorInfo; onClick: () => void; disabled: boolean }) {
-  const connected = info.state === "connected";
-  const isObsidian = kind === "obsidian";
-  const Icon = isObsidian ? Database : HardDrive;
-  const activeClass = isObsidian
-    ? "border-purple-700/30 bg-purple-700/10 text-purple-800"
-    : "border-primary/30 bg-primary/10 text-primary";
+  const Icon = kind === "obsidian" ? Database : HardDrive;
   return (
-    <Button variant="secondary" size="sm" onClick={onClick} disabled={disabled} className={connected ? activeClass : ""} title={`${info.label}: ${connectorLabel(info.state)}`}>
-      <Icon size={14} />
-      {isObsidian ? "Obsidian" : "Kindle"}
-      <span className={`h-1.5 w-1.5 rounded-full ${connected ? (isObsidian ? "bg-purple-300" : "bg-sky-300") : info.state === "error" ? "bg-destructive" : "bg-muted-foreground/60"}`} />
+    <Button variant="secondary" size="sm" onClick={onClick} disabled={disabled} title={`${info.label}: ${connectorLabel(info.state)}`}>
+      <Icon size={15} />
+      {kind === "obsidian" ? "Obsidian" : "Kindle"}
+      <span className={cn("words-connector-mark", `is-${info.state}`)} aria-label={connectorLabel(info.state)} />
     </Button>
   );
 }
@@ -183,24 +173,25 @@ function ConnectorButton({ kind, info, onClick, disabled }: { kind: "kindle" | "
 function ConnectorNotice({ connector }: { connector: ConnectorInfo }) {
   if (connector.state !== "disconnected") return null;
   return (
-    <div className="flex items-center gap-2 border-b border-line bg-panel-raised/35 px-5 py-2 text-xs text-muted-foreground">
-      <CloudOff size={14} className="text-warning" />
-      Kindle не подключён. Локальная библиотека доступна, синхронизация возобновится после подключения USB.
+    <div className="words-notice is-quiet">
+      <CloudOff size={15} />
+      <span className="words-notice-text">Kindle не подключён. Библиотека доступна, синхронизация продолжится, когда вы подключите Kindle по USB.</span>
     </div>
   );
 }
 
-function QuickFilterButton({ label, value, filter, current, onChange, obsidian = false }: { label: string; value: number; filter: QuickFilter; current: QuickFilter; onChange: (filter: QuickFilter) => void; obsidian?: boolean }) {
-  const active = current === filter;
+function QuickFilterButton({ label, value, filter, current, onChange }: { label: string; value: number; filter: QuickFilter; current: QuickFilter; onChange: (filter: QuickFilter) => void }) {
   return (
-    <button type="button" onClick={() => onChange(filter)} className={`rounded-[7px] px-2.5 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 ${active ? (obsidian ? "bg-purple-700/10 text-purple-800" : "bg-secondary text-foreground") : "text-muted-foreground hover:bg-secondary/55 hover:text-foreground"}`}>
-      {label} <span className="ml-1 tabular-nums opacity-70">{value}</span>
+    <button type="button" onClick={() => onChange(filter)} aria-pressed={current === filter} className="words-filter">
+      {label} <span>{value}</span>
     </button>
   );
 }
 
-const ITEM_HEIGHT = 48;
+const ITEM_HEIGHT = 52;
 const OVERSCAN = 5;
+const COLUMNS = "grid-cols-[minmax(110px,.8fr)_minmax(190px,1.5fr)_minmax(115px,.9fr)_118px]";
+const COLUMNS_WITH_OBSIDIAN = "grid-cols-[minmax(105px,.75fr)_minmax(170px,1.45fr)_minmax(105px,.85fr)_112px_104px]";
 
 const LexemeTable = React.memo(function LexemeTable({ entries, selectedId, onSelect, obsidianEnabled, loading }: { entries: LexemeRecord[]; selectedId: string; onSelect: (id: string) => void; obsidianEnabled: boolean; loading: boolean }) {
   const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
@@ -244,27 +235,27 @@ const LexemeTable = React.memo(function LexemeTable({ entries, selectedId, onSel
     }
   }, [selectedId, entries, container]);
 
-  if (loading) return <div className="grid min-h-0 flex-1 place-items-center text-sm text-muted-foreground"><Loader2 size={20} className="mb-2 animate-spin" />Загружаем локальный каталог</div>;
+  if (loading) return <div className="words-state"><Loader2 size={20} className="animate-spin" />Загружаем библиотеку</div>;
   if (!entries.length) return <EmptyLibrary />;
 
   const totalHeight = entries.length * ITEM_HEIGHT;
   const startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - OVERSCAN);
   const endIndex = Math.min(entries.length - 1, Math.ceil((scrollTop + viewportHeight) / ITEM_HEIGHT) + OVERSCAN);
   const topHeight = startIndex * ITEM_HEIGHT;
-  const bottomHeight = Math.max(0, (entries.length - endIndex - 1) * ITEM_HEIGHT);
+  const bottomHeight = Math.max(0, totalHeight - (endIndex + 1) * ITEM_HEIGHT);
   const visibleEntries = entries.slice(startIndex, endIndex + 1);
 
   return (
-    <div className="min-h-0 flex-1 overflow-hidden">
-      <div className={`library-table-header grid h-10 items-center border-b border-line bg-panel-raised/25 px-5 text-[11px] font-medium uppercase text-muted-foreground ${obsidianEnabled ? "grid-cols-[minmax(105px,.75fr)_minmax(170px,1.45fr)_minmax(105px,.85fr)_112px_104px]" : "grid-cols-[minmax(110px,.8fr)_minmax(190px,1.5fr)_minmax(115px,.9fr)_118px]"}`}>
-        <span>Лемма</span><span>Последний контекст</span><span>Книга</span><span>Обработка</span>{obsidianEnabled ? <span>Obsidian</span> : null}
+    <div className="words-table">
+      <div className={cn("library-table-header words-table-head grid", obsidianEnabled ? COLUMNS_WITH_OBSIDIAN : COLUMNS)}>
+        <span>Слово</span><span>Последний контекст</span><span>Книга</span><span>Обработка</span>{obsidianEnabled ? <span>Obsidian</span> : null}
       </div>
-      <div ref={setContainerRef} className="app-scrollbar h-[calc(100%-2.5rem)] overflow-y-auto">
-        {topHeight > 0 ? <div style={{ height: topHeight, gridColumn: "1 / -1" }} /> : null}
+      <div ref={setContainerRef} className="app-scrollbar words-table-body">
+        {topHeight > 0 ? <div style={{ height: topHeight }} /> : null}
         {visibleEntries.map((entry) => (
           <LexemeRow key={entry.id} entry={entry} selected={entry.id === selectedId} onSelect={onSelect} obsidianEnabled={obsidianEnabled} />
         ))}
-        {bottomHeight > 0 ? <div style={{ height: bottomHeight, gridColumn: "1 / -1" }} /> : null}
+        {bottomHeight > 0 ? <div style={{ height: bottomHeight }} /> : null}
       </div>
     </div>
   );
@@ -273,21 +264,21 @@ const LexemeTable = React.memo(function LexemeTable({ entries, selectedId, onSel
 const LexemeRow = React.memo(function LexemeRow({ entry, selected, onSelect, obsidianEnabled }: { entry: LexemeRecord; selected: boolean; onSelect: (id: string) => void; obsidianEnabled: boolean }) {
   const occurrence = primaryOccurrence(entry);
   return (
-    <button type="button" onClick={() => onSelect(entry.id)} className={`library-word-row grid min-h-[48px] w-full items-center border-b border-l-2 border-b-line/70 px-5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/45 ${obsidianEnabled ? "grid-cols-[minmax(105px,.75fr)_minmax(170px,1.45fr)_minmax(105px,.85fr)_112px_104px]" : "grid-cols-[minmax(110px,.8fr)_minmax(190px,1.5fr)_minmax(115px,.9fr)_118px]"} ${selected ? "border-l-primary bg-secondary/75" : "border-l-transparent hover:bg-secondary/40 active:bg-secondary/65"}`}>
-      <div className="min-w-0 pr-3">
-        <div className="flex items-center gap-2">
-          <span className="truncate font-medium text-foreground">{entry.lemma}</span>
-          {isAcceptedNew(entry) ? <span className="rounded-[5px] bg-primary/12 px-1.5 py-0.5 text-[10px] font-medium text-primary">Новое</span> : null}
+    <button type="button" onClick={() => onSelect(entry.id)} aria-current={selected ? "true" : undefined} className={cn("library-word-row words-row grid", obsidianEnabled ? COLUMNS_WITH_OBSIDIAN : COLUMNS, selected && "is-selected")}>
+      <div className="words-row-lemma">
+        <div>
+          <strong>{entry.lemma}</strong>
+          {isAcceptedNew(entry) ? <Badge>новое</Badge> : null}
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 overflow-hidden whitespace-nowrap text-[10px] text-muted-foreground">
+        <small>
           {entry.sources.kindle ? <BookOpen size={11} aria-label="Kindle" /> : null}
-          {entry.destinations.obsidian.state === "synced" ? <Database size={11} className="text-purple-700" aria-label="Obsidian" /> : null}
+          {entry.destinations.obsidian.state === "synced" ? <Database size={11} aria-label="Obsidian" /> : null}
           {entry.forms.length > 1 ? <span>{entry.forms.length} формы</span> : null}
           {entry.occurrences.length > 1 ? <span>· {entry.occurrences.length} контекста</span> : null}
-        </div>
+        </small>
       </div>
-      <span className="truncate pr-4 text-muted-foreground">{occurrence?.context || "Контекст отсутствует"}</span>
-      <span className="truncate pr-4 text-muted-foreground">{occurrence?.book_title || "Без книги"}</span>
+      <span className="words-row-context">{occurrence?.context || "Контекст отсутствует"}</span>
+      <span className="words-row-book">{occurrence?.book_title || "Без книги"}</span>
       <ProcessingMark entry={entry} />
       {obsidianEnabled ? <ObsidianMark entry={entry} /> : null}
     </button>
@@ -296,14 +287,14 @@ const LexemeRow = React.memo(function LexemeRow({ entry, selected, onSelect, obs
 
 function ProcessingMark({ entry }: { entry: LexemeRecord }) {
   const state = entry.processing.state;
-  return <span className={`flex items-center gap-2 text-xs ${processingTone(state)}`}><span className={`h-1.5 w-1.5 rounded-full bg-current ${state === "processing" ? "animate-pulse" : ""}`} />{processingLabel(state)}</span>;
+  return <span className={cn("words-mark", processingTone(state))}><span className={cn("words-mark-dot", state === "processing" && "animate-pulse")} />{processingLabel(state)}</span>;
 }
 
 function ObsidianMark({ entry }: { entry: LexemeRecord }) {
   const synced = entry.destinations.obsidian.state === "synced";
   const missing = entry.destinations.obsidian.eligible && entry.destinations.obsidian.state === "missing";
   const label = synced ? "В Obsidian" : missing ? "Не в Obsidian" : "Не подходит";
-  return <span className={`flex items-center gap-1.5 whitespace-nowrap text-xs ${synced ? "text-purple-700" : "text-muted-foreground"}`} title={obsidianSyncReason(entry)}>{synced ? <Check size={12} /> : <Circle size={11} />}{label}</span>;
+  return <span className={cn("words-mark", synced ? "text-foreground" : "text-muted-foreground")} title={obsidianSyncReason(entry)}>{synced ? <Check size={13} /> : <Circle size={11} />}{label}</span>;
 }
 
 type LexemeInspectorProps = {
@@ -315,54 +306,61 @@ type LexemeInspectorProps = {
 };
 
 function LexemeInspector({ entry, obsidianEnabled, llmEnabled, busy, onEnrich }: LexemeInspectorProps) {
-  if (!entry) return <div className="grid min-h-0 flex-1 place-items-center p-8 text-center text-sm text-muted-foreground">Выберите лемму в библиотеке</div>;
+  if (!entry) return <div className="words-state words-state-inspector"><Flourish width={120} />Выберите слово в списке — оно ляжет сюда, под лампу.</div>;
   const analysis = entry.processing.analysis;
   const enrichment = entry.enrichment?.status === "ready" ? entry.enrichment : null;
   const primary = primaryOccurrence(entry);
   return (
-    <section className="app-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-serif text-[31px] leading-8">{entry.lemma}</h2>
-            {isAcceptedNew(entry) ? <Badge>Новое</Badge> : null}
-          </div>
-          <p className="mt-1 truncate text-xs text-muted-foreground">{entry.forms.join(" · ")}</p>
+    <section className="app-scrollbar words-inspector-scroll">
+      <article className="word-card lamp-host">
+        <ClipLamp lit />
+        <PencilFrame />
+        <div className="word-card-head">
+          <h2>{entry.lemma}</h2>
+          {isAcceptedNew(entry) ? <Badge>новое</Badge> : null}
+          <span className="word-card-sources">
+            {entry.sources.kindle ? <span title="Есть в Kindle"><BookOpen size={15} /></span> : null}
+            {entry.destinations.obsidian.state === "synced" ? <span title="Есть в Obsidian"><Database size={15} /></span> : null}
+          </span>
         </div>
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          {entry.sources.kindle ? <span title="Есть в Kindle"><BookOpen size={15} /></span> : null}
-          {entry.destinations.obsidian.state === "synced" ? <Database size={15} className="text-purple-700" aria-label="Есть в Obsidian" /> : null}
-        </div>
-      </div>
-
-      {enrichment?.meaning_ru ? <p className="mt-5 border-t border-line pt-4 font-serif text-xl leading-snug">{enrichment.meaning_ru}</p> : null}
-      {primary?.context ? (
-        <div className="mt-5 border-l-2 border-primary/45 pl-3">
-          <p className="font-serif text-[16px] italic leading-6">{primary.context}</p>
-          {enrichment?.context_ru ? <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{enrichment.context_ru}</p> : null}
-          <p className="mt-2 text-[11px] text-muted-foreground">{primary.book_title || "Источник без названия"}{primary.authors ? ` · ${primary.authors}` : ""}</p>
-        </div>
-      ) : null}
+        <p className="word-card-forms">{entry.forms.join(" · ")}</p>
+        {enrichment?.meaning_ru ? <p className="word-card-meaning">{enrichment.meaning_ru}</p> : analysis?.russian_meanings ? <p className="word-card-meaning">{analysis.russian_meanings}</p> : null}
+        {primary?.context ? (
+          <blockquote className="word-context">
+            <p>{primary.context}</p>
+            {enrichment?.context_ru ? <p className="word-context-translation">{enrichment.context_ru}</p> : null}
+            <footer>{primary.book_title || "Источник без названия"}{primary.authors ? ` · ${primary.authors}` : ""}</footer>
+          </blockquote>
+        ) : null}
+      </article>
       <TranslationDetails entry={entry} llmEnabled={llmEnabled} busy={busy} onEnrich={onEnrich} />
-      <p className="mt-5 text-xs text-muted-foreground">{entry.occurrences.length} {entry.occurrences.length === 1 ? "встреча в книгах" : "встреч в книгах"}</p>
+      <p className="words-meta">{entry.occurrences.length} {entry.occurrences.length === 1 ? "встреча в книгах" : "встреч в книгах"}</p>
 
       <InspectorSection title="О слове">
-        <div className="flex items-center justify-between gap-3 text-sm"><span className="text-muted-foreground">Состояние</span><ProcessingMark entry={entry} /></div>
-        {entry.processing.error ? <p className="mt-2 text-xs leading-5 text-destructive">{entry.processing.error}</p> : null}
-        {analysis ? <AnalysisDetails analysis={analysis} /> : <p className="mt-3 text-sm leading-6 text-muted-foreground">Лемма ещё не проходила offline-обработку. Оценки, перевод и смысловые поля не заполняются заранее.</p>}
+        <div className="words-state-row"><span>Состояние</span><ProcessingMark entry={entry} /></div>
+        {entry.processing.error ? <p className="words-error">{entry.processing.error}</p> : null}
+        {analysis ? <AnalysisDetails analysis={analysis} /> : <p className="words-meta">Слово ещё не проходило offline-обработку. Оценки и перевод заранее не заполняются.</p>}
       </InspectorSection>
 
-      {entry.occurrences.length > 1 ? <InspectorSection title={`Все контексты · ${entry.occurrences.length}`}>
-        <div className="space-y-4">{entry.occurrences.map((occurrence) => <article key={occurrence.id} className="border-l-2 border-line pl-3"><p className="text-sm leading-6 text-foreground/90">{occurrence.context || "Контекст отсутствует"}</p><div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground"><BookOpen size={11} /><span>{occurrence.book_title || "Источник без названия"}</span>{occurrence.looked_up_at ? <span>· {occurrence.looked_up_at}</span> : null}</div></article>)}</div>
-      </InspectorSection> : null}
-
-      {obsidianEnabled ? (
-        <InspectorSection title="Obsidian" purple>
-          <ObsidianMark entry={entry} />
-          <p className="mt-2 text-xs leading-5 text-muted-foreground">{obsidianSyncReason(entry)}</p>
+      {entry.occurrences.length > 1 ? (
+        <InspectorSection title={`Все контексты · ${entry.occurrences.length}`}>
+          <div className="words-contexts">
+            {entry.occurrences.map((occurrence) => (
+              <blockquote key={occurrence.id} className="word-context">
+                <p>{occurrence.context || "Контекст отсутствует"}</p>
+                <footer>{occurrence.book_title || "Источник без названия"}{occurrence.looked_up_at ? ` · ${occurrence.looked_up_at}` : ""}</footer>
+              </blockquote>
+            ))}
+          </div>
         </InspectorSection>
       ) : null}
 
+      {obsidianEnabled ? (
+        <InspectorSection title="Obsidian">
+          <ObsidianMark entry={entry} />
+          <p className="words-meta">{obsidianSyncReason(entry)}</p>
+        </InspectorSection>
+      ) : null}
     </section>
   );
 }
@@ -372,24 +370,25 @@ function TranslationDetails({ entry, llmEnabled, busy, onEnrich }: { entry: Lexe
   if (enrichment?.status === "ready") {
     if (!enrichment.definition_en && !enrichment.example_en && !enrichment.note_ru) return null;
     return (
-      <div className="mt-4 space-y-2 text-sm leading-6">
-        {enrichment.definition_en ? <p className="text-foreground/85">{enrichment.definition_en}</p> : null}
-        {enrichment.example_en ? <p className="text-muted-foreground"><span className="italic">{enrichment.example_en}</span>{enrichment.example_ru ? ` — ${enrichment.example_ru}` : ""}</p> : null}
-        {enrichment.note_ru ? <p className="text-xs text-muted-foreground">{enrichment.note_ru}</p> : null}
-        <p className="text-[11px] text-muted-foreground/80">Перевод: {enrichment.model}</p>
+      <div className="words-translation">
+        {enrichment.definition_en ? <p>{enrichment.definition_en}</p> : null}
+        {enrichment.example_en ? <p className="words-translation-example"><em>{enrichment.example_en}</em>{enrichment.example_ru ? ` — ${enrichment.example_ru}` : ""}</p> : null}
+        {enrichment.note_ru ? <p className="home-note words-translation-note">{enrichment.note_ru}</p> : null}
+        <p className="words-meta">Перевод: {enrichment.model}</p>
       </div>
     );
   }
   if (!isCardEligible(entry)) return null;
   const failed = enrichment?.status === "failed";
   return (
-    <div className="mt-4 flex items-center justify-between gap-3 rounded-[10px] border border-line bg-panel-raised/40 px-3 py-2 text-xs">
-      <span className={failed ? "text-destructive" : "text-muted-foreground"}>
+    <div className="words-translation-missing">
+      <PencilFrame variant={1} />
+      <span className={failed ? "text-destructive" : undefined}>
         {failed ? `Перевод не удался: ${enrichment?.error}` : llmEnabled ? "Перевода по контексту ещё нет." : "Перевод по контексту можно включить в настройках."}
       </span>
       {llmEnabled ? (
         <Button variant="secondary" size="sm" onClick={() => onEnrich(entry.id, failed)} disabled={busy}>
-          <Languages size={13} /> {failed ? "Повторить" : "Перевести"}
+          <Languages size={14} /> {failed ? "Повторить" : "Перевести"}
         </Button>
       ) : null}
     </div>
@@ -398,23 +397,35 @@ function TranslationDetails({ entry, llmEnabled, busy, onEnrich }: { entry: Lexe
 
 function AnalysisDetails({ analysis }: { analysis: WordAnalysis }) {
   return (
-    <div className="mt-3 space-y-3 border-t border-line pt-3 text-sm">
-      <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-2">
-        <dt className="text-muted-foreground">Часть речи</dt><dd>{partOfSpeechLabel(analysis.pos)}</dd>
-        <dt className="text-muted-foreground">Полезность</dt><dd>{analysis.importance_score != null ? `${analysis.importance_score}/10` : "не рассчитана"}</dd>
-        <dt className="text-muted-foreground">Частотность</dt><dd>{analysis.frequency_note || "нет данных"}</dd>
+    <>
+      <dl className="home-ledger words-ledger">
+        <div><dt>Часть речи</dt><dd>{partOfSpeechLabel(analysis.pos)}</dd></div>
+        <div><dt>Полезность</dt><dd>{analysis.importance_score != null ? `${analysis.importance_score}/10` : "не рассчитана"}</dd></div>
+        <div><dt>Частотность</dt><dd>{analysis.frequency_note || "нет данных"}</dd></div>
       </dl>
-      {analysis.importance_note ? <p className="leading-6 text-muted-foreground">{analysis.importance_note}</p> : null}
-    </div>
+      {analysis.importance_note ? <p className="words-meta">{analysis.importance_note}</p> : null}
+    </>
   );
 }
 
-function InspectorSection({ title, children, purple = false }: { title: string; children: React.ReactNode; purple?: boolean }) {
-  return <div className={`mt-5 border-t pt-4 ${purple ? "border-purple-700/25" : "border-line"}`}><h3 className={`mb-3 text-[11px] font-semibold uppercase ${purple ? "text-purple-800" : "text-muted-foreground"}`}>{title}</h3>{children}</div>;
+function InspectorSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="words-section">
+      <PencilRule variant={1} />
+      <h3>{title}</h3>
+      {children}
+    </section>
+  );
 }
 
 function EmptyLibrary() {
-  return <div className="grid min-h-0 flex-1 place-items-center p-8 text-center"><div><BookMarked size={28} className="mx-auto text-muted-foreground" /><h2 className="mt-3 text-sm font-medium">В этой выборке нет лемм</h2><p className="mt-1 text-xs text-muted-foreground">Измените фильтр, книгу или поисковый запрос.</p></div></div>;
+  return (
+    <div className="words-state">
+      <Flourish width={140} />
+      <h2>В этой выборке нет слов</h2>
+      <p>Измените фильтр, книгу или поисковый запрос.</p>
+    </div>
+  );
 }
 
 function connectorLabel(state: ConnectorInfo["state"]) {

@@ -92,15 +92,24 @@ drawn as pencil marks (underline, circle, cross-out) rather than coloured pills.
 ## Components
 
 - **Surfaces**: few boxes. Regions are separated by drawn rules and light, not
-  by nested bordered cards.
-- **Buttons**: primary = lit (amber pool behind ink text, pencil outline);
-  secondary = pencil outline; text buttons = underlined in pencil. Every button
-  has hover (light warms), pressed (scale 0.97), focus (pencil ring) and
-  disabled (faded graphite) states.
-- **Inputs and selects**: drawn underline or rough box, custom chevrons; no
-  native-looking controls.
+  by nested bordered cards. A screen opens with `PageHead` (title, italic
+  lede, tools) underlined in pencil.
+- **Buttons** (`components/ui/button`): `default` is lit (lamp amber behind
+  dark ink); `secondary` is drawn (`PencilFrame` outline); `ghost` is bare
+  text; text buttons are underlined in pencil. Every button has hover (light
+  warms), pressed (scale 0.97), focus (dashed ring) and disabled (faded) states.
+- **Inputs and selects**: written on a pencil line that warms to the lamp
+  colour on focus; selects get a drawn chevron. Icons sit on the line
+  (`.screen-search`).
+- **Switches**: the knob is a small bulb that lights up when on.
+- **Badges**: handwritten notes in the margin (Caveat), never coloured pills.
 - **Tables / lists**: rows separated by faint hand-drawn rules; the selected
-  row is lit.
+  row is lit by a pool. Words read as dictionary entries, ledgers use dot
+  leaders.
+- **One lamp per screen**: home and Books — a desk lamp over the book on the
+  desk; Words — a clip lamp over the chosen word's card; Review — a desk lamp
+  over the index card, out when the session is done. Insights and Settings
+  stay unlit.
 
 ## Do not
 

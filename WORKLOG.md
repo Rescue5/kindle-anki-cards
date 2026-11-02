@@ -1383,3 +1383,46 @@ and reach a higher design level than the generic dashboard look.
 - Books, Words, Review, Insights and Settings still use the previous styles
   (bright placeholder covers, coloured connector chips); port them next.
 - Not tried in the packaged Tauri window yet; design commits are not pushed.
+
+## 2026-11-02 - Claude - "Кабинет" on every screen
+
+### Goal
+
+Port Books, Words, Review, Insights and Settings to the "Кабинет" world so the
+whole app reads as one room.
+
+### Changes
+
+- UI primitives restyled once for all screens: `Button` (lit `default`,
+  pencil-framed `secondary`/`destructive`, `ghost`), `Input` and `Select` on a
+  pencil line that warms on focus, `Switch` with a bulb knob, `Badge` as a
+  handwritten note. Unused `card.tsx` and `progress.tsx` removed, along with
+  `@radix-ui/react-progress`.
+- Shared pieces: `PageHead` (`src/components/page-head.tsx`), `BookJacket`
+  (`src/features/reading/book-jacket.tsx`, drawn jacket or real cover; replaces
+  the bright placeholder covers), dictionary-entry list classes.
+- Books: shelf with small jackets and a lit selection; the chosen book on the
+  desk under a desk lamp; its words as dictionary entries.
+- Words: no purple/blue connector colours; pencil filters, lit selected row,
+  the chosen word as an index card under a clip lamp, dot-leader analysis.
+- Review: the index card on the desk under a desk lamp that goes out when the
+  session is done; Space reveals, 1/2/3 rate.
+- Insights: figures with pencil separators, chart with amber new-word bars
+  and hatched lookup bars, bibliography with dot leaders.
+- Settings: sections with a description column, no icon-in-a-square cards,
+  switch rows.
+- `DESIGN.md` components section updated (one lamp per screen, primitives).
+
+### Verification
+
+- ruff (CI paths), `pytest` 71 passed / 1 skipped, `npm test` 22 passed,
+  `npm run build` passed.
+- Screenshots of every screen with showcase data at 1320 px (night and day)
+  and the 1120 px minimum window; keyboard review (Space, 3) exercised in the
+  browser preview.
+
+### Notes
+
+- The Vite dev server once missed a CSS change written by a shell append and
+  served stale styles; touching the file fixed it. Not an app issue.
+- Not tried in the packaged Tauri window yet; design commits are not pushed.

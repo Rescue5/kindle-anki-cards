@@ -134,6 +134,52 @@ body {
 .flourish circle { fill: currentColor; }
 .hand { font-family: var(--font-hand); font-weight: 500; letter-spacing: 0; }
 
+/* ---------- Controls (components/ui) ---------- */
+
+/* Base rules use :where() so Tailwind utilities on a control still win. */
+:where(.ui-button) { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; font-family: var(--font-reading); font-weight: 500; line-height: 1; white-space: nowrap; transition: transform 120ms var(--ease-out), background-color 200ms var(--ease-out), box-shadow 240ms var(--ease-out), color 160ms var(--ease-out), filter 160ms var(--ease-out); }
+.ui-button:active:not(:disabled) { transform: scale(0.97); }
+.ui-button:disabled { cursor: not-allowed; opacity: .45; }
+.ui-button[data-loading="true"] { cursor: wait; opacity: .7; }
+.ui-button-lit { background: hsl(var(--lamp)); color: hsl(30 60% 7%); box-shadow: inset 0 0 0 1px hsl(30 60% 7% / 0.16), 0 0 20px hsl(var(--lamp) / calc(0.24 * var(--lamp-glow))); }
+.ui-button-lit:hover:not(:disabled) { filter: brightness(1.07); box-shadow: inset 0 0 0 1px hsl(30 60% 7% / 0.16), 0 0 30px hsl(var(--lamp) / calc(0.4 * var(--lamp-glow) + 0.06)); }
+.ui-button-drawn { background: transparent; color: hsl(var(--foreground)); }
+.ui-button-ghost { background: transparent; color: hsl(var(--muted-foreground)); }
+.ui-button-drawn:hover:not(:disabled), .ui-button-ghost:hover:not(:disabled) { background: hsl(var(--lamp) / calc(0.06 + 0.02 * var(--lamp-glow))); color: hsl(var(--foreground)); }
+.ui-button-drawn[aria-pressed="true"] { background: hsl(var(--lamp) / calc(0.12 + 0.05 * var(--lamp-glow))); }
+.ui-button-danger { color: hsl(var(--destructive)); }
+.ui-button-danger > .pencil-frame { color: hsl(var(--destructive) / 0.55); }
+.ui-button-danger:hover:not(:disabled) { color: hsl(var(--destructive)); }
+
+.ui-field { position: relative; display: block; width: 100%; }
+:where(.ui-input, .ui-select) { width: 100%; height: 38px; padding: 0 2px; border: 0; border-radius: 0; background: transparent; color: hsl(var(--foreground)); font: 14.5px var(--font-reading); outline: none; }
+.ui-input::placeholder { color: hsl(var(--muted-foreground)); opacity: 1; }
+.ui-input:disabled, .ui-select:disabled { cursor: not-allowed; opacity: .5; }
+:where(.ui-select) { appearance: none; padding-right: 24px; cursor: pointer; }
+.ui-select option { background: hsl(var(--background)); color: hsl(var(--foreground)); }
+.ui-select-chevron { position: absolute; right: 2px; top: 50%; color: hsl(var(--muted-foreground)); pointer-events: none; transform: translateY(-50%); filter: url(#pencil-texture); }
+.ui-field > .ui-field-line { position: absolute; left: 0; bottom: -2px; color: hsl(var(--pencil) / 0.5); pointer-events: none; transition: color 200ms var(--ease-out); }
+.ui-field:hover > .ui-field-line { color: hsl(var(--pencil) / 0.75); }
+.ui-field:focus-within > .ui-field-line { color: hsl(var(--lamp)); }
+
+.ui-switch { position: relative; display: inline-flex; flex: none; align-items: center; width: 46px; height: 26px; padding: 0 3px; border-radius: 999px; background: transparent; box-shadow: inset 0 0 0 1.25px hsl(var(--pencil) / 0.55); cursor: pointer; transition: background-color 240ms var(--ease-out), box-shadow 240ms var(--ease-out); }
+.ui-switch:hover:not(:disabled) { box-shadow: inset 0 0 0 1.25px hsl(var(--pencil) / 0.85); }
+.ui-switch:disabled { cursor: not-allowed; opacity: .45; }
+.ui-switch-bulb { width: 18px; height: 18px; border-radius: 50%; background: hsl(var(--background)); box-shadow: inset 0 0 0 1.25px hsl(var(--pencil) / 0.8); transition: transform 240ms var(--ease-in-out), background-color 240ms var(--ease-out), box-shadow 240ms var(--ease-out); }
+.ui-switch[aria-checked="true"] { background: hsl(var(--lamp) / calc(0.1 + 0.06 * var(--lamp-glow))); }
+.ui-switch[aria-checked="true"] .ui-switch-bulb { background: hsl(var(--lamp)); box-shadow: inset 0 0 0 1.25px hsl(30 60% 7% / 0.25), 0 0 12px hsl(var(--lamp) / calc(0.25 + 0.5 * var(--lamp-glow))); transform: translateX(20px); }
+.ui-switch:active:not(:disabled) .ui-switch-bulb { transform: scale(0.92); }
+.ui-switch[aria-checked="true"]:active:not(:disabled) .ui-switch-bulb { transform: translateX(20px) scale(0.92); }
+
+.ui-badge { display: inline-flex; align-items: center; color: hsl(var(--primary)); font: 500 18px/1 var(--font-hand); transform: rotate(-3deg); }
+
+/* Page header shared by the reading screens. */
+.page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 28px; }
+.page-head h1 { font: 500 clamp(32px, 3.4vw, 44px)/1.05 var(--font-reading); letter-spacing: -.02em; }
+.page-head-lede { margin-top: 8px; color: hsl(var(--muted-foreground)); font: italic 15.5px/1.45 var(--font-reading); }
+.page-head-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.page-head + .pencil-rule { margin-top: 18px; }
+
 /* ---------- Light ---------- */
 
 /*

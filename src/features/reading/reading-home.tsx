@@ -4,6 +4,7 @@ import type { BookOption, ConnectorStatus, LexemeRecord, Operation } from "@/typ
 import { cn } from "@/lib/utils";
 import { ClipLamp, DeskLamp } from "@/components/light/light";
 import { CornerCurl, PencilFrame, PencilRule } from "@/components/sketch/sketch";
+import { BookJacket } from "./book-jacket";
 import { formatDate, greeting, partOfSpeechShort, reviewMinutes, ruCount } from "./reading-domain";
 
 type Props = {
@@ -56,29 +57,6 @@ function summarizeBooks(entries: LexemeRecord[], bookOptions: BookOption[]): Boo
 function meaningOf(entry: LexemeRecord): string {
   if (entry.enrichment?.status === "ready" && entry.enrichment.meaning_ru) return entry.enrichment.meaning_ru;
   return entry.processing.analysis?.russian_meanings || "";
-}
-
-/** The latest book as a jacket lying under the desk lamp: the real cover when Kindle has one. */
-function BookJacket({ book, lit }: { book: BookSummary; lit: boolean }) {
-  return (
-    <div className={cn("home-jacket", lit && "is-lit")} aria-hidden="true">
-      {book.coverDataUrl ? (
-        <img className="home-jacket-image" src={book.coverDataUrl} alt="" />
-      ) : (
-        <>
-          <svg className="home-jacket-art" viewBox="0 0 212 310" preserveAspectRatio="none">
-            <rect x="16" y="14" width="180" height="282" rx="2" />
-            <rect className="home-jacket-art-soft" x="21" y="19" width="170" height="272" rx="1" />
-            <path className="home-jacket-art-soft" d="M156.9 217.2 L190.1 210.1 M153.5 206.8 L173.6 197.9 M148.1 197.4 L175.6 177.5 M140.8 189.4 L155.5 173 M132 183 L149 153.5 M122.1 178.5 L128.9 157.6 M111.4 176.3 L115 142.5 M100.6 176.3 L98.3 154.4 M89.9 178.5 L79.4 146.2 M80 183 L69 163.9 M71.2 189.4 L48.5 164.1 M63.9 197.4 L46.1 184.5 M58.5 206.8 L27.4 193 M55.1 217.2 L33.6 212.6" />
-            <path d="M58 228 A48 48 0 0 1 154 228 M74 228 A32 32 0 0 1 138 228 M36 228 L176 228" />
-          </svg>
-          <span className="home-jacket-title">{book.title}</span>
-          {book.author ? <span className="home-jacket-author">{book.author}</span> : null}
-        </>
-      )}
-      <span className="home-jacket-light" />
-    </div>
-  );
 }
 
 function KindleStatus({ connectors }: { connectors: ConnectorStatus }) {
@@ -144,7 +122,7 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, dueCo
           <DeskLamp lit={deskLit} />
           {latestBook ? (
             <>
-              <BookJacket book={latestBook} lit={deskLit} />
+              <BookJacket title={latestBook.title} author={latestBook.author} coverDataUrl={latestBook.coverDataUrl} lit={deskLit} />
               <div className="home-hero-text">
                 <p className="home-eyebrow">Последняя книга в Kindle</p>
                 <h2 id="home-hero-title" className="home-book-title">{latestBook.title}</h2>
@@ -206,20 +184,20 @@ export function ReadingHome({ bookOptions, entries, connectors, operation, dueCo
               <button type="button" className="reading-text-button" onClick={() => onWords()}>Все слова <ArrowRight size={16} /></button>
             </div>
             {recent.length ? (
-              <ul className="home-entries">
+              <ul className="dict-list">
                 {recent.map((entry, index) => {
                   const occurrence = entry.occurrences[0];
                   const meaning = meaningOf(entry);
                   const pos = partOfSpeechShort(entry.processing.analysis?.pos);
                   return (
                     <li key={entry.id}>
-                      <button type="button" className="home-entry" onClick={() => onWords(entry.id)}>
-                        <span className="home-entry-text">
+                      <button type="button" className="dict-entry" onClick={() => onWords(entry.id)}>
+                        <span className="dict-entry-text">
                           <strong>{entry.lemma}</strong>
                           {pos ? <em> {pos}</em> : null}
-                          {meaning ? <> — {meaning}</> : <span className="home-entry-context"> — {occurrence?.context || "контекст пока не найден"}</span>}
+                          {meaning ? <> — {meaning}</> : <span className="dict-entry-context"> — {occurrence?.context || "контекст пока не найден"}</span>}
                         </span>
-                        <span className="home-entry-book">{occurrence?.book_title || "Без книги"}</span>
+                        <span className="dict-entry-aside">{occurrence?.book_title || "Без книги"}</span>
                       </button>
                       {index < recent.length - 1 ? <PencilRule variant={index} /> : null}
                     </li>

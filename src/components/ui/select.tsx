@@ -1,17 +1,18 @@
 import * as React from "react";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PencilRule } from "@/components/sketch/sketch";
 
+/** A native select on a pencil line with a drawn chevron. */
 export function Select({
   className,
   ...props
 }: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select
-      className={cn(
-        "h-9 rounded-[10px] border border-border bg-input px-3 text-sm text-foreground outline-none transition-all hover:border-primary/25 focus:border-primary/50 focus:ring-2 focus:ring-primary/12 disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
-      {...props}
-    />
+    <span className="ui-field ui-select-field">
+      <select className={cn("ui-select", className)} {...props} />
+      <ChevronDown className="ui-select-chevron" size={15} strokeWidth={1.7} aria-hidden="true" />
+      <PencilRule variant={1} className="ui-field-line" />
+    </span>
   );
 }
