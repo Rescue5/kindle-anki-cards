@@ -36,7 +36,7 @@ jobs:
         run: npm ci
 
       - name: Lint new Python modules
-        run: python -m ruff check kindle_vocab_app/anki_export.py kindle_vocab_app/anki_connect.py kindle_vocab_app/enrichment.py kindle_vocab_app/llm packaging
+        run: python -m ruff check kindle_vocab_app/anki_export.py kindle_vocab_app/anki_connect.py kindle_vocab_app/enrichment.py kindle_vocab_app/offline_dictionary.py kindle_vocab_app/llm packaging
 
       - name: Python tests
         run: python -m pytest -q

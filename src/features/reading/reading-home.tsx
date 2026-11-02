@@ -4,6 +4,7 @@ import type { BookOption, ConnectorStatus, LexemeRecord, Operation } from "@/typ
 import { cn } from "@/lib/utils";
 import { ClipLamp, DeskLamp } from "@/components/light/light";
 import { CornerCurl, PencilFrame, PencilRule } from "@/components/sketch/sketch";
+import { russianMeaning } from "@/features/library/domain";
 import { BookJacket } from "./book-jacket";
 import { formatDate, greeting, partOfSpeechShort, reviewMinutes, ruCount } from "./reading-domain";
 
@@ -55,8 +56,7 @@ function summarizeBooks(entries: LexemeRecord[], bookOptions: BookOption[]): Boo
 }
 
 function meaningOf(entry: LexemeRecord): string {
-  if (entry.enrichment?.status === "ready" && entry.enrichment.meaning_ru) return entry.enrichment.meaning_ru;
-  return entry.processing.analysis?.russian_meanings || "";
+  return russianMeaning(entry)?.text ?? "";
 }
 
 function KindleStatus({ connectors }: { connectors: ConnectorStatus }) {

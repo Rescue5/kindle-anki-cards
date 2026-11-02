@@ -1,7 +1,7 @@
 import * as React from "react";
 import { ArrowRight, BookOpen } from "lucide-react";
 import { callBackend } from "@/lib/backend";
-import type { LexemeOccurrence, WordAnalysis } from "@/types";
+import type { DictionaryMeaning, LexemeOccurrence, WordAnalysis } from "@/types";
 import { Button } from "@/components/ui/button";
 import { PageHead } from "@/components/page-head";
 import { DeskLamp } from "@/components/light/light";
@@ -14,6 +14,7 @@ type ReviewCard = {
   lemma: string;
   display_form: string;
   analysis?: WordAnalysis | null;
+  dictionary?: DictionaryMeaning | null;
   occurrences: LexemeOccurrence[];
   review: { due_at: string; interval_days: number; repetitions: number; last_rating: string; reviewed_at: string };
 };
@@ -92,6 +93,7 @@ export function ReviewView({ onCountsChange, onOpenWords }: { onCountsChange: (d
   }, [card, rate, revealed]);
 
   const context = card ? cloze(card) : "";
+  const answer = card ? card.analysis?.russian_meanings || card.dictionary?.meaning_ru || "" : "";
   const done = Boolean(result) && !card;
 
   return (
@@ -131,8 +133,9 @@ export function ReviewView({ onCountsChange, onOpenWords }: { onCountsChange: (d
                 {revealed ? (
                   <div className="review-answer">
                     <span className="home-note">ответ</span>
-                    <strong>{card.analysis?.russian_meanings || card.display_form}</strong>
-                    {!card.analysis?.russian_meanings ? <p className="review-muted">Перевод пока не добавлен — сравните слово с контекстом выше.</p> : null}
+                    <strong>{answer || card.display_form}</strong>
+                    {card.dictionary?.meaning_ru && !card.analysis?.russian_meanings ? <p className="word-card-source">значения по Викисловарю</p> : null}
+                    {!answer ? <p className="review-muted">Перевода пока нет — сравните слово с контекстом выше.</p> : null}
                     {card.occurrences[0]?.context ? <p className="review-muted">{card.occurrences[0].context}</p> : null}
                   </div>
                 ) : (

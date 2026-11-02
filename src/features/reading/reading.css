@@ -405,3 +405,4 @@
 .settings-key-saved > span:first-child { display: inline-flex; align-items: center; gap: 7px; color: hsl(var(--success)); font-size: 14px; }
 .settings-test { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .settings-test-result { flex: 1; min-width: 220px; font-size: 13px; line-height: 1.5; }
+.word-card-source { margin-top: 6px; color: hsl(var(--muted-foreground)); font: italic 12.5px/1.45 var(--font-reading); }

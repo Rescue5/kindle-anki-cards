@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kindle_vocab_app import anki_connect, anki_export, book_covers, enrichment, obsidian_sync, settings, vocab_cache
+from kindle_vocab_app import anki_connect, anki_export, book_covers, enrichment, obsidian_sync, offline_dictionary, settings, vocab_cache
 from kindle_vocab_app.llm import presets as llm_presets
 from kindle_vocab_app.kindle_db import fetch_entries, list_books, validate_vocab_db
 from kindle_vocab_app.kindle_device import find_kindle_presence, find_kindle_source
@@ -59,7 +59,9 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         )
 
     if action == "load_review":
-        return repository_for(workspace).load_review(limit=payload.get("limit", 20))
+        review = repository_for(workspace).load_review(limit=payload.get("limit", 20))
+        offline_dictionary.attach(review["cards"])
+        return review
 
     if action == "rate_review":
         return repository_for(workspace).rate_review(
@@ -478,9 +480,11 @@ def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str, push:
     catalog = repository.load_catalog()
     requested = {str(value) for value in payload.get("ids") or []}
     only_new = bool(payload.get("only_new", True))
+    # Copies carry offline dictionary meanings for the cards without touching the stored catalog.
+    lexemes = [{**lexeme, "dictionary": offline_dictionary.lookup_lexeme(lexeme)} for lexeme in catalog["lexemes"]]
     candidates = [
         lexeme
-        for lexeme in catalog["lexemes"]
+        for lexeme in lexemes
         if (not requested or str(lexeme.get("id") or "") in requested)
         and anki_export.is_exportable(lexeme)
         and (not only_new or anki_export.needs_anki_update(lexeme))
@@ -684,6 +688,7 @@ def _catalog_response(
     result["connectors"] = connector_status or _connector_status(_workspace_root(), probe_kindle=False)
     result["queueStatus"] = queue_status or {"pending": 0, "processing": 0, "failed": 0, "total": 0}
     result["enrichmentQueue"] = enrichment.queue_counts(catalog.get("lexemes") or [])
+    offline_dictionary.attach(result["entries"])
     return result
 
 

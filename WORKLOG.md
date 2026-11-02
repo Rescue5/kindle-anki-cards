@@ -1426,3 +1426,49 @@ whole app reads as one room.
 - The Vite dev server once missed a CSS change written by a shell append and
   served stale styles; touching the file fixed it. Not an app issue.
 - Not tried in the packaged Tauri window yet; design commits are not pushed.
+
+## 2026-11-02 - Claude - Audience research and offline Russian meanings
+
+### Research (for the audience plan)
+
+- Kindle -> Anki tools today are mostly scripts (wzyboy/kindle_vocab_anki,
+  NdYAG/Kindle2Anki, r0usta/kindle-to-anki), a Chrome extension and
+  Fluentcards; none is a polished desktop app with Russian translations.
+- In Russia PocketBook holds most of the e-reader market and Kindle is not sold
+  officially; PocketBook has no exportable lookup history, but KOReader (runs
+  on PocketBook, Kobo, Boox, jailbroken Kindle) keeps a vocabulary-builder
+  SQLite and Kobo keeps a WordList table. Only scripts exist for them.
+- First-run barrier found: without an AI key cards had no Russian meaning at
+  all (only an English WordNet definition).
+
+### Changes
+
+- `packaging/build_dictionary.py` builds `kindle_vocab_app/data/en_ru_wiktionary.sqlite`
+  (5.0 MB, 57,380 English words and phrases with short Russian meanings) from
+  the Russian Wiktionary extract on kaikki.org; data is CC BY-SA 4.0 with
+  attribution in `kindle_vocab_app/data/README.md`, README and the UI.
+- `kindle_vocab_app/offline_dictionary.py`: lookup by lemma and part of speech;
+  meanings are attached when the library, review cards and Anki notes are
+  built, never stored, so already processed words get them without
+  reprocessing. A ready LLM translation always wins.
+- Anki: Meaning falls back to the dictionary; cards exported before
+  2026-11-02 without a translation are re-exported once (same GUIDs, notes are
+  updated). Frontend mirrors the rule (`needsAnkiUpdate`, `russianMeaning`).
+- UI: meaning in home, word card (marked "значения по Викисловарю") and the
+  review answer; settings copy explains the dictionary vs AI.
+- `AGENTS.md`, README, `pyproject.toml` package data and the CI ruff list
+  updated.
+
+### Verification
+
+- Coverage on the two local libraries: about 84% of analysed words; through
+  the real bridge 85% of library lexemes and 16 of 20 review cards got
+  meanings.
+- ruff (CI paths + new module), `pytest` 81 passed / 1 skipped, `npm test`
+  24 passed, `npm run build` passed; word card checked in the browser preview.
+
+### Remaining
+
+- Obsidian cards still use only LLM translations.
+- The other ~16%: rare words and lemmatisation misses; English Wiktionary
+  translation tables could fill part of it.

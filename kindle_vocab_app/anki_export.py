@@ -24,6 +24,8 @@ MODEL_ID = 1_739_210_481
 DECK_ID = 1_739_210_517
 MODEL_NAME = "Kindle Cards · Word in context"
 DEFAULT_DECK_NAME = "Kindle Cards"
+# Cards exported before offline dictionary meanings existed have an empty Meaning field.
+DICTIONARY_RELEASED_AT = "2026-11-02"
 MIN_SCORE = 3
 
 FIELDS = [
@@ -116,12 +118,16 @@ def is_exportable(lexeme: dict[str, Any]) -> bool:
 
 
 def needs_anki_update(lexeme: dict[str, Any]) -> bool:
-    """Never exported, or translated after the last export (the card gained fields)."""
+    """Never exported, or the card gained fields since: a translation, or dictionary meanings."""
     anki = (lexeme.get("destinations") or {}).get("anki") or {}
     if anki.get("state") != "exported":
         return True
+    exported_at = str(anki.get("last_exported_at") or "")
     enrichment = lexeme.get("enrichment") or {}
-    return enrichment.get("status") == "ready" and str(enrichment.get("updated_at") or "") > str(anki.get("last_exported_at") or "")
+    if enrichment.get("status") == "ready":
+        return str(enrichment.get("updated_at") or "") > exported_at
+    has_dictionary = bool((lexeme.get("dictionary") or {}).get("meaning_ru"))
+    return has_dictionary and exported_at < DICTIONARY_RELEASED_AT
 
 
 def build_note_fields(
@@ -150,7 +156,7 @@ def build_note_fields(
         "Lemma": _escape(lemma),
         "PartOfSpeech": _escape(pos),
         "Context": highlight(context, [word, *lexeme.get("forms", []), lemma]),
-        "Meaning": _escape(_clean(enrichment.get("meaning_ru"))),
+        "Meaning": _escape(_clean(enrichment.get("meaning_ru")) or _clean((lexeme.get("dictionary") or {}).get("meaning_ru"))),
         "Definition": _escape(definition),
         "DefinitionSource": definition_source,
         "ContextTranslation": _escape(_clean(enrichment.get("context_ru"))),

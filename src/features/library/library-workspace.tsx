@@ -22,7 +22,7 @@ import { Select } from "@/components/ui/select";
 import { ClipLamp } from "@/components/light/light";
 import { Flourish, PencilFrame, PencilRule } from "@/components/sketch/sketch";
 import { cn } from "@/lib/utils";
-import { counts, isAcceptedNew, isCardEligible, obsidianSyncReason, partOfSpeechLabel, primaryOccurrence, processingLabel, processingTone, type QuickFilter } from "./domain";
+import { counts, isAcceptedNew, isCardEligible, obsidianSyncReason, partOfSpeechLabel, primaryOccurrence, processingLabel, processingTone, russianMeaning, type QuickFilter } from "./domain";
 import type { useLibraryController } from "./use-library-controller";
 import type { ConnectorInfo, LexemeRecord, WordAnalysis } from "@/types";
 
@@ -310,6 +310,7 @@ function LexemeInspector({ entry, obsidianEnabled, llmEnabled, busy, onEnrich }:
   const analysis = entry.processing.analysis;
   const enrichment = entry.enrichment?.status === "ready" ? entry.enrichment : null;
   const primary = primaryOccurrence(entry);
+  const meaning = russianMeaning(entry);
   return (
     <section className="app-scrollbar words-inspector-scroll">
       <article className="word-card lamp-host">
@@ -324,7 +325,8 @@ function LexemeInspector({ entry, obsidianEnabled, llmEnabled, busy, onEnrich }:
           </span>
         </div>
         <p className="word-card-forms">{entry.forms.join(" · ")}</p>
-        {enrichment?.meaning_ru ? <p className="word-card-meaning">{enrichment.meaning_ru}</p> : analysis?.russian_meanings ? <p className="word-card-meaning">{analysis.russian_meanings}</p> : null}
+        {meaning ? <p className="word-card-meaning">{meaning.text}</p> : null}
+        {meaning?.source === "dictionary" ? <p className="word-card-source">значения по Викисловарю{enrichment ? "" : " · перевод по контексту — в настройках ИИ"}</p> : null}
         {primary?.context ? (
           <blockquote className="word-context">
             <p>{primary.context}</p>

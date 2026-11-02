@@ -225,6 +225,12 @@ const showcaseTranslations: Record<string, Partial<Enrichment>> = {
   resilient: { meaning_ru: "стойкий; жизнестойкий", definition_en: "able to recover quickly from difficulties", context_ru: "Её стойкий дух так и не сломался.", example_en: "Children are often more resilient than adults.", example_ru: "Дети часто стойче взрослых." },
 };
 
+const showcaseDictionary: Record<string, LexemeRecord["dictionary"]> = {
+  glimpse: { meaning_ru: "проблеск; мимолётное впечатление; намёк", pos: "n", source: "wiktionary" },
+  submerge: { meaning_ru: "погружать, затоплять; погружаться", pos: "v", source: "wiktionary" },
+  vigilant: { meaning_ru: "бдительный, внимательный", pos: "a", source: "wiktionary" },
+};
+
 function applyShowcase(entries: LexemeRecord[]): LexemeRecord[] {
   return entries.map((entry) => {
     const translation = showcaseTranslations[entry.lemma];
@@ -238,7 +244,8 @@ function applyShowcase(entries: LexemeRecord[]): LexemeRecord[] {
         ? { ...entry.destinations, obsidian: { ...entry.destinations.obsidian, state: "missing", eligible: true, reason: "" } }
         : entry.destinations,
     };
-    if (!translation) return processed;
+    // Words without a context translation still get offline Wiktionary meanings.
+    if (!translation) return { ...processed, dictionary: showcaseDictionary[entry.lemma] ?? null };
     return { ...processed, enrichment: { status: "ready", provider: "anthropic", model: "claude-opus-5-5", prompt_version: 1, error: "", updated_at: "2026-07-10T10:00:00Z", ...translation } };
   });
 }

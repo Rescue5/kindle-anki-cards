@@ -185,11 +185,23 @@ export function enrichmentCounts(entries: LexemeRecord[]) {
   );
 }
 
-/** Mirrors the backend: never exported, or translated after the last export. */
+/** Cards exported before this date had no offline dictionary meanings. */
+export const DICTIONARY_RELEASED_AT = "2026-11-02";
+
+/** Mirrors the backend: never exported, or the card gained a translation or dictionary meanings since. */
 export function needsAnkiUpdate(entry: LexemeRecord): boolean {
   const anki = entry.destinations.anki;
   if (anki.state !== "exported") return true;
-  return entry.enrichment?.status === "ready" && entry.enrichment.updated_at > anki.last_exported_at;
+  if (entry.enrichment?.status === "ready") return entry.enrichment.updated_at > anki.last_exported_at;
+  return Boolean(entry.dictionary?.meaning_ru) && anki.last_exported_at < DICTIONARY_RELEASED_AT;
+}
+
+/** The best Russian meaning available: a context translation, else the offline dictionary. */
+export function russianMeaning(entry: LexemeRecord): { text: string; source: "context" | "dictionary" | "analysis" } | null {
+  if (entry.enrichment?.status === "ready" && entry.enrichment.meaning_ru) return { text: entry.enrichment.meaning_ru, source: "context" };
+  if (entry.dictionary?.meaning_ru) return { text: entry.dictionary.meaning_ru, source: "dictionary" };
+  const legacy = entry.processing.analysis?.russian_meanings;
+  return legacy ? { text: legacy, source: "analysis" } : null;
 }
 
 export function ankiPendingCount(entries: LexemeRecord[]): number {

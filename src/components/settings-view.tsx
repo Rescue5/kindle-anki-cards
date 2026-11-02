@@ -158,7 +158,7 @@ function LlmSettingsSection({ settings, update, persistPatch }: LlmSettingsSecti
   }
 
   return (
-    <SettingsSection title="Перевод через ИИ" description="ИИ определяет значение слова в предложении из книги и добавляет в карточку перевод, определение и пример. Облачному провайдеру уходят только слово и предложения из книги; локальные модели работают без интернета.">
+    <SettingsSection title="Перевод через ИИ" description="Без ИИ значения берутся из встроенного Викисловаря. ИИ переводит слово именно в том смысле, что в книге, и добавляет определение и пример. Облачному провайдеру уходят только слово и предложения из книги; локальные модели работают без интернета.">
       <SwitchRow id="llm-enabled-switch" label="Переводить слова по контексту" hint="Нужен ключ облачного провайдера или локальная модель в LM Studio или Ollama." checked={settings.llm_enabled} onChange={(value) => update("llm_enabled", value)} />
 
       {llm.configError ? <p className="screen-error-note">Не удалось загрузить провайдеров: {llm.configError}</p> : null}

@@ -25,7 +25,7 @@ dependencies = [
 include = ["kindle_vocab_app", "kindle_vocab_app.*"]
 
 [tool.setuptools.package-data]
-kindle_vocab_app = ["assets/icons/*.svg", "config/*.toml"]
+kindle_vocab_app = ["assets/icons/*.svg", "config/*.toml", "data/*.sqlite", "data/README.md"]
 
 [project.optional-dependencies]
 dev = [

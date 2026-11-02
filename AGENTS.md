@@ -124,6 +124,9 @@ python -m nltk.downloader -q wordnet omw-1.4 averaged_perceptron_tagger_eng punk
   `.app-data/kindle_cards.sqlite3`.
 - `kindle_vocab_app/processing_state.py` stores the legacy snapshot used only by
   standalone optimizer CLI compatibility and one-time SQLite migration.
+- `kindle_vocab_app/offline_dictionary.py` looks up offline Russian meanings in
+  the bundled Wiktionary dictionary for library lexemes, review cards and Anki
+  notes.
 - `kindle_vocab_app/llm_enricher.py` optionally enriches existing TSV rows
   through the DS Lab/OpenAI-compatible API.
 - `kindle_vocab_app/optimizer_cli.py` exposes optimizer and enrichment CLI modes.
@@ -192,8 +195,13 @@ property unless the user explicitly asks for a different model.
 - Leave translation/enrichment fields empty when local logic cannot derive them
   correctly.
 - Do not fabricate LLM-derived fields.
-- Wiktionary/Wiktextract support is currently a placeholder; do not describe it
-  as active unless implemented.
+- Offline Russian meanings come from `kindle_vocab_app/data/en_ru_wiktionary.sqlite`
+  (Russian Wiktionary via Wiktextract, CC BY-SA 4.0, built by
+  `packaging/build_dictionary.py`). They are looked up when the library, review
+  cards or Anki notes are built, never stored in analyses, so existing lexemes
+  get them without reprocessing. A ready LLM translation always wins. The
+  optimizer's `wiktionary` analysis features (register labels, domains) remain
+  a placeholder.
 
 The optimized TSV schema is template-driven and was designed to match the
 attached `kindle_anki_optimized.tsv` style. Be careful when changing columns:

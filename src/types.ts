@@ -57,6 +57,12 @@ export type WordAnalysis = {
   generated_context_ru?: string;
 };
 
+export type DictionaryMeaning = {
+  meaning_ru: string;
+  pos: string;
+  source: "wiktionary";
+};
+
 export type Enrichment = {
   status: "ready" | "failed";
   meaning_ru?: string;
@@ -117,6 +123,8 @@ export type LexemeRecord = {
   last_seen_at: string;
   last_kindle_sync_id: string;
   enrichment?: Enrichment | null;
+  /** Offline meanings from the bundled Wiktionary dictionary, attached when the library loads. */
+  dictionary?: DictionaryMeaning | null;
 };
 
 export type ConnectorState = "unknown" | "checking" | "connected" | "disconnected" | "disabled" | "error";

@@ -5,6 +5,8 @@ import {
   KINDLE_AUTO_SYNC_RETRY_MS,
   obsidianSyncReason,
   ankiPendingCount,
+  needsAnkiUpdate,
+  russianMeaning,
   enrichmentCounts,
   shouldAutoEnrich,
   shouldAutoProcessQueue,
@@ -181,5 +183,28 @@ describe("translation and Anki selectors", () => {
     expect(shouldAutoEnrich({ ...base, processingPending: 2 })).toBe(false);
     expect(shouldAutoEnrich({ ...base, operation: { kind: "enrich", status: "error" } })).toBe(false);
     expect(shouldAutoEnrich({ ...base, operation: { kind: "kindle", status: "error" } })).toBe(true);
+  });
+});
+
+describe("offline dictionary meanings", () => {
+  const dictionary = { meaning_ru: "проблеск", pos: "n", source: "wiktionary" } as const;
+  const base: LexemeRecord = {
+    ...entry,
+    processing: { state: "ready", analysis: { base_form: "glimpse", accepted: true, importance_score: 6 }, updated_at: "", error: "" },
+    dictionary,
+  };
+
+  it("prefers a context translation and falls back to the dictionary", () => {
+    expect(russianMeaning(base)).toEqual({ text: "проблеск", source: "dictionary" });
+    const translated: LexemeRecord = { ...base, enrichment: { status: "ready", meaning_ru: "мельком увидеть", provider: "p", model: "m", prompt_version: 1, error: "", updated_at: "" } };
+    expect(russianMeaning(translated)).toEqual({ text: "мельком увидеть", source: "context" });
+    expect(russianMeaning({ ...base, dictionary: null })).toBeNull();
+  });
+
+  it("re-exports cards that left for Anki before dictionary meanings existed", () => {
+    const exported = (at: string): LexemeRecord => ({ ...base, destinations: { ...base.destinations, anki: { state: "exported", last_exported_at: at } } });
+    expect(needsAnkiUpdate(exported("2026-10-30T10:00:00Z"))).toBe(true);
+    expect(needsAnkiUpdate(exported("2026-11-03T10:00:00Z"))).toBe(false);
+    expect(needsAnkiUpdate({ ...exported("2026-10-30T10:00:00Z"), dictionary: null })).toBe(false);
   });
 });
