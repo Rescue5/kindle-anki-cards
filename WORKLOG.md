@@ -1525,3 +1525,12 @@ a path that does not depend on USB detection.
 - Not tried on a real PocketBook, Kobo or Boox; schemas follow KOReader's
   `db.lua` and community notes on Kobo's `WordList`.
 - Android/Boox over MTP is not scanned automatically; the file import covers it.
+
+## 2026-11-02 - Claude - Release 0.3.0
+
+- Owner approved releasing KOReader/Kobo support and the file import, marked
+  beta for PocketBook/Kobo/Boox because no real device was tried.
+- Version 0.3.0 in `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`,
+  `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `pyproject.toml`.
+- Tag `v0.3.0` -> `release.yml` builds the installer into a draft release,
+  published with release notes once the build passes.

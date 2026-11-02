@@ -1,6 +1,6 @@
 [package]
 name = "kindle-cards"
-version = "0.2.0"
+version = "0.3.0"
 description = "Kindle Vocabulary Builder words as Anki cards with the book context"
 authors = ["Gwyndolin"]
 license = "MIT"
