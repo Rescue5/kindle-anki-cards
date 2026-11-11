@@ -1534,3 +1534,144 @@ a path that does not depend on USB detection.
   `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `pyproject.toml`.
 - Tag `v0.3.0` -> `release.yml` builds the installer into a draft release,
   published with release notes once the build passes.
+- Published: CI and `release.yml` passed for `v0.3.0`; "Kindle Cards 0.3.0" is
+  the latest release and `Kindle.Cards_0.3.0_x64-setup.exe` (44.8 MB)
+  downloads anonymously.
+
+## 2026-11-03 - Claude - Concept: reading library with word ranking
+
+- Owner's direction: the core is ranking words by how worth learning they
+  are; reading-progress "snapshots" give a reason to come back.
+- Finding: Kindle `LOOKUPS.pos` ends in a numeric offset (`<id>:<offset>`)
+  that advances with time inside a book in local data, so every lookup is a
+  dated point in the book. Reading history and a per-book curve of unknown
+  words can be built retroactively from `vocab.db` alone; book length (for a
+  percentage) is not in `vocab.db`.
+- Proposed (not approved, nothing implemented):
+  - Ranking v2: frequency shown as "about once in N pages" (Zipf z ->
+    10^(9-z) words), personal signals dominate (repeat lookups, several
+    books, gap below the reader's usual level), explicit triage
+    know/learn/skip, shelves "learn now / queue / context is enough / hidden",
+    one-line reason per word. Stays deterministic.
+  - Reading diary: every sync is a snapshot; "since last time" page, per-book
+    timeline and unknown-word curve, level trend from the frequency of words
+    looked up. KOReader/Kobo progress fields and Kindle `.sdr` sidecars still
+    need checking on real devices.
+- No code changed.
+
+## 2026-11-03 - Claude (design reviewer subagent) - Review of library concept canvas
+
+- Reviewed the concept canvas artboards (Main, Words, Triage, Book, plus the
+  Level file that was dropped from `canvas.json` mid-review) against
+  `DESIGN.md`, `src/components/light/lamps.tsx` and the light section of
+  `src/design/night-reading.css`, by source only (no rendering).
+- Light geometry: desk, clip and sconce ports match production coordinates;
+  the pendant over the triage card is aligned. Main's text reserve is narrower
+  than production (330 vs 366 x `--lamp-s`) and the jacket sits above the
+  cone; Book's banker's lamp lights the empty end of the progress row, not the
+  book; the Level floor lamp's cone misses the chart.
+- Other findings: inline `--lamp-s` custom property is a rendering risk, the
+  27 "new" words also appear on regular shelves (double count), a triage word
+  comes from a book not in the sync, nav badge shows 0 when done, masculine
+  status labels, flat 1px rules and glowing tab bars instead of pencil marks,
+  uppercase eyebrows, missing pressed/disabled states.
+- No canvas or project files changed; only this entry was appended.
+
+## 2026-11-03 - Claude - Library concept canvas, critical pass, reviewer agents
+
+- Goal: draw the "reading library + word ranking" concept as screens in the
+  Кабинет language, then cut everything that is not functional (owner: no
+  "нейрослоп", no statistics dashboards).
+- Private Design canvas with four linked screens (scratch files, not in the
+  repo): Главная (since last time → «Разобрать», current book, «Учить сейчас»),
+  Слова (shelves Новые / Учить сейчас / Очередь / Хватит контекста / Знаю /
+  Не слова, one reason per word, word card with pros/cons and decisions),
+  Разбор (one word at a time with the ranking's advice), Книга (status,
+  progress line, this book's words). Fixtures per page: sconce in the nav,
+  desk lamp, clip lamp, pendant over the triage card, banker's lamp.
+- Cut in the critical pass: the «Уровень» statistics screen, reading-days
+  calendar, unknown-words chart, counters, tally table, signal-strength bars,
+  the separate «Разбор» nav item. Navigation is now Главная, Слова,
+  Повторение, Книги, Настройки.
+- Proposed rule shown on the canvas, awaiting the owner: a user's «Учить»
+  puts the word into «Учить сейчас» at once (their decision beats the
+  ranking); «Не учить» replaces «Пропустить» and sends the word to «Хватит
+  контекста».
+- Reviews: a design-language review (light geometry, pencil lines, italic
+  eyebrows, states, data double-counting) and a UX clarity review (one name
+  per concept, one reason vocabulary, empty/done states, book screen no
+  longer duplicates Слова) were applied to all four screens.
+- Owner asked for two standing reviewer subagents: added
+  `.claude/agents/ux-clarity-reviewer.md` and
+  `.claude/agents/design-language-reviewer.md` (read-only briefs) and an
+  AGENTS.md section "Design and UX Reviewers"; the Work Log rule now says the
+  parent records read-only reviewers' findings.
+- Open: no books-list screen yet («Книги» opens one book); where learning
+  happens (in-app Повторение vs export) is undecided; reading percentage for
+  Kindle still needs the `.sdr` check on a device. Nothing committed.
+
+## 2026-11-03 - Claude - Scope change: ranking + edit + export + progress; ranking baseline
+
+- Owner decision: no learning or review inside the app. Cards are learned in
+  another app; Kindle Cards ranks looked-up words (a statistics/ML problem:
+  smart ranking, junk filtering), lets the user browse and edit them
+  (translation, example on the card), exports, and tracks progress — mainly
+  whether an exported word stuck (looked up again in a book after export =
+  it did not) and lookups per 10 pages across books.
+- Ranking baseline on local Kindle lookups (aggregates only, scratch script,
+  not in the repo): temporal split at 2026-09-01, label = the stem was looked
+  up again after the cutoff (13% of 1,422 earlier stems). Corpus frequency
+  alone: AUC 0.57, precision@100 0.10 (below the base rate at the top);
+  personal lookup count P@100 0.30; recency AUC 0.62; a pure-Python logistic
+  regression on cheap features: AUC 0.66, P@100 0.31. Only ~2% of Kindle
+  stems look like proper nouns (capitalised mid-sentence); KOReader/Kobo will
+  bring more junk. Caveat: words learned via the owner's Obsidian cards
+  suppress the "looked up again" label.
+- Canvas reworked (private Design artifact): Главная (27 new already shelved
+  → «Экспортировать 15 новых», check 5 disputed, current book, «Держатся ли
+  слова»), Слова (Спорные / Стоит учить / Не стоит учить / Знаю / Не слова;
+  editable translation, choice of example, export state), Спорные (one by
+  one; answers teach the ranking), Экспорт (Anki/Quizlet/CSV/Obsidian;
+  not-yet-exported or again; loading, done, empty and error states),
+  Прогресс (looked up again after export + re-export; lookups per 10 pages
+  per book; empty state), Книга (status, progress, its words). Navigation:
+  Главная, Слова, Прогресс, Настройки.
+- Both reviewer subagents ran on the result; applied: one verb «экспорт»,
+  shelf «Не стоит учить», consistent demo numbers, floor lamp moved over the
+  list it lights, pencil bars instead of filtered thick strokes, lamp kept
+  but put out after export, base button sizes unified. Rejected: "style holes
+  do not apply" (the canvas format supports them).
+- Open: the ML plan itself (features, model, active learning, evaluation) is
+  proposed to the owner, nothing implemented; no books-list screen (books are
+  listed in Прогресс). Nothing committed.
+
+## 2026-11-09 - Claude - Ranking evaluation harness
+
+- Goal: before changing the ranking, measure it. New
+  `kindle_vocab_app/ranking_eval.py` (`python -m kindle_vocab_app.ranking_eval`):
+  at monthly cutoffs it builds features only from earlier lookups, labels a
+  word "needed again" when it is looked up again within the next 42 days,
+  and reports AUC and precision@50/100 with bootstrap intervals for the
+  current importance score (recomputed with the earlier lookup count only),
+  frequency, lookups, recency, and a small pure-Python logistic regression
+  trained one window earlier (labels fully before the cutoff). Rejected words
+  are excluded as the app never ranks them. Reports (aggregates only) and run
+  logs go to `.app-data/ranking_eval/`.
+- First result on the local library (2 comparable cutoffs, Aug and Sep 2026):
+  current score AUC 0.56, top-50 lift 1.0 (no better than random at the top);
+  frequency alone 0.55, lift 0.5; lookups 0.58, lift 2.3; recency 0.63,
+  lift 2.3; learned 0.64, lift 2.5 (Sep: 0.68, interval 0.64-0.72, vs current
+  0.56, 0.52-0.61).
+- Code review subagent (pr-review-toolkit:code-reviewer) confirmed no leakage
+  and correct metrics; fixed what it found: the recomputed score lacked the
+  specialised-domain penalty (now matches the stored score for all ready
+  words), rejected analyses lost their features, missing tests for leakage of
+  the learned ranker, the summary and lift, CLI logging, `--top 0`, NaN in
+  JSON.
+- Changed: `kindle_vocab_app/ranking_eval.py`, `tests/test_ranking_eval.py`
+  (21 tests), `.github/workflows/ci.yml` (ruff list), `AGENTS.md` (architecture
+  map, useful checks; ranking changes must be measured before and after).
+- Checks: CI ruff list clean, full pytest 112 passed / 1 skipped.
+- Risks: only two comparable cutoffs so far; labels are noisy because words
+  learned through the owner's Obsidian cards stop being looked up. Nothing
+  committed yet.

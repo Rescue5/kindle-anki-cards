@@ -32,7 +32,9 @@ replace this with drive-letter-only detection.
 - `WORKLOG.md` is append-only. Never rewrite, reorder, or delete previous entries.
 - Every agent, including delegated agents, must append its own dated entry for
   each logical batch of work. Record the goal, decisions, changed files, checks,
-  failures, remaining risks, and commit hashes when available.
+  failures, remaining risks, and commit hashes when available. Read-only
+  reviewer subagents (see "Design and UX Reviewers") are the exception: the
+  parent records their findings.
 - Do not record API keys, `.env` values, private vocabulary contents, full user
   paths, or other sensitive local data in the work log.
 - User instructions about whether delegation is allowed always override the
@@ -48,6 +50,34 @@ replace this with drive-letter-only detection.
   needs; do not duplicate work across agents.
 - Prefer read-only exploration agents for investigation, coder agents for
   file changes, and plan agents for architecture decisions.
+
+## Design and UX Reviewers
+
+Two read-only reviewer subagents guard every screen, flow and mockup. Their
+briefs live in `.claude/agents/`; agents in other tools should follow the same
+briefs.
+
+- `ux-clarity-reviewer` — meaning and load. Each screen answers one question
+  and has one primary action; every element either leads to an action or
+  explains a ranking decision; no statistics for their own sake (no KPI tiles,
+  streaks, habit calendars, trend charts); details behind a click; plain
+  Russian, one name per concept.
+- `design-language-reviewer` — the Night Reading "Кабинет" look from
+  `DESIGN.md`: drawn lamps whose light lands on what needs attention (the
+  fixture suits the page: sconce in the navigation, desk, clip, pendant,
+  banker's lamp, …), pencil instead of boxes and pills, one warm colour, full
+  interactive states, correct light geometry.
+
+How to work with them:
+
+- Run `ux-clarity-reviewer` first — on the plan or the first mockup, before
+  visual polish. Cutting comes before drawing.
+- Run `design-language-reviewer` on the result before calling a UI change done,
+  together with the build and screenshot rule in "UI Change Rules".
+- Give each the files or artboards and the intent of the change. They only read
+  and report "must fix" / "nice to have" items with exact snippets; the parent
+  agent applies fixes, decides disputed items and records their findings in its
+  own `WORKLOG.md` entry (reviewers do not write to the work log).
 
 ## Stack
 
@@ -78,6 +108,7 @@ Useful checks:
 npm run build
 python -m compileall kindle_vocab_app
 '{"action":"load_demo","payload":{}}' | python -m kindle_vocab_app.tauri_bridge
+python -m kindle_vocab_app.ranking_eval
 ```
 
 For NLP resources:
@@ -124,6 +155,14 @@ python -m nltk.downloader -q wordnet omw-1.4 averaged_perceptron_tagger_eng punk
   filtered entries.
 - `kindle_vocab_app/vocab_optimizer.py` performs deterministic offline word
   filtering, scoring, TSV generation, and per-word JSON analysis.
+- `kindle_vocab_app/ranking_eval.py` measures word-ranking strategies on the
+  local library (`python -m kindle_vocab_app.ranking_eval`): at monthly
+  cutoffs it builds features only from earlier lookups and counts a word as
+  needed again when it is looked up again within the next window (42 days by
+  default), then reports AUC and precision@k with bootstrap intervals for the
+  current importance score, simple baselines and a small learned model.
+  Reports go to `.app-data/ranking_eval/` and hold aggregates only. Any change
+  to ranking must be measured with it before and after.
 - `kindle_vocab_app/library_repository.py` owns the authoritative local SQLite
   library, schema migration, canonical deduplication, processing queue,
   review schedule, and destination state. The database is
