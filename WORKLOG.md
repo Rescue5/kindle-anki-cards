@@ -1675,3 +1675,143 @@ a path that does not depend on USB detection.
 - Risks: only two comparable cutoffs so far; labels are noisy because words
   learned through the owner's Obsidian cards stop being looked up. Nothing
   committed yet.
+- Committed as b9a404d (not pushed); `.claude/launch.json` stays local.
+
+## 2026-11-13 - Claude (lead) - Team, product document, first lanes
+
+- Owner's mandate: build a team and make a product people actually use; the
+  team is responsible for design, interface, functionality and engagement.
+- Added `PRODUCT.md` (goal, audience, promise, what the product does and does
+  not do, the loop, milestones M1-M4 with done criteria, open questions for
+  the owner).
+- Concept screens saved from the private Design canvas into `docs/concept/`
+  (six `.dc.html` artboards + `canvas.json`) so they are a durable
+  specification; the scratch copies were gone.
+- Team briefs in `.claude/agents/`: `ranking-engineer`, `backend-engineer`,
+  `frontend-engineer`, `qa-engineer`, `user-advocate` (plus the two existing
+  reviewers). `AGENTS.md` got a "Team" section: roles and ownership, lanes do
+  not share files, contracts go through the lead, only the lead commits (as
+  the owner), push/releases/anything public need the owner.
+- Started three lanes: an architecture blueprint for M1-M2 (read-only), ranking
+  v2 as a standalone module measured with `ranking_eval` (ranking-engineer),
+  and a first-five-minutes walkthrough (user-advocate, report only).
+
+## 2026-11-19 - Claude (lead) - Token budget, product skeptic, trimmed plan, README
+
+- Owner: rerun the agents cheaply; Opus 5.5 high is the ceiling and only for
+  the hardest lane. Token-budget rule added to AGENTS.md "Team"; agents now
+  get an explicit model/effort (ranking: Opus high; architect, user-advocate:
+  Sonnet medium; skeptic: Opus medium).
+- Owner asked for a role whose only job is common sense — is it *needed* by
+  real people. Added `.claude/agents/product-skeptic.md` and the rule "need
+  before build" in AGENTS.md.
+- Newcomer walkthrough (user-advocate): biggest losses are SmartScreen on the
+  unsigned installer, a README written for programmers that still promised
+  review/analytics, the no-cable path hidden in a tooltip; comparable free
+  tools exist but none choose what is worth learning or track what stuck.
+- Skeptic verdicts applied to PRODUCT.md: two screens (Главная, Слова) +
+  Настройки; Progress/Book screens, manual book status, lookups per 10 pages,
+  month cohorts, five equal shelves, Quizlet branch, per-export questions cut
+  or deferred; short list of 15–30 words; one-button export to a remembered
+  destination; re-export updates the same Anki note with «повтор»; «снова
+  искали после экспорта» on Главная; M3a (newcomer fixes) moved before M2.
+- Architect blueprint trimmed into `docs/plan/m1-m2.md` (live ranking, user
+  tables keyed by lexeme_id without FK, append-only export history, single
+  eligibility and card resolver, freshness fix, schema v4, bridge contract,
+  lanes). Ranking lane told about `lean`, `REASON_CODES`, `RANKING_VERSION`.
+- README rewritten for readers by user-advocate; technical lists moved to
+  `docs/TECHNICAL.md`. Lead fixed the KOReader paths per device (checked
+  against `reader_sources.KOREADER_PATHS`) and a claim untrue for 0.3.0
+  (it still has built-in review). Step 3 wording must be updated when M2
+  changes the export button.
+- Open for the owner: lookups-per-10-pages progress (deferred by the skeptic,
+  was the owner's wish); installer signing (SignPath, unverified).
+
+## 2026-11-19 - Claude (ranking-engineer) - Ranking v2 as a standalone, measured module (M1)
+
+- Goal: replace the importance score with a personal, explainable ranking
+  that beats it at the top on `ranking_eval`, as a module other lanes can
+  call (`rank(facts, now, weights) -> Ranking`).
+- Built `kindle_vocab_app/ranking.py`: `WordFacts`, `Reason`, `Ranking`
+  (+ `lean` for disputed words), `Weights`, `DEFAULT_WEIGHTS`, `rank`,
+  `RANKING_VERSION = "r2"`, `REASON_CODES`. Logistic score over named
+  contributions: repeat lookups (log2, capped at 8), several books (log2),
+  recency (2^(-days/21) centred at 0.25, so old lookups count against),
+  book being read, looked up again after export, frequency band (penalty
+  below Zipf 3.0 and above 5.0, flat between), junk evidence (non_word,
+  non_english/unsupported_language, unknown to lexicons, glued words, proper
+  noun). Decision always wins (learn -> worth with score 1.0, skip ->
+  not_worth, junk -> junk, known -> known) and comes first in reasons.
+  Junk evidence >= 3 -> junk shelf; weaker -> disputed with lean "junk";
+  score in [0.19, 0.22) -> disputed with lean learn/skip; >= 0.22 worth.
+  Reasons are plain Russian with correct plurals (искали 3 раза / дважды,
+  в двух ваших книгах, читаете сейчас, снова искали после экспорта,
+  встречается раз в ~N книг / страниц, частое, частое — видимо, в редком
+  значении, нет в словарях, похоже на имя, давно не искали), strongest
+  first; every score is sigmoid(bias + sum of reason weights). Where
+  `proper_noun` comes from is documented next to `WordFacts`.
+- `ranking_eval.py`: examples carry `history` (pre-cutoff (time, book)),
+  `reading_books` (books with any lookup in the 14 days before the cutoff)
+  and `cutoff`; new `ranking_v2` ranker with DEFAULT_WEIGHTS (nothing fitted
+  per cutoff; no exports or decisions in the history); per-cutoff table with
+  intervals in the printed report. Existing rankers and tests kept.
+- Weights: chosen as rounded log-odds differences of each signal across all
+  four cutoffs, not fitted. One change after measuring: books 0.5 -> 0.25
+  (univariate AUC of "several books" is 0.50-0.54 and it repeats what repeat
+  lookups say; lowering it helped top-50 in 3 of 3 informative rounds).
+  Sensitivity: each weight x0.5 / x1.5 moves mean AUC by <= 0.01 except the
+  frequency band edges; top-50 lift moves 1.8-2.5 (it is noisy: 50 words).
+- Numbers (mean of the 2 rounds where `learned` runs, Aug+Sep 2026):
+  current_score AUC 0.559, lift@50 1.0; learned 0.637, 2.5; ranking_v2
+  0.654, 2.8 (P@50 0.32, P@100 0.29). Per cutoff v2 vs current, AUC
+  [interval]: Jun 0.532 [0.40-0.66] vs 0.472 (138 words, lift 0.9 vs 0.9);
+  Jul 0.661 [0.61-0.71] vs 0.590 (lift 1.9 vs 1.1); Aug 0.635 [0.60-0.68]
+  vs 0.555 [0.50-0.60] (lift 2.0 vs 0.9); Sep 0.672 [0.63-0.72] vs 0.564
+  [0.53-0.60] (lift 3.5 vs 1.0). Mean over all 4: AUC 0.625 vs 0.545,
+  lift@50 2.08 vs 0.98. With books 0.5 the 2-round lift was 2.3.
+- Shelves on the real library (counts only, 1961 lexemes, rejected
+  included): now = today: worth 272, disputed 71 (3.6%), not_worth 1615,
+  junk 3; now = last lookup: 421 / 98 (5.0%) / 1439 / 3. ~15 us per word.
+- Tests: `tests/test_ranking.py` (new, 36 tests: decisions, signal
+  directions, shelves and lean, junk, reason order, Russian plurals,
+  codes/version, determinism, edge inputs); `tests/test_ranking_eval.py`
+  (history, reading books, v2 ranker, a synthetic second reader on which
+  v2 beats the current score). CI ruff list + `ranking.py`: clean. Full
+  pytest: 152 passed, 1 skipped.
+- Changed: `kindle_vocab_app/ranking.py` (new), `kindle_vocab_app/ranking_eval.py`,
+  `tests/test_ranking.py` (new), `tests/test_ranking_eval.py`,
+  `.github/workflows/ci.yml`.
+- Risks: recency makes the worth shelf shrink when the reader pauses
+  (worth 31.6% at the Sep cutoff, 13.9% today); the bridge could pass
+  `now` = the last lookup to measure time in reading. Only 2-4 cutoffs from
+  one reader; the "after export" weight is unmeasured (no export history),
+  as is `proper_noun` (not stored). `too_basic` words are not treated
+  specially. Labels are suppressed by words learned through Obsidian.
+  Nothing committed.
+
+## 2026-11-19 - ranking v2: code-review fixes (ranking-engineer)
+
+- Goal: close six review findings on `ranking.py` / `ranking_eval.py`.
+- Decisions: a reader's decision is a reason with weight 0.0 and fixes only
+  the shelf; `score` is always sigmoid(bias + sum of reason weights) (the old
+  +-10 weights and score 1.0 for "learn" are gone, callers sort by shelf
+  first). `WordFacts.decided_at` added: a "known" word looked up after it
+  returns to the model with reason `known_again` ("снова искали после
+  «знаю»", weight = after_export, or 0 if after_export already counted);
+  other decisions are never lifted. `Weights` refuses `repeat_cap < 1`.
+  `frequency_common` is emitted only when its weight <= -0.1, otherwise a
+  plain "частое" (`frequency`, weight 0). "в 21 вашей книге" plural fixed.
+  `format_report` now says ranking_v2 is in-sample; `SecondReaderTests`
+  renamed `SyntheticReaderTests` with a comment that it is no
+  generalisation claim.
+- Numbers: unchanged (weights and eval inputs untouched): ranking_v2 mean AUC
+  0.653 (2 rounds), P@50 0.32, lift 2.8; current_score 0.559 / 1.0.
+- Tests: reading_books leakage (post-cutoff-only book, 14d+1s book excluded,
+  exactly cutoff-14d included), decision decomposition, known lapse,
+  plurals 11/21/22/25, common-frequency emission, repeat_cap guard. CI ruff
+  list clean, full pytest 157 passed, 1 skipped.
+- Files: `kindle_vocab_app/ranking.py`, `kindle_vocab_app/ranking_eval.py`,
+  `tests/test_ranking.py`, `tests/test_ranking_eval.py`.
+- Risks: new reason code `known_again` and `decided_at` are a contract
+  addition for the bridge; consumers must not assume score 1.0 for "learn".
+  Nothing committed.

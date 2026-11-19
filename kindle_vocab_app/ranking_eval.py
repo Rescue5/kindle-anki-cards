@@ -34,6 +34,7 @@ from wordfreq import zipf_frequency
 
 from kindle_vocab_app.library_repository import DATABASE_FILENAME
 from kindle_vocab_app.logging_config import configure_logging, get_logger
+from kindle_vocab_app.ranking import WordFacts, rank
 from kindle_vocab_app.vocab_optimizer import (
     SPECIALIZED_LEXNAMES,
     score_importance,
@@ -48,6 +49,8 @@ BOOTSTRAP_ROUNDS = 200
 MIN_POSITIVES = 10
 # Middle of the frequency band a reader of English fiction tends to look up.
 FREQUENCY_SWEET_SPOT = 3.6
+# A book with a lookup this recently counts as being read at the cutoff.
+READING_DAYS = 14
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,11 @@ class Example:
     days_since_last: float
     days_since_first: float
     needed_again: bool
+    # (when, book_key) of every lookup before the cutoff, oldest first.
+    history: tuple[tuple[datetime, str], ...] = ()
+    # Books with any lookup in the READING_DAYS before the cutoff: "the book being read".
+    reading_books: frozenset[str] = frozenset()
+    cutoff: datetime | None = None
 
 
 Ranker = Callable[[Example], float]
@@ -192,11 +200,15 @@ def build_examples(
     """
     before: dict[str, list[Lookup]] = defaultdict(list)
     needed: set[str] = set()
+    reading: set[str] = set()
     for item in library.lookups:
         if item.at < cutoff:
             before[item.lexeme_id].append(item)
+            if item.at >= cutoff - timedelta(days=READING_DAYS):
+                reading.add(item.book_key)
         elif item.at < cutoff + horizon:
             needed.add(item.lexeme_id)
+    reading_books = frozenset(reading)
     examples = []
     for lexeme_id, items in before.items():
         lexical = library.lexical.get(lexeme_id)
@@ -211,6 +223,9 @@ def build_examples(
             days_since_last=(cutoff - max(times)).total_seconds() / 86400,
             days_since_first=(cutoff - min(times)).total_seconds() / 86400,
             needed_again=lexeme_id in needed,
+            history=tuple(sorted((item.at, item.book_key) for item in items)),
+            reading_books=reading_books,
+            cutoff=cutoff,
         ))
     examples.sort(key=lambda example: example.lexeme_id)
     return examples
@@ -237,6 +252,48 @@ def current_score(example: Example) -> float:
         occurrence_count=example.lookups_before,
     )
     return float(score)
+
+
+def ranking_v2(example: Example) -> float:
+    """Ranking v2 with its shipped default weights; nothing is fitted per cutoff."""
+    return rank(word_facts(example), _moment(example)).score
+
+
+def word_facts(example: Example) -> WordFacts:
+    """What the app would know about the word at the cutoff.
+
+    Exports and the reader's decisions are not part of the history yet, and
+    proper nouns are not stored in analyses, so they stay empty here.
+    """
+    lexical = example.lexical
+    return WordFacts(
+        lemma_zipf=lexical.lemma_zipf,
+        form_zipf=lexical.form_zipf,
+        synset_count=lexical.synset_count,
+        pos_count=lexical.pos_count,
+        warnings=lexical.warnings,
+        proper_noun=False,
+        lookups=example.history or _synthetic_history(example),
+        reading_books=example.reading_books,
+    )
+
+
+def _moment(example: Example) -> datetime:
+    return example.cutoff or _SYNTHETIC_CUTOFF
+
+
+_SYNTHETIC_CUTOFF = datetime(2000, 1, 1, tzinfo=UTC)
+
+
+def _synthetic_history(example: Example) -> tuple[tuple[datetime, str], ...]:
+    """Lookups matching the counts of an example built by hand (tests), oldest first."""
+    now = _moment(example)
+    count = max(1, example.lookups_before)
+    books = max(1, example.books_before)
+    first = now - timedelta(days=example.days_since_first)
+    last = now - timedelta(days=example.days_since_last)
+    times = [first + (last - first) * (i / (count - 1)) if count > 1 else last for i in range(count)]
+    return tuple((when, f"book-{i % books}") for i, when in enumerate(times))
 
 
 def lookups(example: Example) -> float:
@@ -276,6 +333,7 @@ BASELINES: dict[str, Ranker] = {
     "current_score": current_score,
     "lookups": lookups,
     "recency": recency,
+    "ranking_v2": ranking_v2,
 }
 
 
@@ -501,8 +559,24 @@ def format_report(report: dict[str, Any]) -> str:
     for name, row in sorted(report["summary"].items(), key=lambda pair: -pair[1]["auc"]):
         cells = "".join(f" {row['precision'][str(k)]:6.2f} {row['lift'][str(k)]:5.1f}" for k in top_k)
         lines.append(f"{name:15} {row['rounds']:6d} {row['auc']:6.3f}{cells}")
+    k = top_k[0]
+    lines += ["", f"Per cutoff: AUC [95% interval], P@{k} [interval], lift"]
+    for item in report["rounds"]:
+        lines.append(f"  {item['cutoff']}")
+        for name, result in sorted(item["results"].items(), key=lambda pair: -pair[1]["auc"]):
+            low, high = result["auc_interval"]
+            p_low, p_high = result["precision_interval"][str(k)]
+            precision = result["precision"][str(k)]
+            lines.append(
+                f"    {name:15} {result['auc']:.3f} [{low:.3f}-{high:.3f}]  "
+                f"{precision:.2f} [{p_low:.2f}-{p_high:.2f}]  {precision / item['base_rate']:.1f}"
+            )
     lines.append("")
     lines.append("AUC 0.5 is random order; lift is precision divided by the share of words needed again.")
+    lines.append(
+        "ranking_v2 is in-sample: its default weights were derived from these same cutoffs, "
+        "so its numbers are optimistic."
+    )
     return "\n".join(lines)
 
 

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Слова — рейтинг, правка и экспорт</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400..700&amp;family=Literata:ital,opsz,wght@0,7..72,300..700;1,7..72,300..700&amp;display=swap">
+<style>
+body{margin:0;background:#0d1117}
+.room{--paper:#0d1117;--ink:#efe7d8;--ink-2:#c6bfb3;--ink-3:#9c968c;--line:rgba(226,214,192,.18);--line-2:rgba(236,224,204,.48);--lamp:#f6b54a;--lamp-ink:#ffcf7a;--btn:#f3b24c;--btn-hover:#ffc566;--btn-ink:#1d1406;color-scheme:dark}
+a{color:var(--ink-2)}a:hover{color:var(--ink)}
+.kc-nav{position:relative;z-index:1;display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;min-height:44px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--ink-3);font:400 16px/1 'Literata',Georgia,serif;text-align:left;text-decoration:none;cursor:pointer;transition:color .2s,background-color .2s}
+.kc-nav:hover{color:var(--ink-2);background:rgba(255,224,180,.05)}
+.kc-nav[aria-current="page"]{color:var(--ink)}
+.kc-nav svg{width:20px;height:20px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.kc-badge{margin-left:auto;font:600 19px/1 'Caveat',cursive;color:var(--lamp-ink)}
+.kc-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:46px;padding:0 22px;border:0;border-radius:12px;background:transparent;color:var(--ink);font:500 16px/1 'Literata',Georgia,serif;text-decoration:none;cursor:pointer;transition:transform .12s cubic-bezier(.23,1,.32,1),box-shadow .25s,background-color .25s}
+.kc-btn:active{transform:scale(.97)}
+.kc-primary{background:var(--btn);color:var(--btn-ink);box-shadow:inset 0 0 0 1px rgba(0,0,0,.16),0 0 26px rgba(246,181,74,.26),0 12px 30px -14px rgba(246,181,74,.7)}
+.kc-primary:hover{background:var(--btn-hover);color:var(--btn-ink);box-shadow:inset 0 0 0 1px rgba(0,0,0,.16),0 0 38px rgba(246,181,74,.4),0 14px 34px -14px rgba(246,181,74,.8)}
+.kc-drawn:hover{background:rgba(255,214,150,.07);color:var(--ink)}
+.kc-primary .frame{display:none}
+.kc-tab{position:relative;display:inline-flex;align-items:baseline;gap:8px;min-height:46px;padding:0 4px;border:0;background:none;color:var(--ink-3);font:400 17px/1 'Literata',Georgia,serif;cursor:pointer;transition:color .2s}
+.kc-tab span{font-size:14px;font-variant-numeric:lining-nums;color:var(--lamp-ink)}
+.kc-tab:hover{color:var(--ink-2)}
+.kc-tab[aria-selected="true"]{color:var(--ink)}
+.tab-mark{position:absolute;left:-2px;bottom:5px;width:calc(100% + 4px);height:6px;overflow:visible;display:none}
+.kc-tab[aria-selected="true"] .tab-mark{display:block}
+.tab-mark path{fill:none;stroke:var(--lamp);stroke-width:1.6;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.kc-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;width:100%;box-sizing:border-box;min-height:54px;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:var(--ink-2);font:400 16px/1.3 'Literata',Georgia,serif;text-align:left;cursor:pointer;transition:background-color .2s}
+.kc-row:hover{background:rgba(255,224,180,.045)}
+.kc-row:hover .kc-lemma{color:var(--lamp-ink)}
+.kc-row:active{transform:scale(.996)}
+.kc-row.is-active{background:radial-gradient(70% 160% at 20% 50%,rgba(255,190,96,.16),transparent 75%)}
+.kc-row.is-active .kc-lemma{color:var(--lamp-ink)}
+.mark{font:500 19px/1 'Caveat',cursive;color:var(--ink-2);white-space:nowrap}
+.mark.hot{color:var(--lamp-ink);text-decoration:underline;text-decoration-color:rgba(246,181,74,.55);text-decoration-thickness:1.5px;text-underline-offset:5px}
+.kc-choice{position:relative;flex:1 1 0;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 10px;border:0;border-radius:10px;background:transparent;color:var(--ink);font:500 15px/1 'Literata',Georgia,serif;cursor:pointer;transition:background-color .2s,color .2s,box-shadow .2s,transform .12s}
+.kc-choice:hover{background:rgba(255,214,150,.08)}
+.kc-choice:active{transform:scale(.97)}
+.kc-choice[aria-pressed="true"]{background:var(--btn);color:var(--btn-ink);box-shadow:0 0 22px rgba(246,181,74,.3)}
+.kc-choice[aria-pressed="true"] .frame{display:none}
+.frame{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.frame path{fill:none;stroke:rgba(228,218,200,.62);stroke-width:1.2;vector-effect:non-scaling-stroke}
+.kc-field{position:relative;display:flex;align-items:center;gap:10px;min-height:44px;color:var(--ink-3);transition:color .2s}
+.kc-field:focus-within{color:var(--ink-2)}
+.kc-field input,.kc-field select{flex:1;min-width:0;height:42px;padding:0;border:0;background:transparent;color:var(--ink);font:400 15px 'Literata',Georgia,serif;outline:none}
+.kc-field input::placeholder{color:var(--ink-3);opacity:1}
+.kc-field select option{background:#141922;color:var(--ink)}
+.field-line{position:absolute;left:0;right:0;bottom:-3px;width:100%;height:6px;overflow:visible;pointer-events:none}
+.field-line path{fill:none;stroke:var(--line-2);stroke-width:1.1;vector-effect:non-scaling-stroke;transition:stroke .2s}
+.kc-field:focus-within .field-line path{stroke:var(--lamp)}
+.kc-field:hover .field-line path{stroke:rgba(236,224,204,.7)}
+.kc-field input:disabled{opacity:.5;cursor:not-allowed}
+.kc-ctx{position:relative;display:flex;gap:12px;align-items:flex-start;width:100%;padding:10px 10px;border:0;border-radius:8px;background:transparent;color:var(--ink-2);font:italic 400 15px/1.5 'Literata',Georgia,serif;text-align:left;cursor:pointer;transition:background-color .2s}
+.kc-ctx:hover{background:rgba(255,224,180,.05)}
+.kc-ctx i{flex:0 0 auto;width:12px;height:12px;margin-top:5px;border-radius:50%;box-shadow:inset 0 0 0 1.3px var(--line-2)}
+.kc-ctx[aria-checked="true"] i{background:var(--lamp);box-shadow:0 0 8px rgba(246,181,74,.6)}
+.kc-link{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 2px;border:0;background:none;color:var(--ink-2);font:400 15px/1 'Literata',Georgia,serif;text-decoration:underline;text-decoration-color:var(--line-2);text-decoration-thickness:1px;text-underline-offset:6px;cursor:pointer;transition:color .2s,text-decoration-color .2s}
+.kc-link:hover{color:var(--ink);text-decoration-color:var(--lamp)}
+.kc-link[aria-pressed="true"]{color:var(--lamp-ink);text-decoration-color:var(--lamp)}
+.hl{color:var(--lamp-ink);font-style:normal}
+.hand{font-family:'Caveat',cursive;color:var(--ink-2)}
+.kc-nav:focus-visible,.kc-tab:focus-visible,.kc-row:focus-visible,.kc-choice:focus-visible,.kc-link:focus-visible,.kc-btn:focus-visible,.kc-ctx:focus-visible{outline:1.5px dashed var(--line-2);outline-offset:4px}
+.kc-nav:active,.kc-tab:active,.kc-ctx:active{transform:scale(.985)}
+.kc-link:active{transform:scale(.97)}
+.kc-btn:disabled,.kc-choice:disabled,.kc-tab:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+.lamp-host{position:relative;isolation:isolate}
+:where(.lamp-host > :not(.lamp)){position:relative;z-index:1}
+.lamp{position:absolute;pointer-events:none}
+.lamp-strokes{fill:none;stroke:rgba(228,218,200,.8);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.lamp-strokes .lamp-body{fill:#0d1117}
+.lamp-strokes .lamp-cord-core{stroke:#0d1117;stroke-width:.8}
+.lamp-mouth{fill:#ffe1ae;stroke:rgba(228,218,200,.85);stroke-width:1.3}
+.lamp-halo{fill:#ffe1ae;filter:blur(7px)}
+.lamp-light{animation:lamp-warm .9s ease-out both}
+@keyframes lamp-warm{0%{opacity:0}22%{opacity:.85}32%{opacity:.35}60%{opacity:1}100%{opacity:1}}
+.lamp-bloom{border-radius:50%;mix-blend-mode:screen;z-index:3;background:radial-gradient(circle,rgba(255,225,174,.9) 0,rgba(255,202,128,.42) 22%,rgba(250,183,66,.12) 48%,transparent 70%)}
+.clip-beam{left:0;right:0;top:-44px;bottom:0;filter:blur(8px);mix-blend-mode:screen}
+.clip-beam>span{position:absolute;inset:0;clip-path:polygon(calc(100% - 238px) 4px,calc(100% - 200px) 8px,100% 100%,0 100%,0 81px);background:radial-gradient(circle at calc(100% - 219px) 6px,rgba(255,202,128,.46) 0,rgba(255,202,128,.15) 170px,rgba(250,183,66,.05) 320px,transparent 400px)}
+.clip-pool{inset:0;background:radial-gradient(ellipse 72% 58% at 36% 44%,rgba(250,183,66,.15),transparent 76%)}
+.clip-drawing{right:0;top:-90px;z-index:2;width:260px;height:110px;overflow:visible}
+.clip-bloom{right:184px;top:-73px;width:70px;height:70px}
+.sconce-beam,.sconce-drawing{left:-16px;top:-104px;width:236px}
+.sconce-beam{z-index:0;height:200px;mix-blend-mode:screen}
+.sconce-drawing{z-index:2;height:110px;overflow:visible}
+@media (max-width:760px){.side{flex:1 1 100%!important;min-height:0!important;padding:16px!important}.side ul{flex-direction:row!important;flex-wrap:wrap;margin-top:12px!important}.side .kc-nav{width:auto}.side .lamp{display:none}.side-foot{display:none!important}.main{padding:24px 16px 40px!important}}
+@media (prefers-reduced-motion: reduce){.lamp-light{animation:none}.kc-row,.kc-choice,.kc-btn{transition:none}}
+</style>
+</helmet>
+<div class="room" style="position:relative; display:flex; flex-wrap:wrap; min-height:1120px; background:var(--paper); color:var(--ink); font-family:'Literata', Georgia, serif; font-optical-sizing:auto; overflow:hidden">
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute"><defs>
+<filter id="pf" x="-5%" y="-10%" width="110%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="4" result="n"></feTurbulence><feDisplacementMap in="SourceGraphic" in2="n" scale="1.6" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap></filter>
+<radialGradient id="sconce-light" cx="188" cy="75" r="190" gradientUnits="userSpaceOnUse"><stop offset="0" style="stop-color:#ffca80; stop-opacity:.6"></stop><stop offset=".45" style="stop-color:#fab742; stop-opacity:.2"></stop><stop offset="1" style="stop-color:#fab742; stop-opacity:0"></stop></radialGradient>
+<filter id="sconce-soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"></feGaussianBlur></filter>
+</defs></svg>
+
+<nav class="side" aria-label="Основная навигация" style="position:relative; z-index:2; flex:0 0 232px; box-sizing:border-box; min-height:1120px; padding:28px 18px; display:flex; flex-direction:column">
+<svg class="lamp" aria-hidden="true" viewBox="0 0 6 1000" preserveAspectRatio="none" style="top:0; right:-3px; width:6px; height:100%; overflow:visible"><path d="M3.2 1 C2.4 230 4.1 520 3 700 S2.6 900 3.4 999" style="fill:none; stroke:rgba(236,224,204,.3); stroke-width:1.1; vector-effect:non-scaling-stroke"></path></svg>
+<div style="display:flex; align-items:center; gap:10px; height:40px; padding-left:12px">
+<svg aria-hidden="true" viewBox="0 0 24 24" style="width:24px; height:24px; fill:none; stroke:var(--ink); stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round"><path d="M4 20h16"></path><path d="M8 20l3-8"></path><path d="M11 12l5-5"></path><path d="M14 4.5l4.5 4.5-3.2 1.4-2.7-2.7z"></path></svg>
+<span style="font-size:19px; font-weight:600; letter-spacing:-.01em">Kindle Cards</span>
+</div>
+<ul style="list-style:none; margin:56px 0 0; padding:0; display:flex; flex-direction:column; gap:4px">
+<li><a class="kc-nav" href="Main.dc.html"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h16"></path><path d="M8 20l3-8"></path><path d="M11 12l5-5"></path><path d="M14 4.5l4.5 4.5-3.2 1.4-2.7-2.7z"></path></svg>Главная</a></li>
+<li style="position:relative">
+<svg class="lamp sconce-beam lamp-light" viewBox="0 0 236 200" aria-hidden="true"><path d="M6 126 L7.7 120.8 L12.8 115.7 L21 111 L32.2 106.7 L181 63.8 L228.3 120.8 L230 126 L228.3 131.2 L223.2 136.3 L215 141 L203.8 145.3 L190 149 L174 152 L156.3 154.2 L137.4 155.5 L118 156 L98.5 155.5 L79.7 154.2 L62 152 L46 149 L32.2 145.3 L21 141 L12.8 136.3 L7.7 131.2 Z" style="fill:url(#sconce-light)" filter="url(#sconce-soft)"></path></svg>
+<a class="kc-nav" href="Words.dc.html" aria-current="page"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4.5 6h2M4.5 12h2M4.5 18h2"></path><path d="M10 6h10M10 12h7.5M10 18h5"></path></svg>Слова<span class="kc-badge">5</span></a>
+<svg class="lamp sconce-drawing" viewBox="0 0 236 110" aria-hidden="true"><g class="lamp-strokes" filter="url(#pf)" style="stroke-width:1.3"><rect class="lamp-body" x="227" y="44" width="9" height="28" rx="2.5"></rect><path d="M227 56.6 L210.2 60.2 M227 59.6 L210.6 63.6"></path><circle class="lamp-body" cx="210" cy="62" r="3.8"></circle><path class="lamp-body" d="M202.3 60.7 L181 63.8 L194.1 86.3 L207.3 69.3 Z"></path></g><ellipse class="lamp-halo lamp-light" cx="187.5" cy="75.1" rx="18" ry="8" transform="rotate(-120.19 187.5 75.1)"></ellipse><ellipse class="lamp-mouth" cx="187.5" cy="75.1" rx="13" ry="3.4" transform="rotate(-120.19 187.5 75.1)"></ellipse></svg>
+</li>
+<li><a class="kc-nav" href="Progress.dc.html"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 18c3-1 5-6 8-6s4 3 8-6"></path><path d="M4 21h16"></path></svg>Прогресс</a></li>
+<li><button class="kc-nav" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"></path><circle cx="15" cy="7" r="2"></circle><circle cx="9" cy="17" r="2"></circle></svg>Настройки</button></li>
+</ul>
+<div class="side-foot" style="margin-top:auto; padding:0 12px">
+<p style="display:flex; align-items:center; gap:8px; margin:0; font-size:14px; color:var(--ink-2)"><span style="width:8px; height:8px; border-radius:50%; background:var(--lamp); box-shadow:0 0 8px rgba(246,181,74,.8)"></span>Kindle подключён</p>
+<p style="margin:6px 0 0 16px; font-size:13px; color:var(--ink-3)">синхронизировано в 21:40</p>
+</div>
+</nav>
+
+<main class="main" style="position:relative; z-index:1; flex:999 1 640px; min-width:0; box-sizing:border-box; padding:32px 48px 56px 56px">
+
+<header style="display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:18px 32px">
+<div style="flex:1 1 380px; min-width:0">
+<h1 style="margin:0; font-size:28px; font-weight:500; letter-spacing:-.01em">Слова</h1>
+</div>
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:16px 24px">
+<label class="kc-field" style="width:220px">
+<svg aria-hidden="true" viewBox="0 0 24 24" style="width:18px; height:18px; flex:0 0 auto; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round"><circle cx="10.8" cy="10.8" r="6.3"></circle><path d="m15.5 15.5 4.5 4.5"></path></svg>
+<span style="position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)">Найти слово</span>
+<input type="search" placeholder="Найти слово" />
+<svg class="field-line" viewBox="0 0 1000 6" preserveAspectRatio="none" aria-hidden="true"><path d="M0 3.2 Q250 2.4 500 3.6 T1000 2.9" filter="url(#pf)"></path></svg>
+</label>
+<label class="kc-field" style="width:200px">
+<span style="font-size:14px">Книга</span>
+<select>
+<option>Все книги</option>
+<option>The Night Reader</option>
+<option>Shadows and Signals</option>
+<option>The Lantern Keeper</option>
+<option>Salt and Iron</option>
+</select>
+<svg class="field-line" viewBox="0 0 1000 6" preserveAspectRatio="none" aria-hidden="true"><path d="M0 3.4 Q260 3.9 520 2.8 T1000 3.3" filter="url(#pf)"></path></svg>
+</label>
+<a class="kc-btn kc-drawn" href="Export.dc.html"><svg class="frame" viewBox="0 0 140 46" preserveAspectRatio="none" aria-hidden="true"><path d="M3 3.6 Q70 2 137.2 3.2 Q138.4 23 137 42.8 Q70 44.2 3.2 42.6 Q1.8 23 3 3.6 Z" filter="url(#pf)"></path></svg>Экспорт</a>
+</div>
+</header>
+
+<div role="tablist" aria-label="Полки" style="display:flex; flex-wrap:wrap; gap:4px 28px; margin-top:28px">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+<button class="kc-tab" type="button" role="tab" aria-selected="{{t.selected}}" onClick="{{t.pick}}"><svg class="tab-mark" viewBox="0 0 100 6" preserveAspectRatio="none" aria-hidden="true"><path d="M1 3.3 C20 2.3 38 4.2 58 3.1 S88 2.5 99 3.5"></path></svg>{{t.name}} <span>{{t.count}}</span></button>
+</sc-for>
+</div>
+<svg aria-hidden="true" viewBox="0 0 1000 6" preserveAspectRatio="none" style="display:block; width:100%; height:6px; overflow:visible"><path d="M0 3.1 Q240 2.4 500 3.5 T1000 2.9" filter="url(#pf)" style="fill:none; stroke:var(--line-2); stroke-width:1; vector-effect:non-scaling-stroke"></path></svg>
+<p style="margin:14px 0 0; max-width:760px; font-size:15px; line-height:1.5; color:var(--ink-3)">{{shelfNote}}</p>
+
+<div style="display:flex; flex-wrap:wrap; align-items:flex-start; gap:32px 40px; margin-top:16px">
+
+<section role="tabpanel" aria-label="{{shelfName}}" style="flex:1 1 520px; min-width:0">
+<sc-if value="{{isDisputed}}" hint-placeholder-val="{{false}}">
+<div style="padding:0 0 14px"><a class="kc-btn kc-primary" href="Triage.dc.html">Проверить по одному</a></div>
+</sc-if>
+<ul style="list-style:none; margin:0; padding:0">
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="10">
+<li>
+<svg aria-hidden="true" viewBox="0 0 1000 6" preserveAspectRatio="none" style="display:block; width:100%; height:6px; overflow:visible"><path d="M0 3.3 Q260 3.9 520 2.8 T1000 3.3" filter="url(#pf)" style="fill:none; stroke:var(--line); stroke-width:1; vector-effect:non-scaling-stroke"></path></svg>
+<button class="{{r.cls}}" type="button" aria-pressed="{{r.selected}}" onClick="{{r.pick}}">
+<span style="flex:0 0 26px; font-size:15px; font-variant-numeric:lining-nums; color:var(--ink-3)">{{r.rank}}</span>
+<span style="flex:1 1 220px; min-width:0"><strong class="kc-lemma" style="font-size:18px; font-weight:600; color:var(--ink); transition:color .2s">{{r.word}}</strong><em style="font-size:14px; color:var(--ink-3)"> {{r.posShort}}</em><span style="font-size:15px; color:var(--ink-3)"> — {{r.meaning}}</span></span>
+<span style="flex:0 0 auto; font-size:13px; color:var(--ink-3)">{{r.exported}}</span>
+<span class="{{r.markCls}}" style="flex:0 1 auto">{{r.mark}}</span>
+</button>
+</li>
+</sc-for>
+</ul>
+<svg aria-hidden="true" viewBox="0 0 1000 6" preserveAspectRatio="none" style="display:block; width:100%; height:6px; overflow:visible"><path d="M0 2.8 Q220 3.6 480 3.0 T1000 3.4" filter="url(#pf)" style="fill:none; stroke:var(--line); stroke-width:1; vector-effect:non-scaling-stroke"></path></svg>
+<sc-if value="{{hasMore}}" hint-placeholder-val="{{true}}"><button class="kc-link" type="button" style="margin:6px 0 0 10px">{{moreNote}}</button></sc-if>
+</section>
+
+<aside class="lamp-host" aria-labelledby="ins-word" style="flex:1 1 360px; min-width:0; max-width:470px; box-sizing:border-box; margin-top:84px; padding:30px 28px 26px; border-radius:6px; background:rgba(20,25,34,.5)">
+<div class="lamp clip-beam lamp-light" aria-hidden="true"><span></span></div>
+<span class="lamp clip-pool" aria-hidden="true"></span>
+<svg class="lamp frame" viewBox="0 0 400 600" preserveAspectRatio="none" aria-hidden="true" style="z-index:1"><path d="M3 4 Q200 1.8 397 3.4 Q398.6 300 396.8 596.4 Q200 598.4 3.6 596.8 Q1.6 300 3 4 Z" filter="url(#pf)"></path></svg>
+<svg class="lamp clip-drawing" viewBox="0 0 260 110" aria-hidden="true"><g class="lamp-strokes" filter="url(#pf)"><path d="M212 82 C212 30 120 14 42.5 33" style="stroke-width:2.2"></path><path class="lamp-cord-core" d="M212 82 C212 30 120 14 42.5 33"></path><rect class="lamp-body" x="205" y="81" width="14" height="17" rx="3"></rect><path d="M219 86 L233 79"></path><path class="lamp-body" d="M35.5 32.3 L21.7 50 L59.5 53.8 L49.5 33.7 Z"></path></g><ellipse class="lamp-halo lamp-light" cx="40.6" cy="51.9" rx="24" ry="9" transform="rotate(-174.3 40.6 51.9)"></ellipse><ellipse class="lamp-mouth" cx="40.6" cy="51.9" rx="19" ry="4.4" transform="rotate(-174.3 40.6 51.9)"></ellipse></svg>
+<span class="lamp lamp-bloom clip-bloom lamp-light" aria-hidden="true"></span>
+
+<p style="margin:0; font-size:15px; font-style:italic; color:var(--ink-2)">{{sel.eyebrow}}</p>
+<div style="display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 12px; margin-top:8px">
+<h2 id="ins-word" style="margin:0; font-size:36px; font-weight:500; letter-spacing:-.015em">{{sel.word}}</h2>
+<em style="font-size:15px; color:var(--ink-3)">{{sel.pos}}</em>
+</div>
+
+<label class="kc-field" style="margin-top:14px">
+<span style="flex:0 0 auto; font-size:14px">Перевод</span>
+<input type="text" value="{{sel.meaningValue}}" onChange="{{sel.onMeaning}}" placeholder="добавьте перевод" aria-label="Перевод на карточке" />
+<svg class="field-line" viewBox="0 0 1000 6" preserveAspectRatio="none" aria-hidden="true"><path d="M0 3.2 Q250 2.4 500 3.6 T1000 2.9" filter="url(#pf)"></path></svg>
+</label>
+
+<h3 style="margin:22px 0 8px; font-size:15px; font-weight:500; color:var(--ink-2)">Почему здесь</h3>
+<ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px">
+<sc-for list="{{sel.signals}}" as="s" hint-placeholder-count="3">
+<li style="display:flex; align-items:baseline; gap:10px; font-size:15px; line-height:1.4; color:{{s.color}}"><span class="hand" role="img" aria-label="{{s.label}}" style="flex:0 0 14px; font-size:21px; line-height:1; color:{{s.signColor}}">{{s.sign}}</span><span>{{s.text}}</span></li>
+</sc-for>
+</ul>
+
+<h3 style="margin:22px 0 4px; font-size:15px; font-weight:500; color:var(--ink-2)">Пример на карточку</h3>
+<div role="radiogroup" aria-label="Пример на карточку">
+<sc-for list="{{sel.contexts}}" as="q" hint-placeholder-count="1">
+<button class="kc-ctx" type="button" role="radio" aria-checked="{{q.checked}}" onClick="{{q.pick}}"><i aria-hidden="true"></i><span>{{q.pre}}<em class="hl">{{q.form}}</em>{{q.post}}<span style="display:block; margin-top:2px; font-size:13px; font-style:normal; color:var(--ink-3)">{{q.book}}</span></span></button>
+</sc-for>
+</div>
+
+<div role="group" aria-label="Решение по слову" style="display:flex; gap:8px; margin-top:18px">
+<sc-for list="{{sel.choices}}" as="o" hint-placeholder-count="3">
+<button class="kc-choice" type="button" aria-pressed="{{o.pressed}}" onClick="{{o.act}}"><svg class="frame" viewBox="0 0 100 46" preserveAspectRatio="none" aria-hidden="true"><path d="M3 3.6 Q50 2 97.2 3.2 Q98.4 23 97 42.8 Q50 44.2 3.2 42.6 Q1.8 23 3 3.6 Z" filter="url(#pf)"></path></svg>{{o.label}}</button>
+</sc-for>
+</div>
+<button class="kc-link" type="button" aria-pressed="{{junkPressed}}" onClick="{{junkAct}}" style="margin-top:4px; font-size:14px">Это имя или обрывок — не слово</button>
+<p style="margin:4px 0 0; min-height:20px; font-size:14px; color:{{sel.noteColor}}">{{sel.note}}</p>
+</aside>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1120}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { shelf: 'worth', sel: 'linger', dec: {}, ctx: {}, edits: {} };
+  }
+  renderVals() {
+    const NR = 'The Night Reader', SS = 'Shadows and Signals', LK = 'The Lantern Keeper', SI = 'Salt and Iron';
+    const SHELVES = [
+      { id: 'disputed', name: 'Спорные', count: 5, start: 0, note: 'Рейтинг в них не уверен. Ваш ответ он учтёт и для похожих слов.' },
+      { id: 'worth', name: 'Стоит учить', count: 199, start: 1, note: 'Сверху — то, что встретится снова, и то, что вы уже забывали. Экспорт берёт отсюда слова, которых ещё нет в вашем приложении для карточек.' },
+      { id: 'context', name: 'Не стоит учить', count: 521, start: 0, note: 'Редкие слова, встреченные один раз. В книге их можно понять по контексту.' },
+      { id: 'known', name: 'Знаю', count: 485, start: 0, note: 'Вы отметили, что знаете их. Поищете такое слово снова — оно вернётся в рейтинг.' },
+      { id: 'junk', name: 'Не слова', count: 38, start: 0, note: 'Имена, названия и обрывки слов. Не попадают ни в рейтинг, ни в экспорт.' }
+    ];
+    // [word, pos, meaning, mark, hot, exported, contexts, signals]
+    const D = {
+      disputed: [
+        ['gaunt', 'прил.', 'исхудалый', 'редкое, но искали дважды', false, '', [['Her ', 'gaunt', ' face was pale in the lamplight.', SS]], [['Искали дважды за неделю', 2], ['Встречается раз в ~14 книг', 0]]],
+        ['lest', 'союз', 'чтобы не', 'книжное, устаревает', false, '', [['Speak softly, ', 'lest', ' the guards hear you.', NR]], [['Часто в старых книгах', 1], ['В современных текстах редкое', 0]]],
+        ['mere', 'сущ.', 'озеро (устар.)', 'редкое значение частого слова', false, '', [['They camped by the ', 'mere', ' at dusk.', LK]], [['Частое слово, но здесь редкое значение', 1], ['Значение «озеро» встречается редко', 0]]],
+        ['threadbare', 'прил.', 'потёртый', 'редкое', false, '', [['He wore a ', 'threadbare', ' coat.', NR]], [['Встречается раз в ~41 книгу', 0], ['Из книги, которую вы читаете', 1]]],
+        ['Kethra', 'имя?', '—', 'нет в словарях', false, '', [['', 'Kethra', ' closed the book and blew out the candle.', NR]], [['Нет в словарях английского', 0], ['С заглавной буквы в начале фразы — может быть и словом', -1]]]
+      ],
+      worth: [
+        ['linger', 'гл.', 'задерживаться, медлить', 'снова искали после экспорта', true, 'в Anki', [['She let her hand ', 'linger', ' on the door a moment too long.', NR], ['The smell of smoke ', 'lingered', ' in the hall long after the fire.', SS]], [['Искали 3 раза, последний — уже после экспорта', 3], ['В двух ваших книгах', 2], ['Встречается раз в ~5 книг', 2]]],
+        ['flinch', 'гл.', 'вздрагивать', 'в трёх ваших книгах', true, 'в Anki', [['He didn’t ', 'flinch', ' when the door slammed behind him.', NR], ['She ', 'flinched', ' at the sound of her own name.', LK]], [['В трёх ваших книгах', 3], ['В романах встречается чаще, чем в обычных текстах', 2]]],
+        ['reluctant', 'прил.', 'неохотный', 'частое', true, 'в Anki', [['The ', 'reluctant', ' guard stepped aside at last.', SS]], [['Встречается раз в ~2 книги — чаще, чем то, что вы обычно ищете', 3]]],
+        ['ominous', 'прил.', 'зловещий', 'новое · читаете сейчас', false, '', [['An ', 'ominous', ' silence fell over the house.', NR]], [['Из книги, которую вы читаете', 2], ['Встречается раз в ~4 книги', 2]]],
+        ['glimpse', 'сущ., гл.', 'проблеск; мельком увидеть', 'в двух ваших книгах', false, '', [['For a moment he caught a ', 'glimpse', ' of the city below.', NR]], [['В двух ваших книгах', 2], ['Встречается раз в ~2 книги', 3]]],
+        ['earnest', 'прил.', 'серьёзный, искренний', 'новое · частое', false, '', [['He spoke in an ', 'earnest', ' whisper.', NR]], [['Встречается раз в ~2 книги', 3]]],
+        ['wary', 'прил.', 'настороженный', 'искали дважды', false, 'в Anki', [['The old dog was ', 'wary', ' of strangers.', LK]], [['Искали дважды', 2], ['Встречается раз в ~3 книги', 3]]],
+        ['dread', 'сущ.', 'страх, ужас', 'читаете сейчас', false, 'в Anki', [['A quiet ', 'dread', ' settled over the room.', NR]], [['Из книги, которую вы читаете', 2], ['Встречается раз в ~3 книги', 3]]],
+        ['grim', 'прил.', 'мрачный, суровый', 'частое', false, '', [['His face was ', 'grim', ' as he read the letter.', SS]], [['Встречается раз в ~2 книги', 3]]],
+        ['stern', 'прил.', 'строгий, суровый', 'новое · читаете сейчас', false, '', [['Her father gave her a ', 'stern', ' look.', NR]], [['Из книги, которую вы читаете', 2], ['Встречается раз в ~1,5 книги', 3]]]
+      ],
+      context: [
+        ['brusque', 'прил.', 'резкий, бесцеремонный', 'встретилось один раз', false, '', [['Her tone was ', 'brusque', '.', SI]], [['Встречается раз в ~46 книг', 0], ['Встретилось один раз, больше не искали', 0]]],
+        ['sheepish', 'прил.', 'сконфуженный', 'встретилось один раз', false, '', [['She gave him a ', 'sheepish', ' smile.', SS]], [['Встречается раз в ~42 книги', 0]]],
+        ['rummage', 'гл.', 'рыться', 'встретилось один раз', false, '', [['She ', 'rummaged', ' through the drawer.', NR]], [['Встречается раз в ~32 книги', 0]]],
+        ['rueful', 'прил.', 'печальный', 'встретилось один раз', false, '', [['He gave a ', 'rueful', ' laugh.', LK]], [['Встречается раз в ~75 книг', 0]]]
+      ],
+      known: [
+        ['resilient', 'прил.', 'стойкий', 'отмечено 12 октября', false, '', [['Her ', 'resilient', ' spirit never broke.', SS]], [['Вы отметили «знаю»', 0]]],
+        ['hoarse', 'прил.', 'хриплый', 'отмечено 2 октября', false, '', [['His voice was ', 'hoarse', ' from shouting.', SS]], [['Вы отметили «знаю»', 0]]]
+      ],
+      junk: [
+        ['Vessaline', 'назв.', '—', 'название места', false, '', [['The ship sailed for ', 'Vessaline', ' at dawn.', SI]], [['Нет в словарях английского', 0], ['С заглавной буквы посреди фразы', 0]]],
+        ['hadn', 'обрывок', '—', 'часть hadn’t', false, '', [['He ', 'hadn', '’t slept in days.', SS]], [['Обрывок слова', 0]]]
+      ]
+    };
+    const st = this.state;
+    const shelf = SHELVES.find((s) => s.id === st.shelf);
+    const decLabel = { known: 'знаю', learn: 'учить', skip: 'не учить', junk: 'не слово' };
+    const rows = D[st.shelf].map((a, i) => {
+      const [word, pos, meaning, mark, hot, exported] = a;
+      const decided = st.dec[word];
+      return {
+        word, posShort: pos, meaning, exported,
+        rank: shelf.start ? String(shelf.start + i) : '',
+        mark: decided ? decLabel[decided] : mark,
+        markCls: decided ? 'mark' : hot ? 'mark hot' : 'mark',
+        selected: word === st.sel,
+        cls: word === st.sel ? 'kc-row is-active' : 'kc-row',
+        pick: () => this.setState({ sel: word })
+      };
+    });
+    const row = D[st.shelf].find((a) => a[0] === st.sel) || D[st.shelf][0];
+    const [word, pos, meaning, , , exported, ctx, signals] = row;
+    const rank = shelf.start ? shelf.start + D[st.shelf].indexOf(row) : 0;
+    const decided = st.dec[word];
+    const decide = (key) => () => this.setState({ dec: Object.assign({}, st.dec, { [word]: st.dec[word] === key ? undefined : key }) });
+    const chosen = st.ctx[word] ?? 0;
+    const notes = {
+      known: 'Уйдёт на полку «Знаю» и не попадёт в экспорт.',
+      learn: 'Останется в «Стоит учить» выше остальных и уйдёт со следующим экспортом.',
+      skip: 'Уйдёт на полку «Не стоит учить» и не попадёт в экспорт.',
+      junk: 'Уйдёт на полку «Не слова».'
+    };
+    const edited = st.edits[word] !== undefined && st.edits[word] !== meaning;
+    const status = edited ? (exported ? 'Перевод изменён — попадёт в карточку при повторном экспорте' : 'Перевод изменён — попадёт в карточку при экспорте') : exported ? 'Экспортировано в Anki 12 октября' : 'Ещё не экспортировано';
+    return {
+      tabs: SHELVES.map((s) => ({ name: s.name, count: s.id === 'disputed' ? String(s.count) : '', selected: s.id === st.shelf, pick: () => this.setState({ shelf: s.id, sel: D[s.id][0][0] }) })),
+      shelfName: shelf.name,
+      shelfNote: shelf.note,
+      isDisputed: st.shelf === 'disputed',
+      rows,
+      hasMore: shelf.count > rows.length,
+      moreNote: 'Показать ещё ' + (shelf.count - rows.length).toLocaleString('ru-RU'),
+      junkAct: decide('junk'),
+      junkPressed: decided === 'junk',
+      sel: {
+        word, pos,
+        meaningValue: st.edits[word] ?? (meaning === '—' ? '' : meaning),
+        onMeaning: (e) => this.setState({ edits: Object.assign({}, st.edits, { [word]: e.target.value }) }),
+        eyebrow: (rank ? '№ ' + rank + ' · ' : '') + shelf.name,
+        signals: signals.map(([text, n]) => ({ text, sign: n > 0 ? '+' : n === 0 ? '−' : '·', signColor: n > 0 ? 'var(--lamp-ink)' : 'var(--ink-3)', label: n > 0 ? 'за' : n === 0 ? 'против' : 'нейтрально', color: n > 0 ? 'var(--ink-2)' : 'var(--ink-3)' })),
+        contexts: ctx.map(([pre, form, post, book], i) => ({ pre, form, post, book, checked: i === chosen, pick: () => this.setState({ ctx: Object.assign({}, st.ctx, { [word]: i }) }) })),
+        choices: [['known', 'Знаю'], ['learn', 'Учить'], ['skip', 'Не учить']].map(([key, label]) => ({ label, pressed: decided === key, act: decide(key) })),
+        note: decided ? notes[decided] : status,
+        noteColor: decided || edited ? 'var(--lamp-ink)' : 'var(--ink-3)'
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>

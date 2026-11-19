@@ -11,6 +11,10 @@ The standard Kindle file is:
 Kindle/system/vocabulary/vocab.db
 ```
 
+Where the product is going — who it is for, what it promises, the milestones —
+is in `PRODUCT.md`; the agreed screens are in `docs/concept/`. The description
+above is the app as it started.
+
 On Windows the Kindle may appear as either a mounted drive or an MTP/WPD device
 under "This PC > Kindle". The backend already has both paths covered; do not
 replace this with drive-letter-only detection.
@@ -50,6 +54,59 @@ replace this with drive-letter-only detection.
   needs; do not duplicate work across agents.
 - Prefer read-only exploration agents for investigation, coder agents for
   file changes, and plan agents for architecture decisions.
+
+## Team
+
+The owner's goal is a product people other than the author use; `PRODUCT.md`
+holds the audience, the promise, the loop and the milestones. Read it before
+planning any work. The work is done by a small team of role agents led by the
+parent ("lead") agent. Briefs live in `.claude/agents/`; when a role is not
+registered as an agent type in the session, start a general-purpose agent and
+tell it to follow the brief file.
+
+| Role | Owns | Brief |
+| --- | --- | --- |
+| Lead (parent agent) | Plan, contracts between roles, integration, commits, the owner's decisions | this file, `PRODUCT.md` |
+| `product-skeptic` | Common sense: is each feature *needed* by real readers; cuts, simplifies, defers (read-only) | the team's veto on bloat |
+| `ranking-engineer` | Ranking model, features, shelves, reasons, `ranking_eval` | ranking and its evaluation |
+| `backend-engineer` | SQLite library and migrations, bridge contract, readers, export | Python outside ranking |
+| `frontend-engineer` | `src/`: screens from `docs/concept/`, components, styles | UI implementation |
+| `qa-engineer` | Verification: CI commands, bridge and preview walkthroughs, defect reports | does not fix product code |
+| `user-advocate` | First five minutes, reasons to return, README/release notes/onboarding copy | the newcomer's voice |
+| `ux-clarity-reviewer` | Meaning and load of every screen (read-only) | see below |
+| `design-language-reviewer` | The Кабинет look and light (read-only) | see below |
+
+How the team works:
+
+- **Plan, build, review, verify, log.** The lead cuts a milestone into tasks
+  with one owner each, fixes the contract between roles first (bridge payloads,
+  function signatures), then starts the lanes.
+- **Lanes do not share files.** Two agents never edit the same file at once.
+  Anything that crosses a boundary (a new bridge field, a new ranking output)
+  goes through the lead as a contract change.
+- **Need before build.** Every milestone plan and every new feature goes to
+  `product-skeptic` first. Items it marks "cut" are not built unless the owner
+  overrules; "simplify" items are built in the simpler form.
+- **Order for UI work:** `ux-clarity-reviewer` on the plan or mockup →
+  `frontend-engineer` builds → `design-language-reviewer` → `qa-engineer`.
+  **For ranking work:** `ranking-engineer` with before/after numbers → code
+  review → `qa-engineer`. **Before a release:** `user-advocate` walkthrough.
+- **Every engineer finishes with** passing checks, a `WORKLOG.md` entry and a
+  report that says what was not verified. Reviewers and QA report to the lead,
+  who decides disputed items.
+- **Only the lead commits**, as the owner (no co-author or attribution lines),
+  and only finished, checked work. Push, releases and anything public (posts,
+  issues, store listings) need the owner's explicit go-ahead.
+- **Token budget.** Pick the cheapest model and effort that can do the job
+  well, set explicitly on every agent: Haiku or Sonnet at low/medium for
+  reading, searching, checking and copy; Sonnet at medium/high for ordinary
+  code; Opus 5.5 at high only for the hardest work (ranking model, data
+  migrations, tricky debugging). Opus 5.5 high is the ceiling — never above it,
+  and not for everyone. Keep prompts focused, ask for short reports, and resume
+  an agent with its context instead of starting a new one when possible.
+- **The owner decides** product direction, anything that changes what readers
+  are promised, new dependencies that grow the installer, dataset downloads,
+  and everything public. Bring such questions with a recommendation.
 
 ## Design and UX Reviewers
 

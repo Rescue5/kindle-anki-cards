@@ -93,6 +93,41 @@ class ExampleTests(unittest.TestCase):
         self.assertAlmostEqual(examples["a"].days_since_last, 3.0)
         self.assertEqual(examples["b"].lookups_before, 1)
 
+    def test_examples_carry_only_earlier_lookups_and_the_books_being_read(self) -> None:
+        examples = {item.lexeme_id: item for item in ranking_eval.build_examples(self.library, CUTOFF, WINDOW)}
+        self.assertEqual(examples["a"].history, ((_at(-30), "book-1"), (_at(-3), "book-2")))
+        self.assertEqual(examples["b"].history, ((_at(-10), "book-1"),))
+        # Both books had a lookup in the 14 days before the cutoff, by any word.
+        self.assertEqual(examples["a"].reading_books, frozenset({"book-1", "book-2"}))
+        self.assertEqual(examples["a"].cutoff, CUTOFF)
+
+    def test_reading_books_use_only_the_two_weeks_before_the_cutoff(self) -> None:
+        library = Library(
+            lookups=[
+                Lookup("a", "recent", _at(-3)),
+                Lookup("a", "edge", CUTOFF - timedelta(days=14)),
+                Lookup("a", "stale", CUTOFF - timedelta(days=14, seconds=1)),
+                Lookup("a", "future-only", _at(2)),
+                Lookup("future-word", "future-only", _at(2)),
+            ],
+            lexical={"a": _lexical("a"), "future-word": _lexical("future-word")},
+        )
+        examples = {item.lexeme_id: item for item in ranking_eval.build_examples(library, CUTOFF, WINDOW)}
+        self.assertEqual(examples["a"].reading_books, frozenset({"recent", "edge"}))
+
+    def test_ranking_v2_scores_with_the_facts_known_at_the_cutoff(self) -> None:
+        examples = {item.lexeme_id: item for item in ranking_eval.build_examples(self.library, CUTOFF, WINDOW)}
+        facts = ranking_eval.word_facts(examples["a"])
+        self.assertEqual(len(facts.lookups), 2)
+        self.assertEqual(facts.reading_books, frozenset({"book-1", "book-2"}))
+        self.assertIsNone(facts.decision)
+        self.assertGreater(ranking_eval.ranking_v2(examples["a"]), ranking_eval.ranking_v2(examples["b"]))
+
+    def test_ranking_v2_accepts_an_example_built_by_hand(self) -> None:
+        once = _example("linger", needed=False, lookups=1)
+        often = _example("linger", needed=False, lookups=4)
+        self.assertGreater(ranking_eval.ranking_v2(often), ranking_eval.ranking_v2(once))
+
     def test_a_word_is_needed_again_only_inside_the_window(self) -> None:
         examples = {item.lexeme_id: item for item in ranking_eval.build_examples(self.library, CUTOFF, WINDOW)}
         self.assertTrue(examples["a"].needed_again)
@@ -174,6 +209,34 @@ class LearnedRankerTests(unittest.TestCase):
         after = ranking_eval.evaluate(later, [CUTOFF], WINDOW, (10,))["rounds"][0]
         self.assertIsNotNone(before["learned_weights"])
         self.assertEqual(before["learned_weights"], after["learned_weights"])
+
+
+class SyntheticReaderTests(unittest.TestCase):
+    """A synthetic reader unlike the author. The default weights were derived from the author's
+    own cutoffs, so this is only a sanity check that the signal also separates a made-up history
+    built to contain it; it is not evidence that the ranking generalises to other readers."""
+
+    def _library(self) -> Library:
+        lookups, lexical = [], {}
+        start = CUTOFF - timedelta(days=120)
+        for i in range(400):
+            word = f"s{i}"
+            # Frequencies cycle over the whole band, unrelated to what comes back.
+            lexical[word] = _lexical(word, 2.0 + (i * 7 % 40) / 10)
+            day = i % 115
+            book = f"book-{day // 10}"
+            lookups.append(Lookup(word, book, start + timedelta(days=day)))
+            # Every fifth word did not stick: looked up again in the next book, and again later.
+            if i % 5 == 0:
+                lookups.append(Lookup(word, f"book-{day // 10 + 1}", start + timedelta(days=day + 9)))
+                lookups.append(Lookup(word, "book-late", start + timedelta(days=day + 30)))
+        return Library(lookups=lookups, lexical=lexical)
+
+    def test_ranking_v2_separates_a_synthetic_history_with_a_planted_signal(self) -> None:
+        report = ranking_eval.evaluate(self._library(), [CUTOFF - timedelta(days=30)], WINDOW, (20,))
+        results = report["rounds"][0]["results"]
+        self.assertGreater(results["ranking_v2"]["auc"], results["current_score"]["auc"] + 0.1)
+        self.assertGreater(results["ranking_v2"]["precision"]["20"], results["current_score"]["precision"]["20"])
 
 
 class SummaryTests(unittest.TestCase):

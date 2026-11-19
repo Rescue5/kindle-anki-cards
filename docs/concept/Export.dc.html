@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Экспорт</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@400..700&amp;family=Literata:ital,opsz,wght@0,7..72,300..700;1,7..72,300..700&amp;display=swap">
+<style>
+body{margin:0;background:#0d1117}
+.room{--paper:#0d1117;--ink:#efe7d8;--ink-2:#c6bfb3;--ink-3:#9c968c;--line:rgba(226,214,192,.18);--line-2:rgba(236,224,204,.48);--lamp:#f6b54a;--lamp-ink:#ffcf7a;--btn:#f3b24c;--btn-hover:#ffc566;--btn-ink:#1d1406;--error:#d99a8c;color-scheme:dark}
+a{color:var(--ink-2)}a:hover{color:var(--ink)}
+.kc-nav{position:relative;z-index:1;display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;min-height:44px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:var(--ink-3);font:400 16px/1 'Literata',Georgia,serif;text-align:left;text-decoration:none;cursor:pointer;transition:color .2s,background-color .2s}
+.kc-nav:hover{color:var(--ink-2);background:rgba(255,224,180,.05)}
+.kc-nav[aria-current]{color:var(--ink)}
+.kc-nav svg{width:20px;height:20px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.kc-badge{margin-left:auto;font:600 19px/1 'Caveat',cursive;color:var(--lamp-ink)}
+.kc-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:46px;padding:0 22px;border:0;border-radius:12px;background:transparent;color:var(--ink);font:500 16px/1 'Literata',Georgia,serif;text-decoration:none;cursor:pointer;transition:transform .12s cubic-bezier(.23,1,.32,1),box-shadow .25s,background-color .25s}
+.kc-btn:active{transform:scale(.97)}
+.kc-primary{background:var(--btn);color:var(--btn-ink);box-shadow:inset 0 0 0 1px rgba(0,0,0,.16),0 0 26px rgba(246,181,74,.26),0 12px 30px -14px rgba(246,181,74,.7)}
+.kc-primary:hover{background:var(--btn-hover);color:var(--btn-ink);box-shadow:inset 0 0 0 1px rgba(0,0,0,.16),0 0 38px rgba(246,181,74,.4),0 14px 34px -14px rgba(246,181,74,.8)}
+.kc-btn:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+.kc-btn[aria-busy="true"]{opacity:.75;cursor:progress}
+.kc-seg{position:relative;display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border:0;border-radius:10px;background:transparent;color:var(--ink-2);font:400 15px/1 'Literata',Georgia,serif;cursor:pointer;transition:background-color .2s,color .2s,transform .12s}
+.kc-seg:hover{background:rgba(255,214,150,.08);color:var(--ink)}
+.kc-seg:active{transform:scale(.97)}
+.kc-seg[aria-checked="true"]{color:var(--ink)}
+.kc-seg[aria-checked="true"] .frame path{stroke:var(--lamp);stroke-width:1.4}
+.kc-seg:not([aria-checked="true"]) .frame{display:none}
+.kc-opt{position:relative;display:flex;gap:12px;align-items:flex-start;width:100%;padding:12px 10px;border:0;border-radius:8px;background:transparent;color:var(--ink-2);font:400 16px/1.4 'Literata',Georgia,serif;text-align:left;cursor:pointer;transition:background-color .2s}
+.kc-opt:hover{background:rgba(255,224,180,.05)}
+.kc-opt:active{transform:scale(.99)}
+.kc-opt i{flex:0 0 auto;width:12px;height:12px;margin-top:5px;border-radius:50%;box-shadow:inset 0 0 0 1.3px var(--line-2)}
+.kc-opt[aria-checked="true"]{color:var(--ink)}
+.kc-opt[aria-checked="true"] i{background:var(--lamp);box-shadow:0 0 8px rgba(246,181,74,.6)}
+.kc-seg:disabled,.kc-opt:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.frame{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.frame path{fill:none;stroke:rgba(228,218,200,.62);stroke-width:1.2;vector-effect:non-scaling-stroke}
+.kc-link{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 2px;border:0;background:none;color:var(--ink-2);font:400 15px/1 'Literata',Georgia,serif;text-decoration:underline;text-decoration-color:var(--line-2);text-decoration-thickness:1px;text-underline-offset:6px;cursor:pointer;transition:color .2s,text-decoration-color .2s}
+.kc-link:hover{color:var(--ink);text-decoration-color:var(--lamp)}
+.kc-link:active{transform:scale(.97)}
+.hl{color:var(--lamp-ink);font-style:normal}
+.hand{font-family:'Caveat',cursive;color:var(--ink-2)}
+.err{color:var(--error);text-decoration:underline wavy;text-decoration-color:rgba(217,154,140,.6);text-underline-offset:6px}
+.kc-nav:focus-visible,.kc-btn:focus-visible,.kc-seg:focus-visible,.kc-opt:focus-visible,.kc-link:focus-visible{outline:1.5px dashed var(--line-2);outline-offset:4px}
+.kc-nav:active{transform:scale(.985)}
+.lamp-host{position:relative;isolation:isolate}
+:where(.lamp-host > :not(.lamp)){position:relative;z-index:1}
+.lamp{position:absolute;pointer-events:none}
+.lamp-strokes{fill:none;stroke:rgba(228,218,200,.8);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.lamp-strokes .lamp-body{fill:#0d1117}
+.lamp-strokes .lamp-cord-core{stroke:#0d1117;stroke-width:.8}
+.lamp-mouth{fill:#ffe1ae;stroke:rgba(228,218,200,.85);stroke-width:1.3;transition:fill .6s}
+.lamp-halo{fill:#ffe1ae;filter:blur(7px)}
+.lamp-light{animation:lamp-warm .9s ease-out both;transition:opacity .7s}
+@keyframes lamp-warm{0%{opacity:0}22%{opacity:.85}32%{opacity:.35}60%{opacity:1}100%{opacity:1}}
+.lamp-bloom{border-radius:50%;mix-blend-mode:screen;z-index:3;background:radial-gradient(circle,rgba(255,225,174,.9) 0,rgba(255,202,128,.42) 22%,rgba(250,183,66,.12) 48%,transparent 70%)}
+.lamp-pool{transition:opacity .7s}
+.is-off .lamp-light{animation:none;opacity:0}
+.is-off .lamp-mouth{fill:#0d1117}
+.is-off .lamp-pool{opacity:0}
+.clip-beam{left:0;right:0;top:-44px;bottom:0;filter:blur(8px);mix-blend-mode:screen}
+.clip-beam>span{position:absolute;inset:0;clip-path:polygon(calc(100% - 238px) 4px,calc(100% - 200px) 8px,100% 100%,0 100%,0 81px);background:radial-gradient(circle at calc(100% - 219px) 6px,rgba(255,202,128,.46) 0,rgba(255,202,128,.15) 170px,rgba(250,183,66,.05) 320px,transparent 400px)}
+.clip-pool{inset:0;background:radial-gradient(ellipse 72% 58% at 36% 44%,rgba(250,183,66,.15),transparent 76%)}
+.clip-drawing{right:0;top:-90px;z-index:2;width:260px;height:110px;overflow:visible}
+.clip-bloom{right:184px;top:-73px;width:70px;height:70px}
+.sconce-beam,.sconce-drawing{left:-16px;top:-104px;width:236px}
+.sconce-beam{z-index:0;height:200px;mix-blend-mode:screen}
+.sconce-drawing{z-index:2;height:110px;overflow:visible}
+@media (max-width:760px){.side{flex:1 1 100%!important;min-height:0!important;padding:16px!important}.side ul{flex-direction:row!important;flex-wrap:wrap;margin-top:12px!important}.side .kc-nav{width:auto}.side .lamp{display:none}.side-foot{display:none!important}.main{padding:24px 16px 40px!important}}
+@media (prefers-reduced-motion: reduce){.lamp-light{animation:none}.kc-btn,.kc-seg,.kc-opt{transition:none}}
+</style>
+</helmet>
+<div class="room" style="position:relative; display:flex; flex-wrap:wrap; min-height:960px; background:var(--paper); color:var(--ink); font-family:'Literata', Georgia, serif; font-optical-sizing:auto; overflow:hidden">
+
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute"><defs>
+<filter id="pf" x="-5%" y="-10%" width="110%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="4" result="n"></feTurbulence><feDisplacementMap in="SourceGraphic" in2="n" scale="1.6" xChannelSelector="R" yChannelSelector="G"></feDisplacementMap></filter>
+<radialGradient id="sconce-light" cx="188" cy="75" r="190" gradientUnits="userSpaceOnUse"><stop offset="0" style="stop-color:#ffca80; stop-opacity:.6"></stop><stop offset=".45" style="stop-color:#fab742; stop-opacity:.2"></stop><stop offset="1" style="stop-color:#fab742; stop-opacity:0"></stop></radialGradient>
+<filter id="sconce-soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6"></feGaussianBlur></filter>
+</defs></svg>
+
+<nav class="side" aria-label="Основная навигация" style="position:relative; z-index:2; flex:0 0 232px; box-sizing:border-box; min-height:960px; padding:28px 18px; display:flex; flex-direction:column">
+<svg class="lamp" aria-hidden="true" viewBox="0 0 6 1000" preserveAspectRatio="none" style="top:0; right:-3px; width:6px; height:100%; overflow:visible"><path d="M3.2 1 C2.4 230 4.1 520 3 700 S2.6 900 3.4 999" style="fill:none; stroke:rgba(236,224,204,.3); stroke-width:1.1; vector-effect:non-scaling-stroke"></path></svg>
+<div style="display:flex; align-items:center; gap:10px; height:40px; padding-left:12px">
+<svg aria-hidden="true" viewBox="0 0 24 24" style="width:24px; height:24px; fill:none; stroke:var(--ink); stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round"><path d="M4 20h16"></path><path d="M8 20l3-8"></path><path d="M11 12l5-5"></path><path d="M14 4.5l4.5 4.5-3.2 1.4-2.7-2.7z"></path></svg>
+<span style="font-size:19px; font-weight:600; letter-spacing:-.01em">Kindle Cards</span>
+</div>
+<ul style="list-style:none; margin:56px 0 0; padding:0; display:flex; flex-direction:column; gap:4px">
+<li><a class="kc-nav" href="Main.dc.html"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h16"></path><path d="M8 20l3-8"></path><path d="M11 12l5-5"></path><path d="M14 4.5l4.5 4.5-3.2 1.4-2.7-2.7z"></path></svg>Главная</a></li>
+<li style="position:relative">
+<svg class="lamp sconce-beam lamp-light" viewBox="0 0 236 200" aria-hidden="true"><path d="M6 126 L7.7 120.8 L12.8 115.7 L21 111 L32.2 106.7 L181 63.8 L228.3 120.8 L230 126 L228.3 131.2 L223.2 136.3 L215 141 L203.8 145.3 L190 149 L174 152 L156.3 154.2 L137.4 155.5 L118 156 L98.5 155.5 L79.7 154.2 L62 152 L46 149 L32.2 145.3 L21 141 L12.8 136.3 L7.7 131.2 Z" style="fill:url(#sconce-light)" filter="url(#sconce-soft)"></path></svg>
+<a class="kc-nav" href="Words.dc.html" aria-current="true"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4.5 6h2M4.5 12h2M4.5 18h2"></path><path d="M10 6h10M10 12h7.5M10 18h5"></path></svg>Слова<span class="kc-badge">5</span></a>
+<svg class="lamp sconce-drawing" viewBox="0 0 236 110" aria-hidden="true"><g class="lamp-strokes" filter="url(#pf)" style="stroke-width:1.3"><rect class="lamp-body" x="227" y="44" width="9" height="28" rx="2.5"></rect><path d="M227 56.6 L210.2 60.2 M227 59.6 L210.6 63.6"></path><circle class="lamp-body" cx="210" cy="62" r="3.8"></circle><path class="lamp-body" d="M202.3 60.7 L181 63.8 L194.1 86.3 L207.3 69.3 Z"></path></g><ellipse class="lamp-halo lamp-light" cx="187.5" cy="75.1" rx="18" ry="8" transform="rotate(-120.19 187.5 75.1)"></ellipse><ellipse class="lamp-mouth" cx="187.5" cy="75.1" rx="13" ry="3.4" transform="rotate(-120.19 187.5 75.1)"></ellipse></svg>
+</li>
+<li><a class="kc-nav" href="Progress.dc.html"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 18c3-1 5-6 8-6s4 3 8-6"></path><path d="M4 21h16"></path></svg>Прогресс</a></li>
+<li><button class="kc-nav" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"></path><circle cx="15" cy="7" r="2"></circle><circle cx="9" cy="17" r="2"></circle></svg>Настройки</button></li>
+</ul>
+<div class="side-foot" style="margin-top:auto; padding:0 12px">
+<p style="display:flex; align-items:center; gap:8px; margin:0; font-size:14px; color:var(--ink-2)"><span style="width:8px; height:8px; border-radius:50%; background:var(--lamp); box-shadow:0 0 8px rgba(246,181,74,.8)"></span>Kindle подключён</p>
+<p style="margin:6px 0 0 16px; font-size:13px; color:var(--ink-3)">синхронизировано в 21:40</p>
+</div>
+</nav>
+
+<main class="main" style="position:relative; z-index:1; flex:999 1 640px; min-width:0; box-sizing:border-box; padding:32px 48px 56px 56px">
+<h1 style="margin:0; font-size:28px; font-weight:500; letter-spacing:-.01em">Экспорт</h1>
+<p style="margin:8px 0 0; max-width:620px; font-size:16px; line-height:1.5; color:var(--ink-2)">Карточки учите в своём приложении. Отсюда уходят слова из «Стоит учить» — с вашими переводами и примерами.</p>
+
+<div style="display:flex; flex-wrap:wrap; align-items:flex-start; gap:36px 48px; margin-top:28px">
+<div style="flex:1 1 420px; min-width:0; max-width:560px">
+
+<sc-if value="{{showForm}}" hint-placeholder-val="{{true}}">
+<h2 style="margin:0; font-size:18px; font-weight:500">Куда</h2>
+<div role="radiogroup" aria-label="Куда экспортировать" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:10px">
+<sc-for list="{{targets}}" as="t" hint-placeholder-count="4">
+<button class="kc-seg" type="button" role="radio" aria-checked="{{t.checked}}" onClick="{{t.pick}}" disabled="{{busy}}"><svg class="frame" viewBox="0 0 100 44" preserveAspectRatio="none" aria-hidden="true"><path d="M4 22 Q4 3.6 50 3 Q96.4 3.6 96 22 Q96.4 40.6 50 41 Q3.6 40.4 4 22 Z" filter="url(#pf)"></path></svg>{{t.label}}</button>
+</sc-for>
+</div>
+<p style="margin:8px 0 0; font-size:14px; color:var(--ink-3)">{{targetNote}}</p>
+
+<h2 style="margin:28px 0 0; font-size:18px; font-weight:500">Что</h2>
+<div role="radiogroup" aria-label="Какие слова" style="margin-top:6px">
+<sc-for list="{{scopes}}" as="s" hint-placeholder-count="2">
+<button class="kc-opt" type="button" role="radio" aria-checked="{{s.checked}}" onClick="{{s.pick}}" disabled="{{s.disabled}}"><i aria-hidden="true"></i><span>{{s.label}}<span style="display:block; margin-top:3px; font-size:14px; color:var(--ink-3)">{{s.note}}</span></span></button>
+</sc-for>
+</div>
+
+<sc-if value="{{isError}}" hint-placeholder-val="{{false}}">
+<p class="hand err" role="alert" style="margin:18px 0 0; font-size:22px">{{errorText}}</p>
+</sc-if>
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:14px 22px; margin-top:22px">
+<button class="kc-btn kc-primary" type="button" onClick="{{run}}" disabled="{{runDisabled}}" aria-busy="{{busy}}">{{runLabel}}</button>
+<a class="kc-link" href="Words.dc.html">Поправить слова</a>
+</div>
+<sc-if value="{{isEmpty}}" hint-placeholder-val="{{false}}">
+<p class="hand" style="margin:14px 0 0; font-size:21px; color:var(--ink-3)">С прошлого экспорта новых слов нет — лампа погашена.</p>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{done}}" hint-placeholder-val="{{false}}">
+<h2 style="margin:0; font-size:30px; font-weight:500">Готово</h2>
+<p style="margin:12px 0 0; font-size:17px; line-height:1.5; color:var(--ink-2)">{{doneText}}</p>
+<div style="display:flex; flex-wrap:wrap; align-items:center; gap:14px 22px; margin-top:22px">
+<button class="kc-btn kc-primary" type="button">{{doneAction}}</button>
+<button class="kc-link" type="button" onClick="{{again}}">Экспортировать ещё</button>
+</div>
+</sc-if>
+</div>
+
+<section class="{{pvCls}}" aria-label="Как будет выглядеть карточка" style="flex:1 1 340px; min-width:0; max-width:440px; box-sizing:border-box; margin-top:84px; padding:28px 28px 24px; border-radius:6px; background:rgba(20,25,34,.5)">
+<div class="lamp clip-beam lamp-light" aria-hidden="true"><span></span></div>
+<span class="lamp lamp-pool clip-pool" aria-hidden="true"></span>
+<svg class="lamp frame" viewBox="0 0 400 400" preserveAspectRatio="none" aria-hidden="true" style="z-index:1"><path d="M3 4 Q200 1.8 397 3.4 Q398.6 200 396.8 396.4 Q200 398.4 3.6 396.8 Q1.6 200 3 4 Z" filter="url(#pf)"></path></svg>
+<svg class="lamp clip-drawing" viewBox="0 0 260 110" aria-hidden="true"><g class="lamp-strokes" filter="url(#pf)"><path d="M212 82 C212 30 120 14 42.5 33" style="stroke-width:2.2"></path><path class="lamp-cord-core" d="M212 82 C212 30 120 14 42.5 33"></path><rect class="lamp-body" x="205" y="81" width="14" height="17" rx="3"></rect><path d="M219 86 L233 79"></path><path class="lamp-body" d="M35.5 32.3 L21.7 50 L59.5 53.8 L49.5 33.7 Z"></path></g><ellipse class="lamp-halo lamp-light" cx="40.6" cy="51.9" rx="24" ry="9" transform="rotate(-174.3 40.6 51.9)"></ellipse><ellipse class="lamp-mouth" cx="40.6" cy="51.9" rx="19" ry="4.4" transform="rotate(-174.3 40.6 51.9)"></ellipse></svg>
+<span class="lamp lamp-bloom clip-bloom lamp-light" aria-hidden="true"></span>
+<p style="margin:0; font-size:15px; font-style:italic; color:var(--ink-2)">Так будет выглядеть карточка</p>
+<p style="margin:14px 0 0; font-size:30px; font-weight:500">ominous</p>
+<p style="margin:10px 0 0; font-size:16px; line-height:1.5; font-style:italic; color:var(--ink-2)">An <em class="hl">ominous</em> silence fell over the house.</p>
+<p style="margin:4px 0 0; font-size:13px; color:var(--ink-3)">The Night Reader</p>
+<svg aria-hidden="true" viewBox="0 0 1000 6" preserveAspectRatio="none" style="display:block; width:100%; height:6px; margin:16px 0; overflow:visible"><path d="M0 3.2 Q250 2 500 3.8 T1000 3" style="fill:none; stroke:var(--line-2); stroke-width:1; vector-effect:non-scaling-stroke; stroke-dasharray:6 6"></path></svg>
+<p style="margin:0; font-size:20px; color:var(--ink)">зловещий <em style="font-size:14px; color:var(--ink-3)">прил.</em></p>
+<p class="hand" style="margin:12px 0 0; font-size:19px; color:var(--ink-3)">{{pvNote}}</p>
+</section>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"scenario":{"editor":"enum","options":["обычный","нечего экспортировать","ошибка записи"],"default":"обычный"},"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { to: 'anki', scope: 'new', phase: 'idle' };
+  }
+  componentWillUnmount() { clearTimeout(this.timer); }
+  renderVals() {
+    const st = this.state;
+    const scenario = this.props.scenario ?? 'обычный';
+    const empty = scenario === 'нечего экспортировать';
+    const TARGETS = {
+      anki: ['Anki', 'Файл .apkg: откройте его, и Anki добавит колоду.', 'Открыть папку с файлом', 'Файл для Anki готов: откройте его, и Anki добавит '],
+      quizlet: ['Quizlet', 'Текст для импорта: вставьте его в Quizlet при создании набора.', 'Скопировать ещё раз', 'Текст для Quizlet скопирован: вставьте его при создании набора — там будет '],
+      csv: ['CSV', 'Таблица для любого другого приложения.', 'Открыть папку с файлом', 'Таблица готова, в ней '],
+      obsidian: ['Obsidian', 'Карточки в папку хранилища для плагина Spaced Repetition.', 'Открыть хранилище', 'Записано в хранилище Obsidian: ']
+    };
+    const n = empty ? 0 : st.scope === 'new' ? 15 : 9;
+    const words = (k) => k + ' ' + (k % 10 === 1 && k % 100 !== 11 ? 'карточку' : k % 10 >= 2 && k % 10 <= 4 && (k % 100 < 10 || k % 100 >= 20) ? 'карточки' : 'карточек');
+    const scopes = [
+      ['new', 'Ещё не экспортированные', empty ? 'Новых в «Стоит учить» нет' : '15 слов из «Стоит учить», которых ещё нет в ' + TARGETS[st.to][0], false],
+      ['again', 'Заново', '9 слов, которые снова искали после экспорта или поправили, — с пометкой «повтор»', false]
+    ];
+    const busy = st.phase === 'running';
+    const done = st.phase === 'done';
+    const run = () => {
+      this.setState({ phase: 'running' });
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.setState({ phase: scenario === 'ошибка записи' ? 'error' : 'done' }), 900);
+    };
+    const t = TARGETS[st.to];
+    return {
+      showForm: !done,
+      done,
+      busy,
+      isEmpty: empty && st.scope === 'new',
+      isError: st.phase === 'error',
+      errorText: st.to === 'obsidian' ? 'Хранилище не найдено — проверьте путь в настройках' : 'Не получилось записать файл — папка недоступна. Попробуйте ещё раз',
+      targets: Object.keys(TARGETS).map((id) => ({ label: TARGETS[id][0], checked: st.to === id, pick: () => this.setState({ to: id, phase: 'idle' }) })),
+      targetNote: t[1],
+      scopes: scopes.map(([id, label, note, disabled]) => ({ label, note, disabled, checked: st.scope === id, pick: () => this.setState({ scope: id, phase: 'idle' }) })),
+      runDisabled: busy || n === 0,
+      runLabel: busy ? 'Готовлю файл…' : n === 0 ? 'Нечего экспортировать' : 'Экспортировать ' + words(n),
+      run,
+      again: () => this.setState({ phase: 'idle' }),
+      doneText: t[3] + words(n) + '. Если какое-то слово придётся снова искать в книге, оно появится в «Прогрессе».',
+      doneAction: t[2],
+      pvCls: done || (empty && st.scope === 'new') ? 'lamp-host is-off' : 'lamp-host',
+      pvNote: done ? words(n) + ' ушли в ' + t[0] + ' — лампа погасла' : 'лицевая сторона — слово и пример, оборот — перевод'
+    };
+  }
+}
+</script>
+</body>
+</html>

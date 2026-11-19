@@ -1,0 +1,20 @@
+{
+  "v": 3,
+  "createdOnFiles": { "v": 1, "at": "2026-11-03T12:00:00Z" },
+  "title": "Kindle Cards — библиотека чтения",
+  "launch": { "view": "canvas" },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": { "x": 0, "y": 0, "w": 1440, "h": 1080, "title": "1 · Главная — что нового и что экспортировать", "expand": "fill", "is_interactive": true },
+    "Words.dc.html": { "x": 1520, "y": 0, "w": 1440, "h": 1120, "title": "2 · Слова — рейтинг, правка карточки", "expand": "fill", "is_interactive": true },
+    "Triage.dc.html": { "x": 3040, "y": 0, "w": 1440, "h": 920, "title": "3 · Спорные слова — ответы учат рейтинг", "expand": "fill", "is_interactive": true },
+    "Export.dc.html": { "x": 4560, "y": 0, "w": 1440, "h": 960, "title": "4 · Экспорт", "expand": "fill", "is_interactive": true },
+    "Progress.dc.html": { "x": 6080, "y": 0, "w": 1440, "h": 1040, "title": "5 · Прогресс — держатся ли слова", "expand": "fill", "is_interactive": true },
+    "Book.dc.html": { "x": 7600, "y": 0, "w": 1440, "h": 1000, "title": "6 · Книга", "expand": "fill", "is_interactive": true }
+  },
+  "order": ["Main.dc.html", "Words.dc.html", "Triage.dc.html", "Export.dc.html", "Progress.dc.html", "Book.dc.html"],
+  "notes": {
+    "heading": { "x": 0, "y": -300, "text": "Библиотека чтения — рейтинг слов, экспорт и прогресс", "kind": "title1", "maxW": 9040 }
+  },
+  "designSystems": []
+}
