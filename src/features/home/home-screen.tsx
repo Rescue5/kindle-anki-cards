@@ -8,7 +8,11 @@ import type { useHomeExport } from "./use-home-export";
 type Controller = ReturnType<typeof useLibraryController>;
 
 /** Главная: connects the library controller to the screen. What is said and when lives in home-domain.ts. */
-export function HomeScreen({ controller, exporter }: { controller: Controller; exporter: ReturnType<typeof useHomeExport> }) {
+export function HomeScreen({ controller, exporter, onOpenWord }: {
+  controller: Controller;
+  exporter: ReturnType<typeof useHomeExport>;
+  onOpenWord: (id: string) => void;
+}) {
   const { entries, ranking, loading, demo, operation, queueStatus, connectors, settings, settingsSaving } = controller;
   const words = React.useMemo(() => shortList(entries, ranking?.newBatch.ids ?? []), [entries, ranking]);
   const queue = homeQueueState(queueStatus, operation);
@@ -33,6 +37,7 @@ export function HomeScreen({ controller, exporter }: { controller: Controller; e
       listChanging={listChanging}
       reader={{ state: connectors.kindle.state, name: readerName(connectors.kindle) }}
       onExport={() => void exporter.start()}
+      onOpenWord={onOpenWord}
       onOpenResult={(path) => void exporter.openResult(path)}
       onOpenFolder={() => void exporter.openFolder()}
       onSync={() => void controller.syncKindle()}

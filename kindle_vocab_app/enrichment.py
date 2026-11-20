@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from kindle_vocab_app import card_fields
 from kindle_vocab_app.anki_export import is_exportable, primary_occurrence
 from kindle_vocab_app.llm import LLMError
 from kindle_vocab_app.llm.presets import get_api_key, preset_for
@@ -25,7 +26,6 @@ PROMPT_VERSION = 1
 BATCH_SIZE = 8
 MAX_CONSECUTIVE_FAILED_BATCHES = 3
 CONTEXTS_PER_WORD = 2
-MAX_CONTEXT_CHARS = 400
 
 FIELDS = ("meaning_ru", "definition_en", "context_ru", "example_en", "example_ru", "note_ru")
 _FIELD_LIMITS = {"meaning_ru": 120, "definition_en": 200, "context_ru": 600, "example_en": 200, "example_ru": 240, "note_ru": 200}
@@ -150,15 +150,10 @@ def queue_counts(lexemes: list[dict[str, Any]]) -> dict[str, int]:
     return {"pending": pending, "failed": failed}
 
 
-def build_user_message(batch: list[dict[str, Any]]) -> str:
+def _prompt_items(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items = []
     for number, lexeme in enumerate(batch, 1):
         analysis = (lexeme.get("processing") or {}).get("analysis") or {}
-        occurrences = sorted(
-            (item for item in lexeme.get("occurrences") or [] if item.get("context")),
-            key=lambda item: len(str(item.get("context") or "")),
-            reverse=True,
-        )[:CONTEXTS_PER_WORD]
         primary = primary_occurrence(lexeme)
         items.append(
             {
@@ -167,10 +162,14 @@ def build_user_message(batch: list[dict[str, Any]]) -> str:
                 "lemma": str(analysis.get("base_form") or lexeme.get("lemma") or ""),
                 "pos": str(analysis.get("pos") or ""),
                 "book": str(primary.get("book_title") or ""),
-                "sentences": [str(item.get("context") or "")[:MAX_CONTEXT_CHARS] for item in occurrences],
+                "sentences": card_fields.enrichment_sentences(lexeme, CONTEXTS_PER_WORD),
             }
         )
-    return json.dumps({"items": items}, ensure_ascii=False)
+    return items
+
+
+def build_user_message(batch: list[dict[str, Any]]) -> str:
+    return json.dumps({"items": _prompt_items(batch)}, ensure_ascii=False)
 
 
 def parse_items(data: dict[str, Any], batch_size: int) -> dict[int, dict[str, str]]:
@@ -205,8 +204,10 @@ def enrich(
     for start in range(0, len(lexemes), batch_size):
         batch = lexemes[start : start + batch_size]
         summary.batches += 1
+        prompt_items = _prompt_items(batch)
         try:
-            items = parse_items(client.complete_json(SYSTEM_PROMPT, build_user_message(batch), SCHEMA), len(batch))
+            message = json.dumps({"items": prompt_items}, ensure_ascii=False)
+            items = parse_items(client.complete_json(SYSTEM_PROMPT, message, SCHEMA), len(batch))
             batch_error = ""
         except LLMError as exc:
             if exc.fatal:
@@ -230,6 +231,9 @@ def enrich(
                 error = "Модель не дала перевод"
             else:
                 error = batch_error or "Модель пропустила это слово"
+            if payload is not None and payload["context_ru"]:
+                sentences = prompt_items[number - 1]["sentences"]
+                payload["context_source_sha256"] = card_fields.context_fingerprint(sentences[0]) if sentences else ""
             store.save_enrichment(
                 str(lexeme.get("language") or "en"),
                 str(lexeme.get("lemma") or ""),

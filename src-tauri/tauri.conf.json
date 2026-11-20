@@ -15,7 +15,7 @@
         "title": "Kindle Cards",
         "width": 1320,
         "height": 840,
-        "minWidth": 1120,
+        "minWidth": 600,
         "minHeight": 720,
         "decorations": true,
         "resizable": true

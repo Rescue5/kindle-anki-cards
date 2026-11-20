@@ -773,6 +773,16 @@ class SQLiteVocabularyRepository:
                 (key, value),
             )
         library_state.relink(connection, catalog.get("id_map") or {})
+        for old_id, new_id in (catalog.get("replaced_occurrence_ids") or {}).items():
+            connection.execute(
+                """
+                UPDATE card_edits SET example_occurrence_id = ?
+                WHERE example_occurrence_id = ? AND EXISTS (
+                    SELECT 1 FROM occurrences WHERE id = ? AND lexeme_id = card_edits.lexeme_id
+                )
+                """,
+                (new_id, old_id, new_id),
+            )
 
 
 def _legacy_migration_completed(connection: sqlite3.Connection) -> bool:
@@ -963,6 +973,7 @@ def _canonicalize_catalog(
         "last_kindle_sync_id": str(catalog.get("last_kindle_sync_id") or ""),
         "lexemes": list(grouped.values()),
         "id_map": id_map,
+        "replaced_occurrence_ids": catalog.get("replaced_occurrence_ids") or {},
     }
 
 

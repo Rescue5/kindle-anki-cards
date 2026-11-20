@@ -31,6 +31,39 @@ function App() {
   const controller = useLibraryController();
   // `?view=` opens a screen directly; used for browser previews and README screenshots.
   const [view, setView] = React.useState<View>(() => parseView(window.location.search));
+  const [batchLexemeId, setBatchLexemeId] = React.useState<string>();
+  const returnFocus = React.useRef<string>();
+  const draftDirty = React.useRef(false);
+  const [cardSaving, setCardSaving] = React.useState(false);
+  const reportDraft = React.useCallback((dirty: boolean, pending = false) => {
+    draftDirty.current = dirty;
+    setCardSaving(pending);
+  }, []);
+  function navigate(next: View) {
+    if (view === next || cardSaving) return;
+    if (draftDirty.current && !window.confirm("Есть несохранённые правки. Уйти и отменить их?")) return;
+    draftDirty.current = false;
+    setBatchLexemeId(undefined);
+    setView(next);
+  }
+  function openBatchWord(id: string) {
+    setBatchLexemeId(id);
+    setView("words");
+  }
+  function backToBatch() {
+    returnFocus.current = batchLexemeId;
+    draftDirty.current = false;
+    setBatchLexemeId(undefined);
+    setView("home");
+  }
+  React.useLayoutEffect(() => {
+    if (view !== "home" || controller.loading || !returnFocus.current) return;
+    const target = document.getElementById(`home-word-${returnFocus.current}`)
+      ?? document.getElementById("home-list-title")
+      ?? document.getElementById("home-title");
+    target?.focus();
+    returnFocus.current = undefined;
+  }, [view, controller.loading]);
 
   // The room's light: night when the theme resolves to dark.
   const prefersDark = useMediaQuery("(prefers-color-scheme: dark)");
@@ -80,7 +113,7 @@ function App() {
     <div className="reading-app">
       <PencilDefs />
       <aside className="reading-sidebar">
-        <button type="button" className="reading-brand" onClick={() => setView("home")} aria-label="Kindle Cards — главная">
+        <button type="button" className="reading-brand" disabled={cardSaving} onClick={() => navigate("home")} aria-label="Kindle Cards — главная">
           <svg className="reading-brand-mark" viewBox="0 0 28 28" aria-hidden="true">
             <path d="M5 24.5h12 M9 24.5 13 13l-4-4" />
             <path className="reading-brand-shade" d="M6.5 11.5 12.5 5.5l4.5 4.5-6 6z" />
@@ -97,7 +130,7 @@ function App() {
               const active = navViewOf(view) === item.view;
               return (
                 <li key={item.view}>
-                  <button type="button" onClick={() => setView(item.view)} aria-current={active ? "page" : undefined} className={active ? "is-active" : undefined}>
+                  <button type="button" disabled={cardSaving} onClick={() => navigate(item.view)} aria-current={active ? "page" : undefined} className={active ? "is-active" : undefined}>
                     <Icon size={18} strokeWidth={1.6} />
                     <span>{item.label}</span>
                   </button>
@@ -127,9 +160,12 @@ function App() {
 
       <div className="reading-app-main">
         <div className="reading-view-frame">
-          {view === "home" ? <HomeScreen controller={controller} exporter={exporter} /> : null}
+          {view === "home" ? <HomeScreen controller={controller} exporter={exporter} onOpenWord={openBatchWord} /> : null}
           {/* Until Спорные and Экспорт ship, their views open the library workspace. */}
-          {view === "words" || view === "triage" || view === "export" ? <LibraryWorkspace controller={controller} /> : null}
+          {view === "words" || view === "triage" || view === "export" ? (
+            <LibraryWorkspace controller={controller} batchLexemeId={batchLexemeId}
+              onBackToBatch={batchLexemeId ? backToBatch : undefined} onDraftChange={reportDraft} />
+          ) : null}
           {view === "settings" && loading ? <main className="reading-page app-scrollbar"><p className="screen-page" role="status">Загружаю настройки…</p></main> : null}
           {view === "settings" && !loading ? (
             <SettingsView

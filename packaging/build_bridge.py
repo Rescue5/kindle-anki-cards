@@ -78,7 +78,7 @@ def download_nltk_data() -> None:
             archive.unlink()
 
 
-def _frozen(executable: Path, workspace: Path, action: str) -> dict:
+def _frozen(executable: Path, workspace: Path, action: str, payload: dict | None = None) -> dict:
     # An empty APPDATA hides any NLTK data installed on the build machine, so
     # the check proves the bundled corpora are used, as on a clean computer.
     appdata = BUILD / "smoke-appdata"
@@ -92,7 +92,7 @@ def _frozen(executable: Path, workspace: Path, action: str) -> dict:
     }
     completed = subprocess.run(
         [str(executable)],
-        input=json.dumps({"action": action, "payload": {}}),
+        input=json.dumps({"action": action, "payload": payload or {}}, ensure_ascii=False),
         capture_output=True, text=True, encoding="utf-8", env=env, timeout=300, check=False,
     )
     response = json.loads(completed.stdout)
@@ -141,6 +141,13 @@ def smoke_test() -> None:
     if not all(value.get("wordnet_synset_count") for value in analyses(frozen).values()):
         raise SystemExit("WordNet data is missing in the frozen bridge")
     print(f"smoke process_queue: ok ({len(frozen['entries'])} words identical to development Python)", flush=True)
+    word_id = frozen["entries"][0]["id"]
+    meaning = "мимолётное впечатление"
+    _frozen(executable, frozen_ws, "save_card_edit", {"lexeme_id": word_id, "meaning_ru": meaning})
+    saved = _frozen(executable, frozen_ws, "load_library")["entries"]
+    if next(entry for entry in saved if entry["id"] == word_id)["card"]["meaning_ru"] != meaning:
+        raise SystemExit("Frozen bridge failed the UTF-8 card edit round trip")
+    print("smoke save_card_edit: UTF-8 preserved after restart", flush=True)
 
 
 if __name__ == "__main__":

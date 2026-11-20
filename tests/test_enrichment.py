@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from kindle_vocab_app import enrichment, settings, vocab_cache
+from kindle_vocab_app import anki_export, enrichment, settings, vocab_cache
 from kindle_vocab_app.library_repository import repository_for
 from kindle_vocab_app.llm import LLMError
 from kindle_vocab_app.llm import presets as llm_presets
@@ -151,13 +152,28 @@ class EnrichmentTests(unittest.TestCase):
             catalog = vocab_cache.empty_catalog()
             catalog["lexemes"] = [_lexeme("glimpse")]
             repository.save_catalog(catalog)
-            enrichment.enrich(repository.load_catalog()["lexemes"], FakeClient(), repository, provider="fake")
+            client = FakeClient()
+            enrichment.enrich(repository.load_catalog()["lexemes"], client, repository, provider="fake")
+            [original] = client.calls[0]["items"][0]["sentences"]
 
-            repository.save_catalog(repository.load_catalog())
-            stored = repository.load_catalog()["lexemes"][0]["enrichment"]
+            updated = repository.load_catalog()
+            lexeme = updated["lexemes"][0]
+            [occurrence] = lexeme["occurrences"]
+            lexeme["occurrences"].append({
+                **occurrence, "id": "other-book", "book_key": "other", "book_title": "Other Book",
+                "context": "A much longer quotation with a glimpse from the other book.",
+            })
+            repository.save_catalog(updated)
+
+            [lexeme] = repository.load_catalog()["lexemes"]
+            stored = lexeme["enrichment"]
             self.assertEqual(stored["status"], "ready")
             self.assertEqual(stored["meaning_ru"], "перевод glimpse")
             self.assertEqual(stored["model"], "fake-model")
+            self.assertEqual(stored["context_source_sha256"], hashlib.sha256(original.encode()).hexdigest())
+            self.assertEqual(anki_export.build_note_fields(lexeme)["ContextTranslation"], "")
+            fields = anki_export.build_note_fields(lexeme, edit={"example_occurrence_id": occurrence["id"]})
+            self.assertEqual(fields["ContextTranslation"], "Предложение.")
 
     def test_bridge_enrich_and_config_never_expose_the_key(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

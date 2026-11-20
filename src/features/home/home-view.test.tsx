@@ -27,6 +27,7 @@ const base: HomeViewProps = {
   listChanging: false,
   reader: { state: "connected", name: "Kindle" },
   onExport: noop,
+  onOpenWord: noop,
   onOpenResult: noop,
   onOpenFolder: noop,
   onSync: noop,
@@ -145,9 +146,11 @@ describe("Главная", () => {
     expect(html({ roughNote: rough })).toContain(rough);
   });
 
-  it("has no row to click until the word card ships", () => {
-    expect(html()).not.toContain("home-row\" type=\"button");
-    expect(html().match(/<button/g)?.length).toBeLessThanOrEqual(3);
+  it("offers each ranked card by name and disables editing during export", () => {
+    expect(html()).toContain("Открыть карточку «dread»");
+    expect(html()).toContain('aria-describedby="home-why-a"');
+    expect(html()).toContain("Открыть карточку «glimpse»");
+    expect(html({ exportUi: { kind: "running" } })).toMatch(/<button[^>]*id="home-word-a"[^>]*disabled/);
   });
 
   it("blocks the button while the list is changing and says why", () => {

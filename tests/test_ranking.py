@@ -260,7 +260,7 @@ class ReasonTests(unittest.TestCase):
         for text in (
             "искали 3 раза",
             "в двух ваших книгах",
-            "читаете сейчас",
+            "Из книги с недавними поисками",
             "снова искали после экспорта",
             "встречается раз в ~11 книг",
         ):
@@ -302,7 +302,6 @@ class ReasonTests(unittest.TestCase):
             4.2: "встречается раз в ~210 страниц",
             4.4: "встречается раз в ~130 страниц",
             4.7: "частое",
-            5.6: "частое — видимо, в редком значении",
         }
         for zipf, text in expected.items():
             with self.subTest(zipf=zipf):
@@ -313,7 +312,17 @@ class ReasonTests(unittest.TestCase):
             ranking = rank(_facts(zipf=zipf), NOW)
             reason = next(item for item in ranking.reasons if item.code.startswith("frequency"))
             self.assertEqual((reason.code, reason.text, reason.weight), ("frequency", "частое", 0.0))
-        self.assertIn("frequency_common", _codes(rank(_facts(zipf=5.3), NOW)))
+
+    def test_the_common_word_penalty_only_explains_frequency(self) -> None:
+        facts = _facts(zipf=5.6, lookups=((NOW, "book-a"),), reading_books=frozenset({"book-a"}))
+        for mode in ("learning", "full"):
+            with self.subTest(mode=mode):
+                ranking = rank(facts, NOW, mode=mode)
+                reason = next(item for item in ranking.reasons if item.code == "frequency_common")
+                self.assertEqual(reason.text, "очень частое слово")
+                self.assertAlmostEqual(reason.weight, -0.6)
+                self.assertAlmostEqual(ranking.score, 0.2314752165)
+                self.assertEqual(ranking.shelf, "worth")
 
     def test_book_counts_in_frequency_agree_in_russian(self) -> None:
         # 10**(9 - z) / 90000 books: about 21 and about 24.

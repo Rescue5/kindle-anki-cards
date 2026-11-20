@@ -266,10 +266,13 @@ def _merge_entry(
         legacy_ids = {_content_occurrence_id(entry, source)}
         dated_entry = {**entry, "looked_up_at": str(entry.get("looked_up_at") or "").split("T", 1)[0]}
         legacy_ids.add(_content_occurrence_id(dated_entry, source))
-        lexeme["occurrences"] = [
-            item for item in lexeme["occurrences"]
-            if not (item.get("source") == "kindle" and item.get("id") in legacy_ids)
-        ]
+        retained = []
+        for item in lexeme["occurrences"]:
+            if item.get("source") == "kindle" and item.get("id") in legacy_ids:
+                catalog.setdefault("replaced_occurrence_ids", {})[item["id"]] = occurrence["id"]
+            else:
+                retained.append(item)
+        lexeme["occurrences"] = retained
     if occurrence["id"] not in {item["id"] for item in lexeme["occurrences"]}:
         lexeme["occurrences"].append(occurrence)
 

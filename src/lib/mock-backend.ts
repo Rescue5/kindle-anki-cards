@@ -100,7 +100,7 @@ const specs: Spec[] = [
     word: "glimpse", lemma: "glimpse", pos: "n", meaning: "проблеск; мимолётное впечатление",
     lookups: [["For a moment he caught a glimpse of the city below.", ...NIGHT, 9]],
     state: "pending", importance: 7, fresh: true, shelf: "worth", rankScore: 0.88,
-    reasons: [{ code: "reading_now", text: "Из книги, которую вы читаете сейчас", weight: 0.5 }, { code: "frequency", text: "Не слишком частое слово", weight: 0.3 }],
+    reasons: [{ code: "reading_now", text: "Из книги с недавними поисками", weight: 0.5 }, { code: "frequency", text: "Не слишком частое слово", weight: 0.3 }],
   },
   {
     word: "dread", lemma: "dread", pos: "n", meaning: "страх; тревожное предчувствие",
@@ -130,7 +130,7 @@ const specs: Spec[] = [
     word: "ephemeral", lemma: "ephemeral", pos: "a", meaning: "мимолётный; недолговечный",
     lookups: [["Joy is an ephemeral guest here.", ...NIGHT, 11], ["The ephemeral light faded.", ...NIGHT, 15]],
     state: "ready", importance: 6, fresh: true, shelf: "worth", rankScore: 0.8,
-    reasons: [{ code: "repeat_lookups", text: "Искали 2 раза", weight: 0.75 }, { code: "reading_now", text: "Из книги, которую вы читаете сейчас", weight: 0.4 }],
+    reasons: [{ code: "repeat_lookups", text: "Искали 2 раза", weight: 0.75 }, { code: "reading_now", text: "Из книги с недавними поисками", weight: 0.4 }],
   },
   {
     word: "wistful", lemma: "wistful", pos: "a", meaning: "тоскливый; задумчиво-грустный",
@@ -367,7 +367,8 @@ function rankingTable(): Map<string, LexemeRanking> {
 }
 
 function defaultExampleId(entry: LexemeRecord): string {
-  return [...entry.occurrences].sort((a, b) => b.looked_up_at.localeCompare(a.looked_up_at))[0]?.id ?? "";
+  return [...entry.occurrences].sort((a, b) => Number(Boolean(b.context)) - Number(Boolean(a.context))
+    || b.context.length - a.context.length || b.looked_up_at.localeCompare(a.looked_up_at))[0]?.id ?? "";
 }
 
 function cardOf(entry: LexemeRecord): CardFields {
@@ -376,7 +377,7 @@ function cardOf(entry: LexemeRecord): CardFields {
   const dictionary = entry.dictionary?.meaning_ru ?? "";
   const [meaning, source] = edit?.meaning_ru ? [edit.meaning_ru, "edited" as const] : llm ? [llm, "llm" as const] : dictionary ? [dictionary, "dictionary" as const] : ["", "none" as const];
   const example = edit?.example_occurrence_id ?? defaultExampleId(entry);
-  return { meaning_ru: meaning, meaning_source: source, example_occurrence_id: example, edited: Boolean(edit?.meaning_ru) || example !== defaultExampleId(entry) };
+  return { meaning_ru: meaning, meaning_source: source, example_occurrence_id: example, edited: Boolean(edit?.meaning_ru) || Boolean(edit?.example_occurrence_id) };
 }
 
 function withV4(entry: LexemeRecord, rankings: Map<string, LexemeRanking>): LexemeRecordV4 {
@@ -576,14 +577,17 @@ function saveCardEdit(payload: unknown): SaveCardEditResult {
   const request = payload as { meaning_ru?: string; example_occurrence_id?: string };
   const next: CardEdit = { ...cardEdits.get(entry.id) };
   if (request.meaning_ru !== undefined) {
-    const meaning = request.meaning_ru.trim();
-    if (meaning.length > MEANING_MAX_LENGTH) fail("too_long");
+    const meaning = request.meaning_ru.replace(/\s+/gu, " ").trim();
+    if ([...meaning].length > MEANING_MAX_LENGTH) fail("too_long");
     if (meaning) next.meaning_ru = meaning;
     else delete next.meaning_ru;
   }
   if (request.example_occurrence_id !== undefined) {
-    if (!entry.occurrences.some((occurrence) => occurrence.id === request.example_occurrence_id)) fail("example_not_found");
-    next.example_occurrence_id = request.example_occurrence_id;
+    if (request.example_occurrence_id === "") delete next.example_occurrence_id;
+    else {
+      if (!entry.occurrences.some((occurrence) => occurrence.id === request.example_occurrence_id)) fail("example_not_found");
+      next.example_occurrence_id = request.example_occurrence_id;
+    }
   }
   if (next.meaning_ru === undefined && next.example_occurrence_id === undefined) cardEdits.delete(entry.id);
   else cardEdits.set(entry.id, next);

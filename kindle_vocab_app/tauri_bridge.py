@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from kindle_vocab_app import anki_connect, anki_export, book_covers, enrichment, export_cards, library_view, obsidian_sync, offline_dictionary, reader_sources, settings, vocab_cache
-from kindle_vocab_app.contracts import ERROR_CODES
+from kindle_vocab_app.coded_error import CodedError
+from kindle_vocab_app.contracts import ERROR_CODES, DecisionResult, SaveCardEditResult
 from kindle_vocab_app.llm import presets as llm_presets
 from kindle_vocab_app.kindle_db import fetch_entries, list_books, validate_vocab_db
 from kindle_vocab_app.kindle_device import find_kindle_presence, find_kindle_source, mounted_volume_roots
@@ -69,6 +70,12 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
             connector_status=_connector_status(workspace, probe_kindle=False),
             queue_status=repository_for(workspace).queue_status(),
         )
+
+    if action == "save_card_edit":
+        return _save_card_edit(payload, workspace)
+
+    if action == "set_decision":
+        return _set_decision(payload, workspace)
 
     if action == "export_words":
         return export_cards.export_words(
@@ -142,7 +149,9 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         _emit_progress(job_id, "merging", "Объединяем формы и известные леммы", 3, 5)
         catalog = vocab_cache.merge_kindle(catalog, entries, sync_id=sync_id, mark_new=True)
         _refresh_obsidian_destination_states(catalog)
-        repository_for(workspace).save_catalog(catalog)
+        repository = repository_for(workspace)
+        repository.save_catalog(catalog)
+        catalog = repository.load_catalog()
         # Online cover lookup is slow (sequential requests), so sync only copies
         # Kindle thumbnails; the frontend fetches the rest in the background.
         _emit_progress(job_id, "covers", "Сохраняем обложки с читалки", 4, 5)
@@ -171,7 +180,7 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
             source_name=label,
             source_status="Слова с читалки синхронизированы",
             connector_status=connector_status,
-            queue_status=repository_for(workspace).queue_status(),
+            queue_status=repository.queue_status(),
         )
 
     if action == "import_reader_file":
@@ -751,7 +760,7 @@ def _catalog_response(
                               "total": len(real_books),
                               "missing": sum(book.get("cover_status") == "missing" for book in real_books),
                               "errors": sum(book.get("cover_status") == "error" for book in real_books)}
-    result["connectors"] = connector_status or _connector_status(_workspace_root(), probe_kindle=False)
+    result["connectors"] = connector_status or _connector_status(workspace, probe_kindle=False)
     result["queueStatus"] = queue_status or {"pending": 0, "processing": 0, "failed": 0, "total": 0}
     result["enrichmentQueue"] = enrichment.queue_counts(catalog.get("lexemes") or [])
     offline_dictionary.attach(result["entries"])
@@ -783,6 +792,60 @@ def _with_ranking(result: dict[str, Any], workspace: Path) -> dict[str, Any]:
         offline_dictionary.attach(entries)
         result.update(_ranked_library(entries, workspace))
     return result
+
+
+def _reader_action_id(payload: dict[str, Any]) -> str:
+    lexeme_id = payload.get("lexeme_id")
+    if not isinstance(lexeme_id, str) or not lexeme_id:
+        raise CodedError("unknown_lexeme")
+    return lexeme_id
+
+
+def _reader_action_entry(entries: list[dict[str, Any]], lexeme_id: str) -> dict[str, Any]:
+    for entry in entries:
+        if entry["id"] == lexeme_id:
+            return entry
+    raise CodedError("unknown_lexeme")
+
+
+def _save_card_edit(payload: dict[str, Any], workspace: Path) -> SaveCardEditResult:
+    lexeme_id = _reader_action_id(payload)
+    changes = {key: payload[key] for key in ("meaning_ru", "example_occurrence_id") if key in payload}
+    if "meaning_ru" in changes and not isinstance(changes["meaning_ru"], str):
+        raise ValueError("Перевод должен быть строкой")
+    if "example_occurrence_id" in changes and not isinstance(changes["example_occurrence_id"], str):
+        raise CodedError("example_not_found")
+    repository = repository_for(workspace)
+    repository.save_card_edit(lexeme_id, **changes)
+    result = _with_ranking({"entries": repository.load_catalog()["lexemes"]}, workspace)
+    return {"entry": _reader_action_entry(result["entries"], lexeme_id)}
+
+
+def _set_decision(payload: dict[str, Any], workspace: Path) -> DecisionResult:
+    lexeme_id = _reader_action_id(payload)
+    if "decision" not in payload:
+        raise CodedError("bad_decision")
+    decision = payload["decision"]
+    repository = repository_for(workspace)
+    ranking = {}
+    if decision is not None:
+        before = _with_ranking({"entries": repository.load_catalog()["lexemes"]}, workspace)
+        ranking = _reader_action_entry(before["entries"], lexeme_id)["ranking"] or {}
+    repository.set_decision(
+        lexeme_id,
+        decision,
+        shelf_at=ranking.get("shelf", ""),
+        score_at=ranking.get("score"),
+        ranking_version=ranking.get("version", ""),
+    )
+    after = _with_ranking({"entries": repository.load_catalog()["lexemes"]}, workspace)
+    return {
+        "entry": _reader_action_entry(after["entries"], lexeme_id),
+        "shelves": after["shelves"],
+        "newBatch": after["newBatch"],
+        "disputed": after["disputed"],
+        "again": after["again"],
+    }
 
 
 def _download_book_covers(
@@ -973,6 +1036,10 @@ def _analysis_by_lemma(analysis_dir: Path) -> tuple[dict[str, dict[str, Any]], d
 
 
 def _configure_stdio() -> None:
+    # Rust writes UTF-8 bytes; a frozen Windows interpreter may start with the system code page.
+    configure_input = getattr(sys.stdin, "reconfigure", None)
+    if configure_input is not None:
+        configure_input(encoding="utf-8", errors="strict")
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
@@ -1050,17 +1117,18 @@ def _import_reader_file(payload: dict[str, Any], workspace: Path, *, job_id: str
     before = len(catalog["lexemes"])
     catalog = vocab_cache.merge_kindle(catalog, entries, sync_id=uuid.uuid4().hex, mark_new=True)
     _refresh_obsidian_destination_states(catalog)
-    repository_for(workspace).save_catalog(catalog)
+    repository = repository_for(workspace)
+    repository.save_catalog(catalog)
     added = len(catalog["lexemes"]) - before
     label = reader_sources.FORMAT_LABELS[kind]
     _emit_progress(job_id, "completed", f"Импортировано из {label}: {added} новых слов", 3, 3)
     logger.info("Imported reader file job_id=%s kind=%s entries=%d new_lexemes=%d", job_id, kind, len(entries), added)
     result = _catalog_response(
-        catalog,
+        repository.load_catalog(),
         workspace=workspace,
         source_name=f"{label} · {name}",
         source_status="Слова из файла добавлены",
-        queue_status=repository_for(workspace).queue_status(),
+        queue_status=repository.queue_status(),
     )
     result["imported"] = {"format": kind, "label": label, "lookups": len(entries), "new_words": added}
     return result

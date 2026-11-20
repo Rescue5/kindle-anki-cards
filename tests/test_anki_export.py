@@ -50,11 +50,11 @@ def _lexeme(lemma: str, *, score: int = 6, state: str = "ready", accepted: bool 
     }
 
 
-def _notes(apkg: Path) -> list[tuple[str, str]]:
+def _notes(apkg: Path) -> list[tuple[str, str, str]]:
     with zipfile.ZipFile(apkg) as archive, tempfile.TemporaryDirectory() as temporary:
         collection = Path(archive.extract("collection.anki2", temporary))
         with closing(sqlite3.connect(collection)) as connection:
-            return connection.execute("SELECT guid, flds FROM notes ORDER BY guid").fetchall()
+            return connection.execute("SELECT guid, flds, tags FROM notes ORDER BY guid").fetchall()
 
 
 class AnkiExportTests(unittest.TestCase):
@@ -80,6 +80,53 @@ class AnkiExportTests(unittest.TestCase):
         self.assertEqual(fields["Meaning"], "мельком увидеть")
         self.assertEqual(fields["Definition"], "a quick look")
         self.assertEqual(fields["DefinitionSource"], "")
+
+    def test_selected_book_and_context_translation_in_exported_notes(self) -> None:
+        lexeme = _lexeme("glimpse")
+        original = lexeme["occurrences"][0]
+        original["context"] = "She caught a glimpse of the lighthouse between the waves."
+        other = {
+            **original, "id": "other", "book_title": "River Watch", "book_key": "river",
+            "context": "He caught a glimpse of the river.",
+        }
+        lexeme["occurrences"].append(other)
+        lexeme["enrichment"] = {
+            "status": "ready", "prompt_version": 1, "updated_at": "2026-07-11",
+            "context_ru": "Она мельком увидела маяк между волнами.",
+        }
+
+        with tempfile.TemporaryDirectory() as temporary:
+            for occurrence, translation, book_tag in (
+                (other, "", "book::river_watch"),
+                (original, "Она мельком увидела маяк между волнами.", "book::the_night_reader"),
+            ):
+                with self.subTest(occurrence=occurrence["id"]):
+                    result = anki_export.write_apkg(
+                        [lexeme], Path(temporary) / "note.apkg",
+                        edits={lexeme["id"]: {"example_occurrence_id": occurrence["id"]}},
+                    )
+                    [(_, raw_fields, tags)] = _notes(result.path)
+                    fields = dict(zip(anki_export.FIELDS, raw_fields.split("\x1f"), strict=True))
+                    self.assertEqual(fields["Book"], occurrence["book_title"])
+                    self.assertEqual(fields["Context"], anki_export.highlight(occurrence["context"], ["glimpse"]))
+                    self.assertEqual(fields["ContextTranslation"], translation)
+                    self.assertEqual([tag for tag in tags.split() if tag.startswith("book::")], [book_tag])
+
+    def test_legacy_translation_uses_prompt_order_and_requires_a_matching_quote(self) -> None:
+        lexeme = _lexeme("glimpse")
+        original = lexeme["occurrences"][0]
+        original["context"] = "A glimpse at dawn."
+        lexeme["occurrences"].append({
+            **original, "id": "later", "context": "A glimpse at dusk.", "looked_up_at": "2026-07-11",
+        })
+        lexeme["enrichment"] = {
+            "status": "ready", "prompt_version": 1, "updated_at": "2026-07-12", "context_ru": "Взгляд на рассвете.",
+        }
+        self.assertEqual(anki_export.build_note_fields(lexeme)["ContextTranslation"], "")
+        edit = {"example_occurrence_id": original["id"]}
+        self.assertEqual(anki_export.build_note_fields(lexeme, edit=edit)["ContextTranslation"], "Взгляд на рассвете.")
+        lexeme["last_seen_at"] = "2026-07-13"
+        self.assertEqual(anki_export.build_note_fields(lexeme, edit=edit)["ContextTranslation"], "")
 
     def test_only_useful_accepted_words_are_written_with_stable_guids(self) -> None:
         lexemes = [

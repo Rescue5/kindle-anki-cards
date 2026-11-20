@@ -97,6 +97,26 @@ describe("browser mock speaks the C0 contract", () => {
     await expectError(callBackend("save_card_edit", { lexeme_id: "nope" }), "unknown_lexeme");
   });
 
+  it("matches Python example defaults, whitespace normalization and clearing the explicit choice", async () => {
+    const id = "lexeme-ephemeral";
+    const before = (await load()).entries.find((entry) => entry.id === id)!;
+    const longest = [...before.occurrences].sort((a, b) => b.context.length - a.context.length)[0];
+    expect(before.card.example_occurrence_id).toBe(longest.id);
+    const picked = await callBackend<SaveCardEditResult>("save_card_edit", {
+      lexeme_id: id, meaning_ru: "  короткий\n\tперевод  ", example_occurrence_id: longest.id,
+    });
+    expect(picked.entry.card).toMatchObject({ meaning_ru: "короткий перевод", edited: true });
+    const cleared = await callBackend<SaveCardEditResult>("save_card_edit", {
+      lexeme_id: id, meaning_ru: "", example_occurrence_id: "",
+    });
+    expect(cleared.entry.card).toMatchObject({
+      meaning_source: "dictionary", example_occurrence_id: longest.id, edited: false,
+    });
+    const unicode = await callBackend<SaveCardEditResult>("save_card_edit", { lexeme_id: id, meaning_ru: "🙂".repeat(200) });
+    expect(unicode.entry.card.meaning_ru).toBe("🙂".repeat(200));
+    await expectError(callBackend("save_card_edit", { lexeme_id: id, meaning_ru: "🙂".repeat(201) }), "too_long");
+  });
+
   it("previews and runs an export, after which the words leave the short list", async () => {
     const preview = await callBackend<ExportPreview>("export_preview", {});
     const library = await load();

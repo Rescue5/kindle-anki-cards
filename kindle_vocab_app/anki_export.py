@@ -142,9 +142,14 @@ def build_note_fields(
     The meaning and the example sentence are the card the reader saw (`card_fields.resolve`):
     `edit` is the reader's row from `card_edits`, if any.
     """
+    return _note_fields(lexeme, card_fields.resolve(lexeme, edit), definition_lookup)
+
+
+def _note_fields(
+    lexeme: dict[str, Any], card: card_fields.ResolvedCard, definition_lookup: Any,
+) -> dict[str, str]:
     analysis = (lexeme.get("processing") or {}).get("analysis") or {}
     enrichment = lexeme.get("enrichment") or {}
-    card = card_fields.resolve(lexeme, edit)
     occurrence = card.occurrence
     word = str(occurrence.get("word") or lexeme.get("display_form") or lexeme.get("lemma") or "")
     lemma = str(analysis.get("base_form") or lexeme.get("lemma") or word)
@@ -166,7 +171,7 @@ def build_note_fields(
         "Meaning": _escape(card.meaning_ru),
         "Definition": _escape(definition),
         "DefinitionSource": definition_source,
-        "ContextTranslation": _escape(_clean(enrichment.get("context_ru"))),
+        "ContextTranslation": _escape(card_fields.context_translation(lexeme, context)),
         "Example": _escape(_clean(enrichment.get("example_en"))),
         "ExampleTranslation": _escape(_clean(enrichment.get("example_ru"))),
         "Book": _escape(str(occurrence.get("book_title") or "")),
@@ -176,9 +181,10 @@ def build_note_fields(
     }
 
 
-def note_tags(lexeme: dict[str, Any]) -> list[str]:
+def note_tags(lexeme: dict[str, Any], *, occurrence: Mapping[str, Any] | None = None) -> list[str]:
     analysis = (lexeme.get("processing") or {}).get("analysis") or {}
-    occurrence = primary_occurrence(lexeme)
+    if occurrence is None:
+        occurrence = primary_occurrence(lexeme)
     tags = ["kindle"]
     book = _tag(str(occurrence.get("book_title") or ""))
     if book:
@@ -223,17 +229,14 @@ def write_apkg(
         if require_eligible and not is_exportable(lexeme):
             skipped += 1
             continue
-        fields = build_note_fields(
-            lexeme,
-            definition_lookup=definition_lookup,
-            edit=(edits or {}).get(str(lexeme.get("id") or "")),
-        )
+        card = card_fields.resolve(lexeme, (edits or {}).get(str(lexeme.get("id") or "")))
+        fields = _note_fields(lexeme, card, definition_lookup)
         deck.add_note(
             genanki.Note(
                 model=model,
                 fields=[fields[name] for name in FIELDS],
                 guid=genanki.guid_for("kindle-cards", str(lexeme.get("id") or "")),
-                tags=note_tags(lexeme),
+                tags=note_tags(lexeme, occurrence=card.occurrence),
             )
         )
         exported.append(str(lexeme.get("id") or ""))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import csv
 import json
 import os
@@ -21,11 +22,19 @@ from unittest.mock import patch
 
 from short_list_fixture import build_library, lid, word, worth_words
 
-from kindle_vocab_app import anki_connect, contracts, export_cards, settings
+from kindle_vocab_app import (
+    anki_connect,
+    contracts,
+    export_cards,
+    reader_sources,
+    settings,
+    vocab_cache,
+)
 from kindle_vocab_app.coded_error import CodedError
 from kindle_vocab_app.library_repository import SQLiteVocabularyRepository
 from kindle_vocab_app.tauri_bridge import dispatch, error_response
 from tests.test_anki_connect import FakeAnki
+from tests.test_reader_sources import _koreader_db
 
 DEAD_ANKI = "http://127.0.0.1:9"
 ROOT = Path(__file__).resolve().parent.parent
@@ -43,7 +52,7 @@ def _bridge_env(workspace: Path) -> dict[str, str]:
 def _bridge(workspace: Path, action: str, **payload: Any) -> dict[str, Any]:
     completed = subprocess.run(
         [sys.executable, "-m", "kindle_vocab_app.tauri_bridge"],
-        input=json.dumps({"action": action, "payload": payload}),
+        input=json.dumps({"action": action, "payload": payload}, ensure_ascii=False),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -192,9 +201,18 @@ class AnkiExportTests(_Workspace):
         self.assertEqual(dispatch("export_folder_status", {}, self.workspace), {"available": False})
 
     def test_the_card_the_reader_saw_is_the_card_that_is_exported(self) -> None:
-        repository = self.library([word("lumena", days=(0, 1, 2))])
-        repository.save_card_edit(lid("lumena"), meaning_ru="свой перевод")
-        repository.save_card_edit(lid("lumena"), example_occurrence_id="lumena-o0")
+        self.library([word("lumena", days=(0, 1, 2))])
+        edit = _bridge(
+            self.workspace, "save_card_edit", lexeme_id=lid("lumena"),
+            meaning_ru="  свой\t перевод  ", example_occurrence_id="lumena-o0",
+        )
+        self.assertTrue(edit["ok"], edit)
+        card = edit["result"]["entry"]["card"]
+        self.assertEqual(card, {
+            "meaning_ru": "свой перевод", "meaning_source": "edited", "example_occurrence_id": "lumena-o0", "edited": True,
+        })
+        reloaded = _bridge(self.workspace, "load_library")["result"]
+        self.assertEqual(reloaded["entries"][0]["card"], card)
         with patch.object(anki_connect, "ANKI_CONNECT_URL", DEAD_ANKI):
             result = self.export()
         with zipfile.ZipFile(result["path"]) as archive, tempfile.TemporaryDirectory() as temporary:
@@ -208,8 +226,10 @@ class AnkiExportTests(_Workspace):
 
 class FileExportTests(_Workspace):
     def test_csv_writes_a_tab_separated_file(self) -> None:
-        repository = self.library([word("lumena", days=(0, 1)), *worth_words(2, prefix="mist")])
-        repository.save_card_edit(lid("lumena"), meaning_ru="свой перевод")
+        self.library([word("lumena", days=(0, 1)), *worth_words(2, prefix="mist")])
+        dispatch("save_card_edit", {
+            "lexeme_id": lid("lumena"), "meaning_ru": "свой перевод", "example_occurrence_id": "lumena-o0",
+        }, self.workspace)
         _use(self.workspace, "csv")
         result = self.export()
 
@@ -221,7 +241,7 @@ class FileExportTests(_Workspace):
         self.assertEqual(len(rows), 3)
         edited = next(row for row in rows if row["Base form"] == "lumena")
         self.assertEqual(edited["Russian meaning(s)"], "свой перевод")
-        self.assertEqual(edited["Original context"], "The lumena showed up again at dusk.")
+        self.assertEqual(edited["Original context"], "The lumena showed up again.")
         self.assertEqual({(r[0], r[1]) for r in _runs(self.workspace)}, {("csv", "new")})
         self.assertEqual(self.batch(), [])
 
@@ -485,6 +505,103 @@ class SelectionTests(_Workspace):
         self.assertEqual(self.failure(scope="again").code, "bad_scope")
         self.assertEqual(self.failure(ids=["no-such-word"]).code, "unknown_lexeme")
         self.assertEqual(_runs(self.workspace), [])
+
+
+class ReaderActionsTests(_Workspace):
+    def test_utf8_translation_survives_system_code_page_and_restart(self) -> None:
+        build_library(self.workspace, [word("glimpse")])
+        meaning = "мимолётное впечатление"
+        with patch.dict(os.environ, {"PYTHONIOENCODING": "cp1251"}):
+            saved = _bridge(self.workspace, "save_card_edit", lexeme_id=lid("glimpse"), meaning_ru=meaning)
+            self.assertTrue(saved["ok"], saved)
+            self.assertEqual(saved["result"]["entry"]["card"]["meaning_ru"], meaning)
+            reopened = _bridge(self.workspace, "load_library")
+        self.assertEqual(reopened["result"]["entries"][0]["card"]["meaning_ru"], meaning)
+
+    def test_decision_refreshes_short_list_and_stale_ids_do_not_export_skipped_word(self) -> None:
+        repository = self.library(worth_words(2))
+        _use(self.workspace, "csv")
+        lexeme_id = lid("lumena")
+        before = dispatch("load_library", {}, self.workspace)
+        [original] = [entry for entry in before["entries"] if entry["id"] == lexeme_id]
+        old_ids = before["newBatch"]["ids"]
+        saved = _bridge(self.workspace, "set_decision", lexeme_id=lexeme_id, decision="skip")
+        self.assertTrue(saved["ok"], saved)
+        result = saved["result"]
+        self.assertEqual(result["entry"]["decision"]["value"], "skip")
+        self.assertEqual(result["entry"]["ranking"]["shelf"], "not_worth")
+        self.assertEqual(result["shelves"]["not_worth"], 1)
+        self.assertEqual(result["newBatch"], {"count": 1, "ids": [lid("lumenb")]})
+        self.assertEqual(result["disputed"], before["disputed"])
+        self.assertEqual(result["again"], before["again"])
+        decision = repository.load_decisions()[lexeme_id]
+        self.assertEqual(decision["score_at"], original["ranking"]["score"])
+        self.assertEqual(decision["shelf_at"], original["ranking"]["shelf"])
+        self.assertEqual(decision["ranking_version"], original["ranking"]["version"])
+
+        self.assertEqual(self.failure(ids=[lexeme_id]).code, "nothing_to_export")
+        exported = self.export(ids=old_ids)
+        self.assertEqual(exported["exported"], 1)
+        self.assertEqual([row[-1] for row in _runs(self.workspace)], [lid("lumenb")])
+
+        cleared = _bridge(self.workspace, "set_decision", lexeme_id=lexeme_id, decision=None)
+        self.assertTrue(cleared["ok"], cleared)
+        self.assertIsNone(cleared["result"]["entry"]["decision"])
+        self.assertEqual(cleared["result"]["entry"]["ranking"], original["ranking"])
+        self.assertEqual(cleared["result"]["newBatch"], {"count": 1, "ids": [lexeme_id]})
+
+    def test_card_patch_validation_and_reset(self) -> None:
+        self.library([word("lumena", days=(0, 1)), word("mist")])
+        lexeme_id = lid("lumena")
+        dispatch("save_card_edit", {
+            "lexeme_id": lexeme_id, "meaning_ru": "правка", "example_occurrence_id": "lumena-o0",
+        }, self.workspace)
+        invalid = _bridge(self.workspace, "save_card_edit", lexeme_id=lexeme_id,
+                          meaning_ru="другая правка", example_occurrence_id="mist-o0")
+        self.assertEqual(invalid["code"], "example_not_found")
+        for action, payload, code in (
+            ("save_card_edit", {"lexeme_id": lexeme_id, "meaning_ru": "я" * 201}, "too_long"),
+            ("set_decision", {"lexeme_id": lexeme_id, "decision": []}, "bad_decision"),
+            ("set_decision", {"lexeme_id": lexeme_id}, "bad_decision"),
+            ("save_card_edit", {"lexeme_id": "missing", "meaning_ru": "правка"}, "unknown_lexeme"),
+        ):
+            with self.subTest(action=action, code=code), self.assertRaises(ValueError) as caught:
+                dispatch(action, payload, self.workspace)
+            self.assertEqual(error_response(caught.exception)["code"], code)
+        result = dispatch("save_card_edit", {"lexeme_id": lexeme_id, "example_occurrence_id": ""}, self.workspace)
+        self.assertEqual(result["entry"]["card"]["meaning_ru"], "правка")
+        self.assertEqual(result["entry"]["card"]["example_occurrence_id"], "lumena-o1")
+        result = dispatch("save_card_edit", {"lexeme_id": lexeme_id, "meaning_ru": ""}, self.workspace)
+        self.assertFalse(result["entry"]["card"]["edited"])
+        self.assertNotEqual(result["entry"]["card"]["meaning_source"], "edited")
+
+    def test_import_rebinds_a_selected_legacy_occurrence_and_returns_the_saved_card(self) -> None:
+        reader_path = self.workspace / "device" / "vocabulary_builder.sqlite3"
+        _koreader_db(reader_path).close()
+        [lookup] = reader_sources.fetch_entries(reader_path)
+        legacy_id = vocab_cache.occurrence_id({**lookup, "lookup_id": ""}, "kindle")
+        current_id = vocab_cache.occurrence_id(lookup, "kindle")
+        lexeme = word("glimpse")
+        lexeme["occurrences"].append({**lookup, "id": legacy_id, "source": "kindle"})
+        self.library([lexeme])
+        dispatch("save_card_edit", {
+            "lexeme_id": lexeme["id"], "meaning_ru": "мельком увидеть", "example_occurrence_id": legacy_id,
+        }, self.workspace)
+        dispatch("set_decision", {"lexeme_id": lexeme["id"], "decision": "skip"}, self.workspace)
+        payload = {"file_name": reader_path.name, "data_base64": base64.b64encode(reader_path.read_bytes()).decode()}
+
+        for _ in range(2):
+            result = _bridge(self.workspace, "import_reader_file", **payload)
+            self.assertTrue(result["ok"], result)
+            library = result["result"]
+            self.assertEqual(library["imported"]["new_words"], 0)
+            [entry] = library["entries"]
+            self.assertEqual(entry["decision"]["value"], "skip")
+            self.assertEqual(entry["card"]["meaning_ru"], "мельком увидеть")
+            self.assertEqual(entry["card"]["example_occurrence_id"], current_id)
+            self.assertNotIn(legacy_id, {item["id"] for item in entry["occurrences"]})
+            self.assertEqual(library["newBatch"], {"count": 0, "ids": []})
+            self.assertEqual(contracts.validate_library(library), [])
 
 
 class ErrorEnvelopeTests(unittest.TestCase):

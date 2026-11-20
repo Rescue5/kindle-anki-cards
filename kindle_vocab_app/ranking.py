@@ -277,7 +277,7 @@ def _contributions(facts: WordFacts, now: datetime, weights: Weights, mode: str 
         reasons.append(Reason("several_books", _in_books(len(books)), weights.books * math.log2(len(books))))
 
     if books & facts.reading_books:
-        reasons.append(Reason("reading_now", "читаете сейчас", weights.reading))
+        reasons.append(Reason("reading_now", "Из книги с недавними поисками", weights.reading))
 
     days = max(0.0, (now - max(when for when, _ in lookups)).total_seconds() / 86400)
     freshness = 2.0 ** (-days / weights.recency_half_life_days) - weights.recency_reference
@@ -290,7 +290,7 @@ def _contributions(facts: WordFacts, now: datetime, weights: Weights, mode: str 
         if zipf >= weights.common_zipf:
             value = weights.common * min(2.0, zipf - weights.common_zipf) + 0.0
             if value <= -MIN_REASON_WEIGHT:
-                reasons.append(Reason("frequency_common", "частое — видимо, в редком значении", value))
+                reasons.append(Reason("frequency_common", "очень частое слово", value))
             else:
                 reasons.append(Reason("frequency", "частое", 0.0))
         else:

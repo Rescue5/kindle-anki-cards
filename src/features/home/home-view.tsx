@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Check, Loader2, RefreshCw, Upload } from "lucide-react";
+import { Check, ChevronRight, Loader2, RefreshCw, Upload } from "lucide-react";
 import type { AppSettings, ConnectorState, LexemeRecord } from "@/types";
 import type { ExportFolderState, OpenResultState } from "./use-home-export";
 import { DeskLamp } from "@/components/light/light";
@@ -44,6 +44,7 @@ export type HomeViewProps = {
   listChanging: boolean;
   reader: { state: ConnectorState; name: string };
   onExport: () => void;
+  onOpenWord: (id: string) => void;
   onOpenResult: (path: string) => void;
   onOpenFolder: () => void;
   onSync: () => void;
@@ -87,7 +88,7 @@ export function HomeView(props: HomeViewProps) {
 // ---------- the desk ----------
 
 function Title() {
-  return <h1 id="home-title" className="home-title">{QUESTION}</h1>;
+  return <h1 id="home-title" className="home-title" tabIndex={-1}>{QUESTION}</h1>;
 }
 
 function DeskSkeleton() {
@@ -269,10 +270,10 @@ function NoReaderDesk(props: HomeViewProps) {
 
 // ---------- below the desk ----------
 
-function ShortList({ words }: HomeViewProps) {
+function ShortList({ words, onOpenWord, listChanging, exportUi }: HomeViewProps) {
   return (
     <section className="home-list" aria-labelledby="home-list-title">
-      <h2 id="home-list-title">{LIST_TITLE}</h2>
+      <h2 id="home-list-title" tabIndex={-1}>{LIST_TITLE}</h2>
       <ol className="home-rows">
         {words.map((entry, index) => {
           const pos = listPartOfSpeech(entry);
@@ -281,14 +282,23 @@ function ShortList({ words }: HomeViewProps) {
           return (
             <li key={entry.id}>
               <PencilRule variant={index} />
-              <div className="home-row">
+              <button
+                type="button"
+                className="home-row"
+                id={`home-word-${entry.id}`}
+                aria-label={`Открыть карточку «${entry.lemma}»`}
+                aria-describedby={why ? `home-why-${entry.id}` : undefined}
+                disabled={listChanging || exportUi.kind === "running"}
+                onClick={() => onOpenWord(entry.id)}
+              >
                 <span className="home-row-text">
                   <strong className="home-lemma">{entry.lemma}</strong>
                   {pos ? <em> {pos}</em> : null}
                   {meaning ? <> — {meaning}</> : null}
                 </span>
-                {why ? <span className="home-why">{why}</span> : null}
-              </div>
+                {why ? <span className="home-why" id={`home-why-${entry.id}`}>{why}</span> : null}
+                <ChevronRight className="home-word-arrow" size={16} aria-hidden="true" />
+              </button>
             </li>
           );
         })}

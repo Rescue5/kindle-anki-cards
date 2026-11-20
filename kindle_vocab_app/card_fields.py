@@ -11,11 +11,15 @@ attached to the entry (`offline_dictionary.attach`); no I/O.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from kindle_vocab_app.contracts import MEANING_MAX_LENGTH
+from kindle_vocab_app.library_state import parse_moment
+
+MAX_ENRICHMENT_CONTEXT_CHARS = 400
 
 
 @dataclass(frozen=True)
@@ -49,6 +53,33 @@ def longest_occurrence(occurrences: list[Mapping[str, Any]]) -> Mapping[str, Any
     )
 
 
+def enrichment_sentences(lexeme: Mapping[str, Any], limit: int) -> list[str]:
+    """Book quotes in prompt order: longest first, keeping input order for ties."""
+    sentences = (str(item["context"]) for item in lexeme.get("occurrences") or [] if item.get("context"))
+    return [text[:MAX_ENRICHMENT_CONTEXT_CHARS] for text in sorted(sentences, key=len, reverse=True)[:limit]]
+
+
+def context_fingerprint(context: str) -> str:
+    return hashlib.sha256(context.encode("utf-8")).hexdigest()
+
+
+def context_translation(lexeme: Mapping[str, Any], context: str) -> str:
+    enrichment = lexeme.get("enrichment") or {}
+    translation = _clean(enrichment.get("context_ru"))
+    if not context or not translation or enrichment.get("status", "ready") != "ready":
+        return ""
+    if "context_source_sha256" in enrichment:
+        return translation if enrichment["context_source_sha256"] == context_fingerprint(context) else ""
+
+    # Old rows have no source fingerprint. Reconstruct the first prompt quote
+    # only while the library has no evidence of a subsequent import for this word.
+    enriched_at = parse_moment(str(enrichment.get("updated_at") or ""))
+    last_seen_at = parse_moment(str(lexeme.get("last_seen_at") or ""))
+    if enrichment.get("prompt_version") != 1 or not enriched_at or not last_seen_at or last_seen_at > enriched_at:
+        return ""
+    return translation if enrichment_sentences(lexeme, 1) == [context] else ""
+
+
 def resolve(lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None = None) -> ResolvedCard:
     """Resolve the card of a library entry.
 
@@ -66,14 +97,11 @@ def resolve(lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None = None) ->
     if chosen_id:
         occurrence = next((item for item in occurrences if str(item.get("id") or "") == chosen_id), {})
         if not occurrence and edit.get("example_context"):
-            # The picked sentence is gone from the library (a re-sync replaced it): keep what the
-            # reader picked, on the book of the best remaining occurrence.
-            base = longest_occurrence(occurrences)
+            # Only the text and word form were saved with this edit.
             occurrence = {
-                **base,
                 "id": "",
                 "context": str(edit.get("example_context") or ""),
-                "word": str(edit.get("example_form") or base.get("word") or ""),
+                "word": str(edit.get("example_form") or ""),
             }
     if not occurrence:
         occurrence = longest_occurrence(occurrences)
