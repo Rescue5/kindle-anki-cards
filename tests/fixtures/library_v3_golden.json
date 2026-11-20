@@ -1,0 +1,975 @@
+{
+ "load_catalog": {
+  "cached_at": "2026-10-01T10:00:00+00:00",
+  "last_kindle_sync_id": "sync-2",
+  "lexemes": [
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "2026-08-01T09:00:00+00:00",
+      "state": "exported"
+     },
+     "obsidian": {
+      "eligible": true,
+      "external_key": "lantern",
+      "last_checked_at": "2026-09-02T07:45:00+00:00",
+      "last_synced_at": "2026-09-02T07:45:00+00:00",
+      "reason": "",
+      "state": "synced"
+     },
+     "quizlet": {
+      "last_exported_at": "2026-08-15T18:30:00+00:00",
+      "state": "exported"
+     }
+    },
+    "display_form": "lanterns",
+    "enrichment": {
+     "error": "",
+     "meaning_ru": "фонарь",
+     "model": "test-model",
+     "note": "synthetic",
+     "prompt_version": 2,
+     "provider": "openai_compatible",
+     "status": "ready",
+     "updated_at": "2026-07-01T00:00:00+00:00"
+    },
+    "first_seen_at": "2026-06-01T10:00:00+00:00",
+    "forms": [
+     "lanterns",
+     "lantern",
+     "Lantern's"
+    ],
+    "freshness": "known",
+    "id": "197e73a1e61e108377d4b94c800f2c2bd0539326",
+    "language": "en",
+    "last_kindle_sync_id": "sync-1",
+    "last_seen_at": "2026-09-01T10:00:00+00:00",
+    "lemma": "lantern",
+    "occurrences": [
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "She lit the lantern at dusk.",
+      "id": "occ-l1",
+      "looked_up_at": "2026-06-01T10:00:00+00:00",
+      "source": "kindle",
+      "word": "lantern"
+     },
+     {
+      "authors": "B. Author",
+      "book_key": "koreader:book-river",
+      "book_title": "Down the River",
+      "context": "Paper lanterns drifted downstream.",
+      "id": "occ-l2",
+      "looked_up_at": "2026-06-01T10:00:00+00:00",
+      "source": "koreader",
+      "word": "lanterns"
+     },
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "Two lanterns swung over the dock.",
+      "id": "occ-l3",
+      "looked_up_at": "2026-09-01T10:00:00+00:00",
+      "source": "kindle",
+      "word": "lanterns"
+     }
+    ],
+    "processing": {
+     "analysis": {
+      "accepted": true,
+      "base_form": "lantern",
+      "importance_score": 7,
+      "translation_status": "offline_only",
+      "warnings": []
+     },
+     "error": "",
+     "state": "ready",
+     "updated_at": "2026-06-02T00:00:00+00:00"
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "2026-08-01T09:00:00+00:00",
+      "state": "exported"
+     },
+     "obsidian": {
+      "eligible": true,
+      "external_key": "meander",
+      "last_checked_at": "2026-09-02T07:45:00+00:00",
+      "last_synced_at": "2026-09-02T07:45:00+00:00",
+      "reason": "",
+      "state": "synced"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "display_form": "meandering",
+    "enrichment": null,
+    "first_seen_at": "2026-06-01T10:00:00+00:00",
+    "forms": [
+     "meandering",
+     "meander",
+     "meandered"
+    ],
+    "freshness": "known",
+    "id": "6761eccc8c2f0d54d2ec2080753cf86c67c0c57f",
+    "language": "en",
+    "last_kindle_sync_id": "sync-1",
+    "last_seen_at": "2026-08-20T10:00:00+00:00",
+    "lemma": "meander",
+    "occurrences": [
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "A meandering path led home.",
+      "id": "occ-m1",
+      "looked_up_at": "2026-06-01T10:00:00+00:00",
+      "source": "kindle",
+      "word": "meandering"
+     },
+     {
+      "authors": "B. Author",
+      "book_key": "koreader:book-river",
+      "book_title": "Down the River",
+      "context": "The river meandered for miles.",
+      "id": "occ-m2",
+      "looked_up_at": "2026-08-20T10:00:00+00:00",
+      "source": "kindle",
+      "word": "meandered"
+     }
+    ],
+    "processing": {
+     "analysis": {
+      "accepted": true,
+      "base_form": "meander",
+      "importance_score": 5,
+      "translation_status": "offline_only",
+      "warnings": []
+     },
+     "error": "",
+     "state": "ready",
+     "updated_at": "2026-06-02T00:00:00+00:00"
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": true
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "quibble",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "rejected",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "display_form": "quibbles",
+    "enrichment": null,
+    "first_seen_at": "2026-06-05T10:00:00+00:00",
+    "forms": [
+     "quibbles"
+    ],
+    "freshness": "known",
+    "id": "aaac70fb5aaafeb3c3cf3ca2e8ac17c5bdb483f6",
+    "language": "en",
+    "last_kindle_sync_id": "sync-1",
+    "last_seen_at": "2026-06-05T10:00:00+00:00",
+    "lemma": "quibble",
+    "occurrences": [
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "No time for quibbles.",
+      "id": "occ-q1",
+      "looked_up_at": "2026-06-05T10:00:00+00:00",
+      "source": "kindle",
+      "word": "quibbles"
+     }
+    ],
+    "processing": {
+     "analysis": {
+      "accepted": false,
+      "base_form": "quibble",
+      "importance_score": 1,
+      "translation_status": "offline_only",
+      "warnings": [
+       "non_word"
+      ]
+     },
+     "error": "",
+     "state": "rejected",
+     "updated_at": "2026-06-06T00:00:00+00:00"
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "waiting_processing",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "display_form": "brogue",
+    "enrichment": null,
+    "first_seen_at": "2026-07-01T10:00:00+00:00",
+    "forms": [],
+    "freshness": "known",
+    "id": "4a7d297f42ed62dfb30253d6ba12da95fe103939",
+    "language": "en",
+    "last_kindle_sync_id": "sync-1",
+    "last_seen_at": "2026-07-01T10:00:00+00:00",
+    "lemma": "brogue",
+    "occurrences": [
+     {
+      "authors": "",
+      "book_key": "",
+      "book_title": "",
+      "context": "",
+      "id": "occ-b1",
+      "looked_up_at": "",
+      "source": "legacy",
+      "word": "brogue"
+     }
+    ],
+    "processing": {
+     "analysis": null,
+     "error": "",
+     "state": "pending",
+     "updated_at": ""
+    },
+    "sources": {
+     "kindle": false,
+     "legacy": true
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "waiting_processing",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "display_form": "Fernweh",
+    "enrichment": null,
+    "first_seen_at": "2026-09-30T10:00:00+00:00",
+    "forms": [
+     "Fernweh"
+    ],
+    "freshness": "new",
+    "id": "0945e51c7fe81e191f665d8beb6824bee0a11631",
+    "language": "de",
+    "last_kindle_sync_id": "sync-2",
+    "last_seen_at": "2026-09-30T10:00:00+00:00",
+    "lemma": "fernweh",
+    "occurrences": [
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "Er hatte Fernweh.",
+      "id": "occ-f1",
+      "looked_up_at": "2026-09-30T10:00:00+00:00",
+      "source": "kindle",
+      "word": "Fernweh"
+     }
+    ],
+    "processing": {
+     "analysis": null,
+     "error": "",
+     "state": "pending",
+     "updated_at": ""
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "tarn",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "processing_failed",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "display_form": "tarns",
+    "enrichment": null,
+    "first_seen_at": "2026-09-30T10:00:00+00:00",
+    "forms": [
+     "tarns",
+     "tarn"
+    ],
+    "freshness": "new",
+    "id": "9ab4da4aac64bab71fc961e8fe850f46711cdc9e",
+    "language": "en",
+    "last_kindle_sync_id": "sync-2",
+    "last_seen_at": "2026-09-30T10:00:00+00:00",
+    "lemma": "tarn",
+    "occurrences": [
+     {
+      "authors": "B. Author",
+      "book_key": "koreader:book-river",
+      "book_title": "Down the River",
+      "context": "Cold tarns lay between the peaks.",
+      "id": "occ-t1",
+      "looked_up_at": "2026-09-30T10:00:00+00:00",
+      "source": "kindle",
+      "word": "tarns"
+     }
+    ],
+    "processing": {
+     "analysis": null,
+     "error": "timeout",
+     "state": "failed",
+     "updated_at": "2026-09-30T11:00:00+00:00"
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "zephyr",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "waiting_processing",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "display_form": "zephyr",
+    "enrichment": null,
+    "first_seen_at": "2026-09-30T10:00:00+00:00",
+    "forms": [
+     "zephyr"
+    ],
+    "freshness": "new",
+    "id": "e81d182719d4bc89d622757bca0651f3a93ba879",
+    "language": "en",
+    "last_kindle_sync_id": "sync-2",
+    "last_seen_at": "2026-09-30T10:00:00+00:00",
+    "lemma": "zephyr",
+    "occurrences": [
+     {
+      "authors": "B. Author",
+      "book_key": "koreader:book-river",
+      "book_title": "Down the River",
+      "context": "A zephyr stirred the sails.",
+      "id": "occ-z1",
+      "looked_up_at": "2026-09-30T10:00:00+00:00",
+      "source": "kindle",
+      "word": "zephyr"
+     }
+    ],
+    "processing": {
+     "analysis": null,
+     "error": "",
+     "state": "pending",
+     "updated_at": ""
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   }
+  ],
+  "version": 3
+ },
+ "load_library": {
+  "books": [
+   {
+    "cover_status": "unavailable",
+    "key": "",
+    "label": "Все книги"
+   },
+   {
+    "authors": "B. Author",
+    "cover_status": "pending",
+    "display_title": "Down the River",
+    "key": "koreader:book-river",
+    "label": "Down the River · B. Author · 4",
+    "title": "Down the River"
+   },
+   {
+    "authors": "A. Writer",
+    "cover_status": "pending",
+    "display_title": "The Lighthouse Keeper",
+    "key": "book-lighthouse",
+    "label": "The Lighthouse Keeper · A. Writer · 4",
+    "title": "The Lighthouse Keeper"
+   }
+  ],
+  "connectors": {
+   "anki": {
+    "checked_at": "<volatile>",
+    "label": "Anki",
+    "state": "unknown"
+   },
+   "kindle": {
+    "checked_at": "<volatile>",
+    "label": "Kindle",
+    "state": "unknown"
+   },
+   "obsidian": {
+    "checked_at": "<volatile>",
+    "label": "Obsidian",
+    "state": "disabled"
+   }
+  },
+  "coverSummary": {
+   "available": 0,
+   "errors": 0,
+   "missing": 0,
+   "total": 2
+  },
+  "enrichmentQueue": {
+   "failed": 0,
+   "pending": 2
+  },
+  "entries": [
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "2026-08-01T09:00:00+00:00",
+      "state": "exported"
+     },
+     "obsidian": {
+      "eligible": true,
+      "external_key": "lantern",
+      "last_checked_at": "2026-09-02T07:45:00+00:00",
+      "last_synced_at": "2026-09-02T07:45:00+00:00",
+      "reason": "",
+      "state": "synced"
+     },
+     "quizlet": {
+      "last_exported_at": "2026-08-15T18:30:00+00:00",
+      "state": "exported"
+     }
+    },
+    "dictionary": {
+     "meaning_ru": "фонарь, фонарик; световая камера маяка",
+     "pos": "n",
+     "source": "wiktionary"
+    },
+    "display_form": "lanterns",
+    "enrichment": {
+     "error": "",
+     "meaning_ru": "фонарь",
+     "model": "test-model",
+     "note": "synthetic",
+     "prompt_version": 2,
+     "provider": "openai_compatible",
+     "status": "ready",
+     "updated_at": "2026-07-01T00:00:00+00:00"
+    },
+    "first_seen_at": "2026-06-01T10:00:00+00:00",
+    "forms": [
+     "lanterns",
+     "lantern",
+     "Lantern's"
+    ],
+    "freshness": "known",
+    "id": "197e73a1e61e108377d4b94c800f2c2bd0539326",
+    "language": "en",
+    "last_kindle_sync_id": "sync-1",
+    "last_seen_at": "2026-09-01T10:00:00+00:00",
+    "lemma": "lantern",
+    "occurrences": [
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "She lit the lantern at dusk.",
+      "id": "occ-l1",
+      "looked_up_at": "2026-06-01T10:00:00+00:00",
+      "source": "kindle",
+      "word": "lantern"
+     },
+     {
+      "authors": "B. Author",
+      "book_key": "koreader:book-river",
+      "book_title": "Down the River",
+      "context": "Paper lanterns drifted downstream.",
+      "id": "occ-l2",
+      "looked_up_at": "2026-06-01T10:00:00+00:00",
+      "source": "koreader",
+      "word": "lanterns"
+     },
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "Two lanterns swung over the dock.",
+      "id": "occ-l3",
+      "looked_up_at": "2026-09-01T10:00:00+00:00",
+      "source": "kindle",
+      "word": "lanterns"
+     }
+    ],
+    "processing": {
+     "analysis": {
+      "accepted": true,
+      "base_form": "lantern",
+      "importance_score": 7,
+      "translation_status": "offline_only",
+      "warnings": []
+     },
+     "error": "",
+     "state": "ready",
+     "updated_at": "2026-06-02T00:00:00+00:00"
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "2026-08-01T09:00:00+00:00",
+      "state": "exported"
+     },
+     "obsidian": {
+      "eligible": true,
+      "external_key": "meander",
+      "last_checked_at": "2026-09-02T07:45:00+00:00",
+      "last_synced_at": "2026-09-02T07:45:00+00:00",
+      "reason": "",
+      "state": "synced"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "dictionary": {
+     "meaning_ru": "меандр (орнамент); меандр, извилина, изгиб (дороги, реки и т. п.); отклонение, уклон",
+     "pos": "n",
+     "source": "wiktionary"
+    },
+    "display_form": "meandering",
+    "enrichment": null,
+    "first_seen_at": "2026-06-01T10:00:00+00:00",
+    "forms": [
+     "meandering",
+     "meander",
+     "meandered"
+    ],
+    "freshness": "known",
+    "id": "6761eccc8c2f0d54d2ec2080753cf86c67c0c57f",
+    "language": "en",
+    "last_kindle_sync_id": "sync-1",
+    "last_seen_at": "2026-08-20T10:00:00+00:00",
+    "lemma": "meander",
+    "occurrences": [
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "A meandering path led home.",
+      "id": "occ-m1",
+      "looked_up_at": "2026-06-01T10:00:00+00:00",
+      "source": "kindle",
+      "word": "meandering"
+     },
+     {
+      "authors": "B. Author",
+      "book_key": "koreader:book-river",
+      "book_title": "Down the River",
+      "context": "The river meandered for miles.",
+      "id": "occ-m2",
+      "looked_up_at": "2026-08-20T10:00:00+00:00",
+      "source": "kindle",
+      "word": "meandered"
+     }
+    ],
+    "processing": {
+     "analysis": {
+      "accepted": true,
+      "base_form": "meander",
+      "importance_score": 5,
+      "translation_status": "offline_only",
+      "warnings": []
+     },
+     "error": "",
+     "state": "ready",
+     "updated_at": "2026-06-02T00:00:00+00:00"
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": true
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "quibble",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "rejected",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "dictionary": {
+     "meaning_ru": "мелкое, несущественное замечание; придирка; словесная уловка; устар. игра слов; каламбур",
+     "pos": "n",
+     "source": "wiktionary"
+    },
+    "display_form": "quibbles",
+    "enrichment": null,
+    "first_seen_at": "2026-06-05T10:00:00+00:00",
+    "forms": [
+     "quibbles"
+    ],
+    "freshness": "known",
+    "id": "aaac70fb5aaafeb3c3cf3ca2e8ac17c5bdb483f6",
+    "language": "en",
+    "last_kindle_sync_id": "sync-1",
+    "last_seen_at": "2026-06-05T10:00:00+00:00",
+    "lemma": "quibble",
+    "occurrences": [
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "No time for quibbles.",
+      "id": "occ-q1",
+      "looked_up_at": "2026-06-05T10:00:00+00:00",
+      "source": "kindle",
+      "word": "quibbles"
+     }
+    ],
+    "processing": {
+     "analysis": {
+      "accepted": false,
+      "base_form": "quibble",
+      "importance_score": 1,
+      "translation_status": "offline_only",
+      "warnings": [
+       "non_word"
+      ]
+     },
+     "error": "",
+     "state": "rejected",
+     "updated_at": "2026-06-06T00:00:00+00:00"
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "brogue",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "waiting_processing",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "dictionary": null,
+    "display_form": "brogue",
+    "enrichment": null,
+    "first_seen_at": "2026-07-01T10:00:00+00:00",
+    "forms": [],
+    "freshness": "known",
+    "id": "4a7d297f42ed62dfb30253d6ba12da95fe103939",
+    "language": "en",
+    "last_kindle_sync_id": "sync-1",
+    "last_seen_at": "2026-07-01T10:00:00+00:00",
+    "lemma": "brogue",
+    "occurrences": [
+     {
+      "authors": "",
+      "book_key": "",
+      "book_title": "",
+      "context": "",
+      "id": "occ-b1",
+      "looked_up_at": "",
+      "source": "legacy",
+      "word": "brogue"
+     }
+    ],
+    "processing": {
+     "analysis": null,
+     "error": "",
+     "state": "pending",
+     "updated_at": ""
+    },
+    "sources": {
+     "kindle": false,
+     "legacy": true
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "fernweh",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "waiting_processing",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "dictionary": null,
+    "display_form": "Fernweh",
+    "enrichment": null,
+    "first_seen_at": "2026-09-30T10:00:00+00:00",
+    "forms": [
+     "Fernweh"
+    ],
+    "freshness": "new",
+    "id": "0945e51c7fe81e191f665d8beb6824bee0a11631",
+    "language": "de",
+    "last_kindle_sync_id": "sync-2",
+    "last_seen_at": "2026-09-30T10:00:00+00:00",
+    "lemma": "fernweh",
+    "occurrences": [
+     {
+      "authors": "A. Writer",
+      "book_key": "book-lighthouse",
+      "book_title": "The Lighthouse Keeper",
+      "context": "Er hatte Fernweh.",
+      "id": "occ-f1",
+      "looked_up_at": "2026-09-30T10:00:00+00:00",
+      "source": "kindle",
+      "word": "Fernweh"
+     }
+    ],
+    "processing": {
+     "analysis": null,
+     "error": "",
+     "state": "pending",
+     "updated_at": ""
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "tarn",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "processing_failed",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "dictionary": null,
+    "display_form": "tarns",
+    "enrichment": null,
+    "first_seen_at": "2026-09-30T10:00:00+00:00",
+    "forms": [
+     "tarns",
+     "tarn"
+    ],
+    "freshness": "new",
+    "id": "9ab4da4aac64bab71fc961e8fe850f46711cdc9e",
+    "language": "en",
+    "last_kindle_sync_id": "sync-2",
+    "last_seen_at": "2026-09-30T10:00:00+00:00",
+    "lemma": "tarn",
+    "occurrences": [
+     {
+      "authors": "B. Author",
+      "book_key": "koreader:book-river",
+      "book_title": "Down the River",
+      "context": "Cold tarns lay between the peaks.",
+      "id": "occ-t1",
+      "looked_up_at": "2026-09-30T10:00:00+00:00",
+      "source": "kindle",
+      "word": "tarns"
+     }
+    ],
+    "processing": {
+     "analysis": null,
+     "error": "timeout",
+     "state": "failed",
+     "updated_at": "2026-09-30T11:00:00+00:00"
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   },
+   {
+    "destinations": {
+     "anki": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     },
+     "obsidian": {
+      "eligible": false,
+      "external_key": "zephyr",
+      "last_checked_at": "",
+      "last_synced_at": "",
+      "reason": "waiting_processing",
+      "state": "not_applicable"
+     },
+     "quizlet": {
+      "last_exported_at": "",
+      "state": "not_exported"
+     }
+    },
+    "dictionary": {
+     "meaning_ru": "западный ветер; зефир, ветерок; текст. зефир (ткань)",
+     "pos": "n",
+     "source": "wiktionary"
+    },
+    "display_form": "zephyr",
+    "enrichment": null,
+    "first_seen_at": "2026-09-30T10:00:00+00:00",
+    "forms": [
+     "zephyr"
+    ],
+    "freshness": "new",
+    "id": "e81d182719d4bc89d622757bca0651f3a93ba879",
+    "language": "en",
+    "last_kindle_sync_id": "sync-2",
+    "last_seen_at": "2026-09-30T10:00:00+00:00",
+    "lemma": "zephyr",
+    "occurrences": [
+     {
+      "authors": "B. Author",
+      "book_key": "koreader:book-river",
+      "book_title": "Down the River",
+      "context": "A zephyr stirred the sails.",
+      "id": "occ-z1",
+      "looked_up_at": "2026-09-30T10:00:00+00:00",
+      "source": "kindle",
+      "word": "zephyr"
+     }
+    ],
+    "processing": {
+     "analysis": null,
+     "error": "",
+     "state": "pending",
+     "updated_at": ""
+    },
+    "sources": {
+     "kindle": true,
+     "legacy": false
+    }
+   }
+  ],
+  "last_kindle_sync_id": "sync-2",
+  "queueStatus": {
+   "failed": 1,
+   "pending": 2,
+   "processing": 0,
+   "total": 3
+  },
+  "sourceName": "Локальная библиотека",
+  "sourceStatus": "Сохранённые слова доступны без устройства"
+ }
+}

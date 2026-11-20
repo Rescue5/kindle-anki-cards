@@ -103,10 +103,13 @@ def merge_kindle(
 ) -> dict[str, Any]:
     catalog = _copy_catalog(catalog)
     existing_ids = {str(item.get("id") or "") for item in catalog["lexemes"]}
-    if mark_new:
-        for lexeme in catalog["lexemes"]:
-            if lexeme.get("freshness") == "new":
-                lexeme["freshness"] = "known"
+    previous_ids = set(existing_ids)
+    # "New since last time" is the batch of the last sync that brought words.
+    # It is replaced only when this sync adds a lexeme, so an empty sync (or one
+    # with only new contexts for known words) keeps the batch.
+    previous_new_ids = {
+        str(item.get("id") or "") for item in catalog["lexemes"] if item.get("freshness") == "new"
+    }
 
     for entry in entries:
         key = lexical_key(entry)
@@ -122,6 +125,13 @@ def merge_kindle(
         existing_ids.add(candidate_id)
 
     if mark_new:
+        added = any(
+            str(item.get("id") or "") not in previous_ids for item in catalog["lexemes"]
+        )
+        if added:
+            for lexeme in catalog["lexemes"]:
+                if str(lexeme.get("id") or "") in previous_new_ids:
+                    lexeme["freshness"] = "known"
         catalog["last_kindle_sync_id"] = sync_id
     return catalog
 

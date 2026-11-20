@@ -7,8 +7,8 @@ re-sending updates notes instead of duplicating them.
 
 from __future__ import annotations
 
+import http.client
 import json
-import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -26,20 +26,24 @@ class AnkiConnectError(RuntimeError):
     pass
 
 
+class AnkiConnectRejected(AnkiConnectError):
+    """AnkiConnect answered explicitly that the action failed."""
+
+
 def invoke(action: str, *, url: str | None = None, timeout: float = 5.0, **params: Any) -> Any:
     body = json.dumps({"action": action, "version": API_VERSION, "params": params}).encode("utf-8")
     request = urllib.request.Request(url or ANKI_CONNECT_URL, data=body, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+    except (OSError, http.client.HTTPException) as exc:
         raise AnkiConnectError("Anki не отвечает. Откройте Anki с дополнением AnkiConnect") from exc
-    except json.JSONDecodeError as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise AnkiConnectError("AnkiConnect вернул непонятный ответ") from exc
     if not isinstance(payload, dict) or set(payload) != {"result", "error"}:
         raise AnkiConnectError("По адресу AnkiConnect отвечает что-то другое")
     if payload["error"]:
-        raise AnkiConnectError(f"Anki: {payload['error']}")
+        raise AnkiConnectRejected(f"Anki: {payload['error']}")
     return payload["result"]
 
 
@@ -56,5 +60,7 @@ def import_package(path: Path, *, url: str | None = None) -> None:
     # Large decks take a while to import; Anki answers only when done.
     result = invoke("importPackage", url=url, timeout=300.0, path=str(path.resolve()))
     if result is False:
-        raise AnkiConnectError("Anki не смог импортировать колоду")
+        raise AnkiConnectRejected("Anki не смог импортировать колоду")
+    if result is not True:
+        raise AnkiConnectError("Anki не подтвердил импорт")
     logger.info("Imported Anki package through AnkiConnect path=%s", path)

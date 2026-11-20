@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from kindle_vocab_app.logging_config import get_logger
+from kindle_vocab_app.vocab_cache import normalize_lemma
 
 
 logger = get_logger(__name__)
@@ -42,7 +43,7 @@ def read_cards(cards_dir: Path) -> list[dict[str, Any]]:
         priority = _priority_from_filename(path.name)
         if priority is None:
             continue
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")
         body = _strip_frontmatter(text)
         for card in body.split("---"):
             parsed = _parse_card(card)
@@ -63,10 +64,7 @@ def append_cards(
 ) -> dict[str, Any]:
     """Append processed entries to Obsidian SR priority files."""
     by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    existing_lemmas = {
-        _normalize_base(str((item.get("analysis") or {}).get("base_form") or item.get("stem") or item.get("word") or ""))
-        for item in read_cards(cards_dir)
-    }
+    existing_lemmas = set().union(*(lexical_aliases(item) for item in read_cards(cards_dir)))
     scheduled_lemmas = set(existing_lemmas)
     item_results: list[dict[str, str]] = []
     skipped = 0
@@ -75,8 +73,8 @@ def append_cards(
         item_id = str(entry.get("id") or "")
         status = entry.get("processing_status")
         analysis = entry.get("analysis") or {}
-        lemma = _normalize_base(str(analysis.get("base_form") or entry.get("stem") or entry.get("word") or ""))
-        if lemma and lemma in scheduled_lemmas:
+        aliases = lexical_aliases(entry)
+        if aliases & scheduled_lemmas:
             skipped += 1
             item_results.append({"id": item_id, "outcome": "already_present", "reason": ""})
             continue
@@ -90,8 +88,7 @@ def append_cards(
             skipped += 1
             item_results.append({"id": item_id, "outcome": "blocked", "reason": "unsupported_priority"})
             continue
-        if lemma:
-            scheduled_lemmas.add(lemma)
+        scheduled_lemmas.update(aliases)
         by_file[_FILE_BY_PRIORITY[score]].append(entry)
 
     backup_path = backup_cards(cards_dir, backups_dir) if backup_enabled and by_file else None
@@ -165,9 +162,17 @@ def backup_cards(cards_dir: Path, backups_dir: Path) -> Path:
 
 
 def _normalize_base(value: str) -> str:
-    text = str(value or "").strip().lower()
-    text = re.sub(r"\s+", " ", text)
-    return text
+    return normalize_lemma(str(value or ""))
+
+
+def lexical_aliases(entry: dict[str, Any]) -> set[str]:
+    """Exact normalized spellings shared by reconciliation and append deduplication."""
+    analysis = entry.get("analysis") or {}
+    return {
+        key
+        for value in (entry.get("word"), entry.get("stem"), analysis.get("base_form"))
+        if (key := _normalize_base(str(value or "")))
+    }
 
 
 def _priority_from_filename(name: str) -> int | None:
@@ -313,11 +318,10 @@ def _extract_base_form(answer: str, word: str) -> str:
     if not match:
         return word
     content = match.group(1).strip()
-    for separator in ("\u2014", "\u2013", "-"):
-        if separator in content:
-            candidate = content.split(separator, 1)[0].strip()
-            if candidate and re.fullmatch(r"[A-Za-z][A-Za-z\s\-'\.]*", candidate):
-                return candidate
+    # ASCII hyphens belong to words unless surrounded by separator whitespace.
+    candidate = re.split(r"\s*[\u2014\u2013]\s*|\s+-\s+", content, maxsplit=1)[0].strip()
+    if candidate != content and re.fullmatch(r"[A-Za-z][A-Za-z\s\-'\.]*", candidate):
+        return candidate
     if "<!-- NN_PENDING -->" in content:
         return word
     if re.fullmatch(r"[A-Za-z][A-Za-z\s\-'\.]*", content):
@@ -418,7 +422,7 @@ def _existing_card_keys(path: Path) -> set[str]:
     keys: set[str] = set()
     if not path.exists():
         return keys
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8-sig")
     body = _strip_frontmatter(text)
     for card in body.split("---"):
         parsed = _parse_card(card)

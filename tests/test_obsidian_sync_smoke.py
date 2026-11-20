@@ -4,10 +4,45 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kindle_vocab_app.obsidian_sync import _parse_card, append_cards
+from kindle_vocab_app.obsidian_sync import _normalize_base, _parse_card, append_cards, read_cards
 
 
 class ObsidianParserTests(unittest.TestCase):
+    def test_hyphenated_lemma_and_answer_separator(self) -> None:
+        for heading in ("well-known", "well-known — известный", "well-known - известный", "well-known — <!-- NN_PENDING -->"):
+            with self.subTest(heading=heading):
+                parsed = _parse_card(f"**well-known**\n?\n**{heading}**")
+                self.assertIsNotNone(parsed)
+                self.assertEqual(parsed["base_form"], "well-known")
+
+    def test_normalization_matches_library_keys(self) -> None:
+        self.assertEqual(_normalize_base("  (Don’t   Panic!) "), "don't panic")
+        self.assertEqual(_normalize_base("`Glimpse`."), "glimpse")
+
+    def test_read_utf8_bom_and_deduplicate_card_word_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cards = root / "cards"
+            cards.mkdir()
+            path = cards / "04 - Priority 7.md"
+            path.write_text(
+                "---\ntags: [flashcards/book-vocab]\n---\n"
+                "**Glimpse.**\n?\n**glimpsing — смотреть мельком**\n",
+                encoding="utf-8-sig",
+            )
+            original = path.read_bytes()
+            self.assertEqual(len(read_cards(cards)), 1)
+            result = append_cards(cards, [{
+                "id": "alias",
+                "word": "glimpse",
+                "stem": "glimpse",
+                "processing_status": "processed",
+                "analysis": {"base_form": "glimpse", "accepted": True, "importance_score": 7},
+            }], root / "backups", backup_enabled=False)
+            self.assertEqual(result["added"], 0)
+            self.assertEqual(result["items"][0]["outcome"], "already_present")
+            self.assertEqual(path.read_bytes(), original)
+
     def test_card_with_question_mark_in_context(self) -> None:
         card = """**perplexed**
 > [!example]- Контекст

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PencilButton, PencilLink } from "@/components/ui/pencil-controls";
 
 /** Where each reader keeps its words, for people copying the file by hand. */
 export const READER_FILE_HELP = "Kindle — system/vocabulary/vocab.db · KOReader на PocketBook, Kobo, Boox — koreader/settings/vocabulary_builder.sqlite3 · Kobo — .kobo/KoboReader.sqlite";
@@ -8,8 +9,9 @@ export const READER_FILE_HELP = "Kindle — system/vocabulary/vocab.db · KORead
 type ImportFileButtonProps = {
   onFile: (file: File) => void;
   disabled?: boolean;
-  /** `drawn` is a pencil-framed button; `text` reads as an underlined link inside a sentence. */
-  look?: "drawn" | "text";
+  /** `drawn` is a pencil-framed button; `text` reads as an underlined link inside a sentence.
+   * `pencil` and `link` are the same two in the pencil controls of the concept screens. */
+  look?: "drawn" | "text" | "pencil" | "link";
   children?: React.ReactNode;
 };
 
@@ -30,7 +32,16 @@ export function ImportFileButton({ onFile, disabled, look = "drawn", children }:
           if (file) onFile(file);
         }}
       />
-      {look === "text" ? (
+      {look === "pencil" ? (
+        <PencilButton look="drawn" size="lg" onClick={pick} disabled={disabled} title={READER_FILE_HELP}>
+          <FileUp size={16} aria-hidden="true" />
+          {children ?? "Файл со словами"}
+        </PencilButton>
+      ) : look === "link" ? (
+        <PencilLink onClick={pick} disabled={disabled} title={READER_FILE_HELP}>
+          {children ?? "выберите файл со словами"}
+        </PencilLink>
+      ) : look === "text" ? (
         <button type="button" className="reading-text-button import-file-link" onClick={pick} disabled={disabled} title={READER_FILE_HELP}>
           {children ?? "выберите файл со словами"}
         </button>

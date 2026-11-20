@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import itertools
 import json
+import math
 import sqlite3
 import tempfile
 import unittest
@@ -310,6 +312,185 @@ class DatabaseTests(unittest.TestCase):
     def test_the_command_reports_a_missing_library(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             self.assertEqual(ranking_eval.main(["--db", str(Path(folder) / "missing.sqlite3")]), 2)
+
+
+class NewcomerToolsTests(unittest.TestCase):
+    def _library(self) -> Library:
+        start = CUTOFF - timedelta(days=100)
+        lookups, lexical = [], {}
+        for i in range(60):
+            word = f"w{i}"
+            lexical[word] = _lexical(word)
+            lookups.append(Lookup(word, "book-a" if i < 40 else "book-b", start + timedelta(days=i)))
+            if i % 4 == 0:
+                lookups.append(Lookup(word, "book-a", start + timedelta(days=i + 10)))
+        return Library(lookups=lookups, lexical=lexical)
+
+    def test_restricting_keeps_the_first_books_and_the_first_days(self) -> None:
+        library = self._library()
+        first = ranking_eval.restrict_library(library, first_books=1)
+        self.assertEqual({item.book_key for item in first.lookups}, {"book-a"})
+        named = ranking_eval.restrict_library(library, only_books={"book-b"})
+        self.assertEqual({item.book_key for item in named.lookups}, {"book-b"})
+        early = ranking_eval.restrict_library(library, first_days=20)
+        self.assertTrue(all(item.at < library.first_lookup + timedelta(days=20) for item in early.lookups))
+        self.assertEqual(ranking_eval.restrict_library(Library([], {}), first_days=5).lookups, [])
+
+    def test_step_cutoffs_leave_a_full_window_after_each(self) -> None:
+        library = self._library()
+        window = timedelta(days=14)
+        cutoffs = ranking_eval.step_cutoffs(library, window, step_days=7, start_days=21)
+        self.assertEqual(cutoffs[0], library.first_lookup + timedelta(days=21))
+        self.assertTrue(all(b - a == timedelta(days=7) for a, b in itertools.pairwise(cutoffs)))
+        self.assertTrue(all(cutoff + window <= library.last_lookup for cutoff in cutoffs))
+        self.assertEqual(ranking_eval.step_cutoffs(Library([], {}), window, 7, 0), [])
+
+    def test_a_newcomer_report_never_looks_at_what_was_cut_away(self) -> None:
+        report = ranking_eval.newcomer_report(self._library(), timedelta(days=14), (10,), first_books=1, start_days=21)
+        self.assertEqual(report["books"], 1)
+        self.assertGreater(report["cutoffs"], 0)
+        self.assertEqual(ranking_eval.newcomer_report(Library([], {}), timedelta(days=14), (10,))["cutoffs"], 0)
+
+    def test_paired_differences_use_the_same_words(self) -> None:
+        labels = [True, True, False, False, False, False]
+        groups = [ranking_eval.Group({"good": [6, 5, 4, 3, 2, 1], "same": [6, 5, 4, 3, 2, 1]}, labels)] * 2
+        delta = ranking_eval.compare_to(groups, "good", "same", (2,))
+        self.assertEqual(delta["auc"], {"value": 0.0, "low": 0.0, "high": 0.0})
+        self.assertEqual(delta["lift"]["2"]["low"], 0.0)
+        levels = ranking_eval.compare_rankers(groups, ["good"], (2,))
+        self.assertEqual(levels["good"]["auc"]["value"], 1.0)
+        self.assertAlmostEqual(levels["good"]["lift"]["2"]["value"], 3.0)  # precision 1.0 over a third
+
+    def test_lift_is_undefined_when_nobody_comes_back(self) -> None:
+        self.assertTrue(math.isnan(ranking_eval.lift_at([1, 2], [False, False], 1)))
+
+    def test_too_basic_words_are_counted_against_the_base_rate(self) -> None:
+        start = CUTOFF - timedelta(days=10)
+        lookups, lexical = [], {}
+        for i in range(30):
+            word = f"basic{i}"
+            lexical[word] = replace(_lexical(word, 6.3), warnings=frozenset({"too_basic"}), accepted=False)
+            lookups.append(Lookup(word, "b", start + timedelta(days=i % 8)))
+            if i < 3:
+                lookups.append(Lookup(word, "b", CUTOFF + timedelta(days=3)))
+        for i in range(30):
+            word = f"plain{i}"
+            lexical[word] = _lexical(word)
+            lookups.append(Lookup(word, "b", start + timedelta(days=i % 8)))
+            if i < 15:
+                lookups.append(Lookup(word, "b", CUTOFF + timedelta(days=3)))
+        result = ranking_eval.too_basic_recall(Library(lookups, lexical), [CUTOFF], WINDOW)
+        self.assertEqual((result["flagged"], result["flagged_back"]), (30, 3))
+        self.assertEqual(result["not_worth"], 30)  # very common words are not worth learning
+        self.assertEqual(result["not_worth_back"], 3)
+        self.assertEqual((result["other_words"], result["other_back"]), (30, 15))
+        self.assertAlmostEqual(result["not_worth_rate"]["value"], 0.1)
+        self.assertLess(result["not_worth_rate"]["high"], result["other_rate"]["value"])
+        self.assertEqual(sum(result["flagged_shelves"].values()), 30)
+
+    def test_wilson_interval_surrounds_the_share_and_survives_an_empty_sample(self) -> None:
+        rate = ranking_eval._rate(5, 50)
+        self.assertTrue(rate["low"] < rate["value"] < rate["high"])
+        self.assertTrue(math.isnan(ranking_eval._rate(0, 0)["value"]))
+
+
+class ExportsAndNamesTests(unittest.TestCase):
+    """The library's destination rows give export times; capitalised unknown words are proper nouns."""
+
+    def _database(self, folder: Path) -> Path:
+        path = folder / "library.sqlite3"
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.executescript(
+                """
+                CREATE TABLE lexemes (id TEXT PRIMARY KEY, display_form TEXT);
+                CREATE TABLE occurrences (lexeme_id TEXT, book_key TEXT, looked_up_at TEXT, word TEXT, context TEXT);
+                CREATE TABLE analyses (lexeme_id TEXT, state TEXT, payload_json TEXT);
+                CREATE TABLE destinations (
+                    lexeme_id TEXT, destination TEXT, state TEXT, last_exported_at TEXT, last_synced_at TEXT);
+                """
+            )
+            for word, raw, context in (("tolmar", "Tolmar", "He met Tolmar there."), ("plain", "plain", "A plain day.")):
+                connection.execute("INSERT INTO lexemes VALUES (?, ?)", (word, raw))
+                payload = {
+                    "base_form": word,
+                    "lemma_zipf": 0.0 if word == "tolmar" else 3.5,
+                    "wordnet_synset_count": 0 if word == "tolmar" else 2,
+                }
+                connection.execute("INSERT INTO analyses VALUES (?, 'ready', ?)", (word, json.dumps(payload)))
+                connection.execute("INSERT INTO occurrences VALUES (?, 'b', '2026-06-01', ?, ?)", (word, raw, context))
+                connection.execute("INSERT INTO occurrences VALUES (?, 'b', '2026-06-20', ?, ?)", (word, raw, context))
+            connection.execute(
+                "INSERT INTO destinations VALUES ('plain', 'obsidian', 'synced', '', '2026-06-10T08:00:00+00:00')"
+            )
+            connection.execute("INSERT INTO destinations VALUES ('tolmar', 'anki', 'not_exported', '', '')")
+        return path
+
+    def _examples(self, cutoff: datetime, include_rejected: bool = False) -> dict[str, Example]:
+        with tempfile.TemporaryDirectory() as folder:
+            library = ranking_eval.load_library(self._database(Path(folder)))
+        self.assertIsNone(library.lexical["tolmar"].exported_at)
+        built = ranking_eval.build_examples(library, cutoff, WINDOW, include_rejected)
+        return {example.lexeme_id: example for example in built}
+
+    def test_export_times_come_from_destination_rows_and_stay_before_the_cutoff(self) -> None:
+        after = self._examples(datetime(2026, 7, 1, tzinfo=UTC))
+        self.assertEqual(after["plain"].exported_at, datetime(2026, 6, 10, 8, tzinfo=UTC))
+        self.assertIsNone(after["tolmar"].exported_at)
+        # At a cutoff before the export the word had not been exported yet.
+        before = self._examples(datetime(2026, 6, 5, tzinfo=UTC))
+        self.assertTrue(all(example.exported_at is None for example in before.values()))
+
+    def test_exports_only_reach_the_ranking_when_asked_for(self) -> None:
+        example = self._examples(datetime(2026, 7, 1, tzinfo=UTC))["plain"]
+        self.assertIsNone(ranking_eval.word_facts(example).exported_at)
+        self.assertEqual(ranking_eval.word_facts(example, exports=True).exported_at, example.exported_at)
+        plain, exported = ranking_eval.v2_variant(), ranking_eval.v2_variant(exports=True)
+        self.assertGreater(exported(example), plain(example))  # looked up again after the export on June 10
+
+    def test_proper_nouns_need_every_lookup_to_look_like_a_name(self) -> None:
+        examples = self._examples(datetime(2026, 7, 1, tzinfo=UTC), include_rejected=True)
+        self.assertTrue(examples["tolmar"].proper_noun)
+        self.assertFalse(examples["plain"].proper_noun)
+        self.assertTrue(ranking_eval.word_facts(examples["tolmar"], proper_nouns=True).proper_noun)
+        self.assertFalse(ranking_eval.word_facts(examples["tolmar"]).proper_noun)
+
+    def test_a_library_without_destination_rows_or_contexts_still_loads(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "old.sqlite3"
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE lexemes (id TEXT PRIMARY KEY, display_form TEXT);
+                    CREATE TABLE occurrences (lexeme_id TEXT, book_key TEXT, looked_up_at TEXT);
+                    CREATE TABLE analyses (lexeme_id TEXT, state TEXT, payload_json TEXT);
+                    INSERT INTO lexemes VALUES ('a', 'a');
+                    INSERT INTO occurrences VALUES ('a', 'b', '2026-06-01');
+                    """
+                )
+            library = ranking_eval.load_library(path)
+        self.assertEqual(len(library.lookups), 1)
+        self.assertIsNone(library.lexical["a"].exported_at)
+        self.assertFalse(library.lookups[0].proper)
+
+    def test_the_ablation_compares_each_variant_with_the_ranking_without_it(self) -> None:
+        start = CUTOFF - timedelta(days=100)
+        lookups, lexical = [], {}
+        for i in range(120):
+            word = f"a{i}"
+            lexical[word] = replace(_lexical(word), exported_at=start + timedelta(days=30) if i % 2 else None)
+            lookups.append(Lookup(word, "b", start + timedelta(days=i % 70)))
+            if i % 3 == 0:
+                lookups.append(Lookup(word, "b", start + timedelta(days=i % 70 + 40)))
+        library = Library(lookups, lexical)
+        cutoffs = [CUTOFF - timedelta(days=45), CUTOFF - timedelta(days=30)]
+        report = ranking_eval.ablation_report(library, cutoffs, timedelta(days=21), (10,))
+        self.assertGreater(report["cutoffs"], 0)
+        self.assertGreater(report["inputs_present"]["exported"], 0)
+        self.assertEqual(report["inputs_present"]["proper_noun"], 0)
+        self.assertNotIn("off", report["versus_off"])
+        # No proper nouns present: switching them on cannot change anything.
+        self.assertEqual(report["versus_off"]["proper"]["auc"]["value"], 0.0)
+        self.assertIn("exports_w2", report["versus_off"])
 
 
 if __name__ == "__main__":

@@ -213,11 +213,13 @@ fn run_python_bridge(
     if response.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         Ok(response.get("result").cloned().unwrap_or(Value::Null))
     } else {
-        Err(response
+        // The error reaches the frontend as the JSON text of {"error": <Russian text>, "code": <code or null>}.
+        let message = response
             .get("error")
             .and_then(Value::as_str)
-            .unwrap_or("unknown Python bridge error")
-            .to_string())
+            .unwrap_or("unknown Python bridge error");
+        let code = response.get("code").and_then(Value::as_str);
+        Err(json!({ "error": message, "code": code }).to_string())
     }
 }
 

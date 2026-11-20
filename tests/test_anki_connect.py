@@ -20,6 +20,7 @@ class FakeAnki:
     def __init__(self, *, fail_import: bool = False) -> None:
         self.calls: list[dict] = []
         self.fail_import = fail_import
+        self.drop_import_response = False
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -29,6 +30,9 @@ class FakeAnki:
                 if request["action"] == "version":
                     body = {"result": 6, "error": None}
                 elif request["action"] == "importPackage":
+                    if fake.drop_import_response:
+                        self.close_connection = True
+                        return
                     exists = Path(request["params"]["path"]).is_file()
                     body = {"result": None, "error": "import failed"} if fake.fail_import or not exists else {"result": True, "error": None}
                 else:
@@ -69,6 +73,17 @@ class AnkiConnectTests(unittest.TestCase):
     def test_status_reports_connected_and_missing_anki(self) -> None:
         self.assertEqual(anki_connect.status()["state"], "connected")
         self.assertEqual(anki_connect.status(url="http://127.0.0.1:9")["state"], "disconnected")
+
+    def test_import_package_requires_explicit_confirmation(self) -> None:
+        with (
+            patch.object(anki_connect, "invoke", return_value=False),
+            self.assertRaises(anki_connect.AnkiConnectRejected),
+        ):
+            anki_connect.import_package(Path("test.apkg"))
+        with patch.object(anki_connect, "invoke", return_value=None):
+            with self.assertRaises(anki_connect.AnkiConnectError) as caught:
+                anki_connect.import_package(Path("test.apkg"))
+            self.assertNotIsInstance(caught.exception, anki_connect.AnkiConnectRejected)
 
     def test_push_imports_the_deck_and_marks_words(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

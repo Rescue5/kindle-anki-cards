@@ -6,7 +6,6 @@ import {
   Circle,
   CloudOff,
   Database,
-  Download,
   HardDrive,
   Languages,
   Layers3,
@@ -30,8 +29,6 @@ import type { ConnectorInfo, LexemeRecord, WordAnalysis } from "@/types";
 type Controller = ReturnType<typeof useLibraryController>;
 
 export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controller }: { controller: Controller }) {
-  const [exportFormat, setExportFormat] = React.useState<"anki" | "quizlet">(controller.settings.default_export_format);
-  React.useEffect(() => setExportFormat(controller.settings.default_export_format), [controller.settings.default_export_format]);
   const totals = React.useMemo(() => counts(controller.entries), [controller.entries]);
   const busy = controller.operation.status === "running";
   const obsidianEnabled = controller.settings.obsidian_sync_enabled;
@@ -58,11 +55,8 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
                   <Square size={13} /> Отменить
                 </Button>
               ) : null}
-              <ConnectorButton kind="kindle" info={controller.connectors.kindle} onClick={() => void controller.syncKindle()} disabled={busy || controller.connectors.kindle.state !== "connected"} />
+              <ConnectorButton info={controller.connectors.kindle} onClick={() => void controller.syncKindle()} disabled={busy || controller.connectors.kindle.state !== "connected"} />
               <ImportFileButton onFile={(file) => void controller.importReaderFile(file)} disabled={busy}>Импорт файла</ImportFileButton>
-              {obsidianEnabled ? (
-                <ConnectorButton kind="obsidian" info={controller.connectors.obsidian} onClick={() => void controller.syncObsidian()} disabled={busy || controller.connectors.obsidian.state !== "connected"} />
-              ) : null}
               {controller.settings.llm_enabled && !busy && (controller.enrichmentQueue.pending > 0 || controller.enrichmentQueue.failed > 0) ? (
                 <Button
                   variant="secondary"
@@ -103,25 +97,6 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
             <Select value={controller.selectedBookKey} onChange={(event) => controller.setSelectedBookKey(event.target.value)} aria-label="Книга">
               {controller.books.map((book) => <option key={book.key || "all"} value={book.key}>{book.label}</option>)}
             </Select>
-            <Select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as "anki" | "quizlet")} disabled={busy} aria-label="Формат экспорта">
-              <option value="anki">Anki</option>
-              <option value="quizlet">Quizlet</option>
-            </Select>
-            {exportFormat === "anki" ? (
-              <Button
-                variant={controller.ankiPending > 0 ? "default" : "secondary"}
-                size="sm"
-                onClick={() => void controller.exportAnki()}
-                disabled={busy || controller.ankiPending === 0}
-                title={!controller.ankiPending ? "Все подходящие слова уже в Anki" : controller.connectors.anki?.state === "connected" ? "Отправить новые и обновлённые карточки в открытый Anki" : "Собрать колоду из новых и обновлённых карточек. Чтобы отправлять сразу в Anki, установите дополнение AnkiConnect (код 2055492159)"}
-              >
-                <Download size={15} /> В Anki <span className="words-count">{controller.ankiPending}</span>
-              </Button>
-            ) : (
-              <Button variant="secondary" size="sm" onClick={() => void controller.exportVisible(exportFormat)} disabled={busy || totals.ready === 0} title="Сохранить видимые слова в TSV для Quizlet">
-                <Download size={15} /> Экспорт
-              </Button>
-            )}
           </div>
 
           <div className="library-workspace-filters words-filters">
@@ -137,14 +112,6 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
         </header>
 
         <ConnectorNotice connector={controller.connectors.kindle} onImportFile={(file) => void controller.importReaderFile(file)} busy={busy} />
-        {controller.lastExportPath && controller.operation.kind === "export" && controller.operation.status === "completed" ? (
-          <div className="words-notice">
-            <Check size={15} />
-            <span className="words-notice-text">{controller.operation.message}. Откройте файл — Anki сам предложит импорт, повторный импорт обновит карточки без дублей.</span>
-            <Button size="sm" onClick={() => void controller.openExport(false)}>Открыть в Anki</Button>
-            <Button variant="ghost" size="sm" onClick={() => void controller.openExport(true)}>Показать в папке</Button>
-          </div>
-        ) : null}
         <LexemeTable entries={controller.visibleEntries} selectedId={controller.selectedEntry?.id ?? ""} onSelect={selectWord} obsidianEnabled={obsidianEnabled} loading={controller.loading} />
       </main>
 
@@ -161,12 +128,11 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
   );
 });
 
-function ConnectorButton({ kind, info, onClick, disabled }: { kind: "kindle" | "obsidian"; info: ConnectorInfo; onClick: () => void; disabled: boolean }) {
-  const Icon = kind === "obsidian" ? Database : HardDrive;
+function ConnectorButton({ info, onClick, disabled }: { info: ConnectorInfo; onClick: () => void; disabled: boolean }) {
   return (
     <Button variant="secondary" size="sm" onClick={onClick} disabled={disabled} title={`${info.label}: ${connectorLabel(info.state)}`}>
-      <Icon size={15} />
-      {kind === "obsidian" ? "Obsidian" : readerName(info)}
+      <HardDrive size={15} />
+      {readerName(info)}
       <span className={cn("words-connector-mark", `is-${info.state}`)} aria-label={connectorLabel(info.state)} />
     </Button>
   );

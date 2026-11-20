@@ -125,6 +125,173 @@ export type LexemeRecord = {
   enrichment?: Enrichment | null;
   /** Offline meanings from the bundled Wiktionary dictionary, attached when the library loads. */
   dictionary?: DictionaryMeaning | null;
+  /** Short-list contract (C0). Optional until the bridge sends it; see `LexemeRecordV4`. */
+  ranking?: LexemeRanking | null;
+  decision?: LexemeDecision | null;
+  card?: CardFields;
+  export?: ExportInfo;
+  is_new?: boolean;
+};
+
+// ---- Short-list bridge contract (C0). Mirrors `kindle_vocab_app/contracts.py`. ----
+// Key case: lexeme-level and request keys are snake_case, library-level and result
+// aggregates are camelCase. The list payload is lean; analysis comes from `load_lexeme_details`.
+
+export type Shelf = "worth" | "disputed" | "not_worth" | "junk" | "known";
+export type DecisionValue = "known" | "learn" | "skip" | "junk";
+export type LeanValue = "learn" | "skip" | "junk";
+export type RankingMode = "learning" | "full";
+export type MeaningSource = "edited" | "llm" | "dictionary" | "none";
+export type ExportDestination = "anki" | "csv" | "obsidian";
+export type ExportScope = "new" | "again";
+
+export type ReasonCode =
+  | "decision_learn" | "decision_skip" | "decision_junk" | "decision_known" | "known_again"
+  | "repeat_lookups" | "after_export" | "several_books" | "reading_now" | "recency"
+  | "frequency" | "frequency_common"
+  | "junk_non_word" | "junk_non_english" | "junk_unknown_word" | "junk_glued_words" | "junk_proper_noun"
+  | "thin_evidence";
+
+export type RankingReason = {
+  code: ReasonCode;
+  /** Russian, one short line. Weight > 0 speaks for learning the word, < 0 against, 0 is a decision. */
+  text: string;
+  weight: number;
+};
+
+export type LexemeRanking = {
+  score: number;
+  shelf: Shelf;
+  /** 1-based inside the shelf, best first. */
+  rank: number;
+  /** The suggested answer; set only on the `disputed` shelf. */
+  lean: LeanValue | null;
+  reasons: RankingReason[];
+  version: string;
+};
+
+export type LexemeDecision = { value: DecisionValue; decided_at: string };
+
+export type CardFields = {
+  meaning_ru: string;
+  meaning_source: MeaningSource;
+  example_occurrence_id: string;
+  edited: boolean;
+};
+
+export type ExportInfo = {
+  state: "exported" | "not_exported";
+  last_exported_at: string;
+  /** Looked up again after the last export; never true when the source keeps no repeat lookups. */
+  again: boolean;
+  lookups_after: number;
+};
+
+/** A library entry as the short-list bridge sends it: the old fields plus all new ones. */
+export type LexemeRecordV4 = LexemeRecord &
+  Required<Pick<LexemeRecord, "ranking" | "decision" | "card" | "export" | "is_new">>;
+
+export type ShelfCounts = Record<Shelf, number>;
+
+export type NewBatch = {
+  count: number;
+  /** The short list: `worth` words not yet exported, by rank, cut at `export_batch_size`. No disputed words. */
+  ids: string[];
+};
+
+/** Disputed words still to answer: at most `DISPUTED_CAP`, never in `newBatch.ids`; the length is the Слова badge. */
+export type DisputedSummary = { ids: string[] };
+
+export type AgainSummary = {
+  count: number;
+  ids: string[];
+  /** True when the source keeps no repeat lookups; the UI stays silent instead of saying "none". */
+  unavailable: boolean;
+};
+
+export type LibraryRanking = {
+  rankingVersion: string;
+  rankingMode: RankingMode;
+  historyDays: number;
+  repeatSignal: boolean;
+  shelves: ShelfCounts;
+  newBatch: NewBatch;
+  disputed: DisputedSummary;
+  again: AgainSummary;
+};
+
+/** What `load_library` returns once the bridge sends the short-list parts. */
+export type LibraryResultV4 = Omit<LibraryResult, "entries"> & LibraryRanking & { entries: LexemeRecordV4[] };
+
+export const DISPUTED_CAP = 5;
+export const MEANING_MAX_LENGTH = 200;
+export const EXPORT_BATCH_SIZE_DEFAULT = 20;
+export const EXPORT_BATCH_SIZE_MIN = 5;
+export const EXPORT_BATCH_SIZE_MAX = 100;
+
+export type ErrorCode =
+  | "no_destination" | "too_long" | "example_not_found" | "nothing_to_export" | "export_failed"
+  | "anki_import_unconfirmed" | "anki_import_rejected" | "export_busy"
+  | "unknown_lexeme" | "bad_decision" | "bad_scope";
+
+/** Failure envelope: `error` is Russian text for the UI, `code` is absent on older errors. */
+export type ActionError = { ok: false; error: string; code?: ErrorCode };
+
+export const ERROR_TEXTS: Record<ErrorCode, string> = {
+  no_destination: "Не выбрано, куда экспортировать. Выберите место в настройках.",
+  too_long: "Перевод длиннее 200 символов",
+  example_not_found: "Пример не относится к этому слову",
+  nothing_to_export: "Нет слов для экспорта",
+  export_failed: "Не удалось выполнить экспорт",
+  anki_import_unconfirmed: "Anki не подтвердил импорт. Колода сохранена в папке выгрузок. Проверьте Anki перед повторной отправкой.",
+  anki_import_rejected: "Anki отклонил импорт. Колода сохранена в папке выгрузок. Её можно открыть вручную.",
+  export_busy: "Выгрузка уже идёт. Дождитесь её завершения и попробуйте снова.",
+  unknown_lexeme: "Слово не найдено в библиотеке",
+  bad_decision: "Неизвестное решение. Допустимо: знаю, учить, не учить, не слово",
+  bad_scope: "Неизвестный набор слов для экспорта",
+};
+
+// set_decision {lexeme_id, decision: DecisionValue | null}
+export type SetDecisionResult = {
+  entry: LexemeRecordV4;
+  shelves: ShelfCounts;
+  newBatch: NewBatch;
+  disputed: DisputedSummary;
+  again: AgainSummary;
+};
+
+// save_card_edit {lexeme_id, meaning_ru?, example_occurrence_id?}; meaning_ru "" removes the edit.
+export type SaveCardEditResult = { entry: LexemeRecordV4 };
+
+// export_preview {}
+export type ExportBucket = { count: number; ids: string[] };
+export type ExportPreview = {
+  destination: ExportDestination;
+  new: ExportBucket;
+  again: ExportBucket;
+  blockedReason: { code: ErrorCode; text: string } | null;
+};
+
+// export_words {job_id, scope, ids?}; the destination comes from settings.
+export type ExportRun = {
+  destination: ExportDestination;
+  runId: string;
+  exported: number;
+  /** The written file; null for a push or a vault write. */
+  path: string | null;
+  /** Cards pushed to Anki, 0 otherwise. */
+  pushed: number;
+  message: string;
+};
+
+// load_lexeme_details {lexeme_id}: what the inspector needs and the list does not carry.
+export type LexemeDetails = {
+  lexeme_id: string;
+  forms: string[];
+  occurrences: LexemeOccurrence[];
+  analysis: WordAnalysis | null;
+  enrichment: Enrichment | null;
+  dictionary: DictionaryMeaning | null;
 };
 
 export type ConnectorState = "unknown" | "checking" | "connected" | "disconnected" | "disabled" | "error";
@@ -195,6 +362,10 @@ export type AppSettings = {
   obsidian_vault_path: string;
   obsidian_cards_path: string;
   obsidian_backup_enabled: boolean;
+  /** Short-list release: where `export_words` writes. Absent in older bridge responses (anki). */
+  export_destination?: ExportDestination;
+  /** Size of the short list, 5..100; absent in older bridge responses (20). */
+  export_batch_size?: number;
 };
 
 export type OperationKind = "idle" | "kindle" | "covers" | "processing" | "enrich" | "obsidian" | "export";

@@ -1,0 +1,255 @@
+{
+  "sourceName": "Kindle (fixture)",
+  "sourceStatus": "Fixture library",
+  "books": [
+    {
+      "label": "Все книги",
+      "key": ""
+    },
+    {
+      "label": "Sample Novel · A. Writer · 11",
+      "key": "book-1",
+      "title": "Sample Novel",
+      "authors": "A. Writer"
+    }
+  ],
+  "entries": [
+    {
+      "id": "k1",
+      "lemma": "wistful",
+      "display_form": "wistful",
+      "language": "en",
+      "forms": [
+        "wistful"
+      ],
+      "occurrences": [
+        {
+          "id": "k1-o1",
+          "source": "kindle",
+          "word": "wistful",
+          "context": "A wistful look crossed his face.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-10T10:00:00Z"
+        }
+      ],
+      "freshness": "new",
+      "processing": {
+        "state": "ready",
+        "analysis": {
+          "base_form": "wistful",
+          "accepted": true,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 1,
+          "translation_status": "llm_enriched"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "wistful",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-10T10:00:00Z",
+      "last_seen_at": "2026-11-10T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": {
+        "status": "ready",
+        "meaning_ru": "тоскливый",
+        "provider": "fixture",
+        "model": "fixture",
+        "prompt_version": 1,
+        "error": "",
+        "updated_at": "2026-11-18T09:05:00Z"
+      },
+      "dictionary": null,
+      "ranking": {
+        "score": 0.7,
+        "shelf": "worth",
+        "rank": 1,
+        "lean": null,
+        "reasons": [
+          {
+            "code": "frequency",
+            "text": "редкое слово",
+            "weight": 0.5
+          },
+          {
+            "code": "reading_now",
+            "text": "из книги, которую вы читаете сейчас",
+            "weight": 0.4
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": null,
+      "card": {
+        "meaning_ru": "тоскливый",
+        "meaning_source": "llm",
+        "example_occurrence_id": "k1-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": true
+    },
+    {
+      "id": "k2",
+      "lemma": "gossamer",
+      "display_form": "gossamer",
+      "language": "en",
+      "forms": [
+        "gossamer"
+      ],
+      "occurrences": [
+        {
+          "id": "k2-o1",
+          "source": "kindle",
+          "word": "gossamer",
+          "context": "A gossamer veil hung there.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-02T10:00:00Z"
+        }
+      ],
+      "freshness": "known",
+      "processing": {
+        "state": "ready",
+        "analysis": {
+          "base_form": "gossamer",
+          "accepted": true,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 1,
+          "translation_status": "offline_only"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "gossamer",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "exported",
+          "last_exported_at": "2026-11-05T12:00:00Z"
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-02T10:00:00Z",
+      "last_seen_at": "2026-11-02T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": null,
+      "dictionary": null,
+      "ranking": {
+        "score": 0.3,
+        "shelf": "not_worth",
+        "rank": 1,
+        "lean": null,
+        "reasons": [
+          {
+            "code": "thin_evidence",
+            "text": "искали один раз, других признаков нет",
+            "weight": -0.4
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": null,
+      "card": {
+        "meaning_ru": "",
+        "meaning_source": "none",
+        "example_occurrence_id": "k2-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "exported",
+        "last_exported_at": "2026-11-05T12:00:00Z",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": false
+    }
+  ],
+  "last_kindle_sync_id": "sync-2",
+  "connectors": {
+    "kindle": {
+      "state": "connected",
+      "label": "Kindle",
+      "checked_at": "2026-11-19T10:00:00Z"
+    },
+    "obsidian": {
+      "state": "disabled",
+      "label": "Obsidian",
+      "checked_at": ""
+    }
+  },
+  "queueStatus": {
+    "pending": 0,
+    "processing": 0,
+    "failed": 0,
+    "total": 2
+  },
+  "rankingVersion": "r2",
+  "rankingMode": "learning",
+  "historyDays": 20,
+  "repeatSignal": false,
+  "shelves": {
+    "worth": 1,
+    "disputed": 0,
+    "not_worth": 1,
+    "junk": 0,
+    "known": 0
+  },
+  "newBatch": {
+    "count": 1,
+    "ids": [
+      "k1"
+    ]
+  },
+  "disputed": {
+    "ids": []
+  },
+  "again": {
+    "count": 0,
+    "ids": [],
+    "unavailable": true
+  }
+}

@@ -15,7 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kindle_vocab_app import anki_connect, anki_export, book_covers, enrichment, obsidian_sync, offline_dictionary, reader_sources, settings, vocab_cache
+from kindle_vocab_app import anki_connect, anki_export, book_covers, enrichment, export_cards, library_view, obsidian_sync, offline_dictionary, reader_sources, settings, vocab_cache
+from kindle_vocab_app.contracts import ERROR_CODES
 from kindle_vocab_app.llm import presets as llm_presets
 from kindle_vocab_app.kindle_db import fetch_entries, list_books, validate_vocab_db
 from kindle_vocab_app.kindle_device import find_kindle_presence, find_kindle_source, mounted_volume_roots
@@ -44,8 +45,17 @@ def main() -> int:
         return 0
     except Exception as exc:
         logger.exception("Tauri bridge request failed")
-        _write_response({"ok": False, "error": str(exc)})
+        _write_response(error_response(exc))
         return 1
+
+
+def error_response(exc: BaseException) -> dict[str, Any]:
+    """The failure envelope: the text the UI shows and, for coded errors, `code` (contracts.ERROR_CODES)."""
+    response: dict[str, Any] = {"ok": False, "error": str(exc)}
+    code = getattr(exc, "code", None)
+    if code in ERROR_CODES:
+        response["code"] = code
+    return response
 
 
 def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str, Any]:
@@ -59,6 +69,19 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
             connector_status=_connector_status(workspace, probe_kindle=False),
             queue_status=repository_for(workspace).queue_status(),
         )
+
+    if action == "export_words":
+        return export_cards.export_words(
+            workspace,
+            payload,
+            progress=lambda stage, message, current, total: _emit_progress(job_id, stage, message, current, total),
+        )
+
+    if action == "export_folder_status":
+        return {"available": export_cards.has_export_files(export_cards.exports_dir(workspace))}
+
+    if action == "open_export_folder":
+        return _open_export_folder(workspace)
 
     if action == "load_review":
         review = repository_for(workspace).load_review(limit=payload.get("limit", 20))
@@ -155,14 +178,14 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         return _import_reader_file(payload, workspace, job_id=job_id)
 
     if action == "load_demo":
-        raw = demo_state()["entries"]
-        catalog = vocab_cache.merge_kindle(vocab_cache.empty_catalog(), raw, sync_id="demo", mark_new=True)
+        catalog = _demo_catalog()
         return _catalog_response(
             catalog,
             workspace=workspace,
             source_name="Demo Kindle",
             source_status="Демонстрационные данные",
-            queue_status={"pending": len(catalog["lexemes"]), "processing": 0, "failed": 0, "total": len(catalog["lexemes"])},
+            queue_status={"pending": 0, "processing": 0, "failed": 0, "total": 0},
+            reader_state=False,
         )
 
     if action == "export":
@@ -180,7 +203,7 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         return {"path": str(output), "exported": exported}
 
     if action in _LLM_ACTIONS:
-        return _llm_action(action, payload, workspace, job_id=job_id)
+        return _with_ranking(_llm_action(action, payload, workspace, job_id=job_id), workspace)
 
     if action == "export_apkg":
         return _export_apkg(payload, workspace, job_id=job_id)
@@ -206,12 +229,15 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
                     str(item.get("id") or "") for item in payload.get("entries") or []
                 }
         queued_ids = repository.queued_ids(requested_ids, include_failed=include_failed)
-        return _process_queued_lexemes(
-            catalog,
-            queued_ids,
-            repository,
+        return _with_ranking(
+            _process_queued_lexemes(
+                catalog,
+                queued_ids,
+                repository,
+                workspace,
+                job_id=job_id,
+            ),
             workspace,
-            job_id=job_id,
         )
 
     if action == "load_settings":
@@ -219,7 +245,9 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         return settings.to_dict(app_settings)
 
     if action == "save_settings":
-        app_settings = settings.from_dict(payload.get("settings") or {})
+        # Keys the payload leaves out keep their current values (an older frontend does not know them all).
+        merged = {**settings.to_dict(settings.load(workspace)), **(payload.get("settings") or {})}
+        app_settings = settings.from_dict(merged)
         settings.save(workspace, app_settings)
         return {"saved": True}
 
@@ -230,12 +258,14 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         if not vault_path or not cards_path:
             raise ValueError("vault_path and cards_path are required")
         cards_dir = Path(vault_path) / cards_path
+        if not cards_dir.is_dir():
+            raise ValueError("Папка карточек Obsidian не найдена или путь не является папкой")
         repository = repository_for(workspace)
-        catalog = _load_catalog_with_sources(workspace, reconcile_kindle=False, reconcile_obsidian=False)
+        catalog = repository.load_catalog()
         card_count = _reconcile_obsidian(catalog, cards_dir)
-        repository.save_catalog(catalog)
+        repository.save_obsidian_evidence(catalog["lexemes"])
         return _catalog_response(
-            catalog,
+            repository.load_catalog(),
             workspace=workspace,
             source_name="Obsidian",
             source_status=f"Сверено карточек: {card_count}",
@@ -280,17 +310,17 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
                     {"state": "failed", "reason": failed.get("reason") or "sync_failed"}
                 )
             _emit_progress(job_id, "syncing", f"Проверено {index} из {len(catalog['lexemes'])}", index, len(catalog["lexemes"]), lexeme_id=str(lexeme.get("id") or ""))
-        repository.save_catalog(catalog)
+        repository.save_obsidian_evidence(catalog["lexemes"])
         repository.record_sync_run(
             "obsidian",
             "completed",
             added=int(result.get("added") or 0),
             skipped=int(result.get("skipped") or 0),
         )
-        result["entries"] = catalog["lexemes"]
+        result["entries"] = repository.load_catalog()["lexemes"]
         result["queue_status"] = repository.queue_status()
         _emit_progress(job_id, "completed", "Синхронизация Obsidian завершена", len(entries), max(len(entries), 1))
-        return result
+        return _with_ranking(result, workspace)
 
     raise ValueError(f"Unsupported bridge action: {action}")
 
@@ -483,10 +513,6 @@ def _llm_action(action: str, payload: dict[str, Any], workspace: Path, *, job_id
     }
 
 
-def _exports_dir(workspace: Path) -> Path:
-    return workspace / ".app-data" / "exports"
-
-
 def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str, push: bool = False) -> dict[str, Any]:
     """Write an Anki package of new or newly translated words; optionally import it via AnkiConnect.
 
@@ -521,7 +547,7 @@ def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str, push:
         return anki_export.wordnet_definition(lemma, pos, context)
 
     stamp = datetime.now().strftime("%Y-%m-%d %H-%M")
-    output = _exports_dir(workspace) / f"Kindle Cards {stamp}.apkg"
+    output = export_cards.exports_dir(workspace) / f"Kindle Cards {stamp}.apkg"
     result = anki_export.write_apkg(
         candidates,
         output,
@@ -553,10 +579,26 @@ def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str, push:
 
 def _open_export_path(path: Path, workspace: Path, *, reveal: bool) -> dict[str, Any]:
     """Open an exported file (Anki imports .apkg on open) or reveal it."""
-    exports = _exports_dir(workspace).resolve()
+    exports = export_cards.exports_dir(workspace).resolve()
     target = path.resolve()
     if exports not in target.parents or not target.is_file():
         raise ValueError("Можно открыть только файл из папки экспорта приложения")
+    _open_local_path(target, reveal=reveal)
+    return {"opened": True}
+
+
+def _open_export_folder(workspace: Path) -> dict[str, Any]:
+    folder = export_cards.exports_dir(workspace).absolute()
+    if not export_cards.has_export_files(folder):
+        return {"opened": False}
+    try:
+        _open_local_path(folder)
+    except OSError:
+        return {"opened": False}
+    return {"opened": True}
+
+
+def _open_local_path(target: Path, *, reveal: bool = False) -> None:
     if sys.platform == "win32":
         if reveal:
             subprocess.Popen(["explorer", "/select,", str(target)])
@@ -566,7 +608,6 @@ def _open_export_path(path: Path, workspace: Path, *, reveal: bool) -> dict[str,
         subprocess.Popen(["open", "-R", str(target)] if reveal else ["open", str(target)])
     else:
         subprocess.Popen(["xdg-open", str(target.parent if reveal else target)])
-    return {"opened": True}
 
 
 def _analysis_from_audit(raw: dict[str, Any]) -> dict[str, Any]:
@@ -648,7 +689,7 @@ def _load_catalog_with_sources(workspace: Path, *, reconcile_kindle: bool = True
             cards_dir = Path(app_settings.obsidian_vault_path) / app_settings.obsidian_cards_path
             try:
                 _reconcile_obsidian(catalog, cards_dir)
-                repository.save_catalog(catalog)
+                repository.save_obsidian_evidence(catalog["lexemes"])
             except Exception:
                 logger.exception("Failed to reconcile Obsidian cards")
     return catalog
@@ -697,6 +738,7 @@ def _catalog_response(
     source_status: str = "Сохранённые слова доступны без устройства",
     connector_status: dict[str, Any] | None = None,
     queue_status: dict[str, int] | None = None,
+    reader_state: bool = True,
 ) -> dict[str, Any]:
     result = vocab_cache.frontend_state(catalog, source_name=source_name, source_status=source_status)
     workspace = workspace or _workspace_root()
@@ -713,6 +755,33 @@ def _catalog_response(
     result["queueStatus"] = queue_status or {"pending": 0, "processing": 0, "failed": 0, "total": 0}
     result["enrichmentQueue"] = enrichment.queue_counts(catalog.get("lexemes") or [])
     offline_dictionary.attach(result["entries"])
+    result.update(_ranked_library(result["entries"], workspace, reader_state=reader_state))
+    return result
+
+
+def _ranked_library(entries: list[dict[str, Any]], workspace: Path, *, reader_state: bool = True) -> dict[str, Any]:
+    """Rank the entries in place (see `library_view`) and return the library-level fields.
+
+    The reader's decisions, card edits and exports come from the workspace's SQLite library; the demo
+    library is not stored there, so it is ranked without them.
+    """
+    state = repository_for(workspace).load_reader_state() if reader_state else {}
+    return library_view.decorate(
+        entries,
+        decisions=state.get("decisions"),
+        card_edits=state.get("card_edits"),
+        exported_at=state.get("exported_at"),
+        batch_size=settings.load(workspace).export_batch_size,
+    )
+
+
+def _with_ranking(result: dict[str, Any], workspace: Path) -> dict[str, Any]:
+    """Responses that hand back the whole library (`entries`) carry the ranking too, so a screen that
+    swaps its entries for them never loses it."""
+    entries = result.get("entries")
+    if isinstance(entries, list):
+        offline_dictionary.attach(entries)
+        result.update(_ranked_library(entries, workspace))
     return result
 
 
@@ -811,15 +880,9 @@ def _refresh_obsidian_destination_states(catalog: dict[str, Any]) -> None:
 
 def _reconcile_obsidian(catalog: dict[str, Any], cards_dir: Path) -> int:
     """Refresh destination evidence without importing Obsidian vocabulary."""
-    cards = obsidian_sync.read_cards(cards_dir)
-    existing_keys = {
-        vocab_cache.normalize_lemma(
-            str((item.get("analysis") or {}).get("base_form") or item.get("stem") or item.get("word") or "")
-        )
-        for item in cards
-    }
-    existing_keys.discard("")
     now = vocab_cache.utc_now()
+    cards = obsidian_sync.read_cards(cards_dir)
+    existing_keys = set().union(*(obsidian_sync.lexical_aliases(item) for item in cards))
     _refresh_obsidian_destination_states(catalog)
     for lexeme in catalog.get("lexemes") or []:
         destination = lexeme["destinations"]["obsidian"]
@@ -1291,6 +1354,66 @@ def _frequency_note(frequencies: dict[str, Any]) -> str:
     if form is not None:
         parts.append(f"form Zipf {form}")
     return ", ".join(parts)
+
+
+# (word, zipf, lookup days of June 2026, book, sentence, warnings); invented sentences, common words.
+_DEMO_EXTRA = [
+    ("lantern", 3.9, ["2026-06-19", "2026-06-14"], "The Night Reader", "He raised the lantern above the stairs."),
+    ("meander", 3.2, ["2026-06-18"], "Shadows and Signals", "The path began to meander through the fields."),
+    ("quibble", 2.8, ["2026-06-16"], "Shadows and Signals", "They did not quibble over the price."),
+    ("ephemeral", 3.1, ["2026-06-15"], "The Night Reader", "Their happiness was brief and ephemeral."),
+    ("tarn", 2.4, ["2026-06-12"], "Shadows and Signals", "A cold tarn lay between the hills."),
+    ("nightwatch", 0.0, ["2026-06-19"], "The Night Reader", "The nightwatch passed beneath the window."),
+]
+_DEMO_ZIPF = {"afraid": 4.6, "glimpse": 3.9, "dread": 3.7}
+
+
+def _demo_catalog() -> dict[str, Any]:
+    """The demo library: invented lookups, already processed, so every shelf of the ranking has words.
+
+    It never touches the reader's SQLite library; the analyses are fixed, not computed.
+    """
+    raw = list(demo_state()["entries"])
+    for word, _zipf, days, book, context in _DEMO_EXTRA:
+        for day in days:
+            raw.append(
+                _entry_for_frontend(
+                    {
+                        "word": word,
+                        "stem": word,
+                        "context": context,
+                        "book_key": book,
+                        "book_title": book,
+                        "authors": "Demo Library",
+                        "language": "en",
+                        "looked_up_at": day,
+                    }
+                )
+            )
+    catalog = vocab_cache.merge_kindle(vocab_cache.empty_catalog(), raw, sync_id="demo", mark_new=True)
+    zipf = {**_DEMO_ZIPF, **{word: value for word, value, *_ in _DEMO_EXTRA}}
+    for lexeme in catalog["lexemes"]:
+        key = str(lexeme["lemma"])
+        glued = key == "nightwatch"
+        lexeme["processing"] = {
+            "state": "ready",
+            "analysis": {
+                "base_form": key,
+                "pos": "n",
+                "accepted": True,
+                "importance_score": 5,
+                "lemma_zipf": zipf.get(key, 3.5),
+                "form_zipf": zipf.get(key, 3.5),
+                "wordnet_synset_count": 0 if glued else 2,
+                "wordnet_pos_count": 1,
+                "warnings": ["possibly_glued_words"] if glued else [],
+                "translation_status": "offline_only",
+            },
+            "updated_at": "2026-06-19T00:00:00+00:00",
+            "error": "",
+            "origin": "demo",
+        }
+    return catalog
 
 
 def demo_state(source_name: str = "Demo Kindle", source_status: str = "Загружены демонстрационные данные") -> dict[str, Any]:

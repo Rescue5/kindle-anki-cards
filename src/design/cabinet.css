@@ -1,0 +1,73 @@
+/*
+ * "Кабинет" controls, ported once from the `kc-*` styles of docs/concept/*.dc.html (see DESIGN.md).
+ * Colours, fonts and easing are the tokens of night-reading.css; lit/drawn buttons also inherit the
+ * `ui-button` hover, pressed, disabled and loading states from there. Used by
+ * components/ui/pencil-controls.tsx. Plain selectors: this file is imported after Tailwind's layers.
+ */
+
+:root {
+  --kc-control-h: 46px;
+  --kc-control-h-lg: 52px;
+  --kc-tap: 44px;
+  --kc-radius: 12px;
+  --kc-radius-choice: 10px;
+}
+
+/* ---------- Buttons: lit and drawn, one primary per screen ---------- */
+.kc-btn { min-height: var(--kc-control-h); padding: 0 22px; border-radius: var(--kc-radius); font-size: 16px; line-height: 1; transition: transform 120ms var(--ease-out), box-shadow 250ms, background-color 250ms, color 250ms, filter 250ms; }
+.kc-btn.kc-btn-lg { min-height: var(--kc-control-h-lg); padding: 0 24px; font-size: 17px; }
+.kc-btn kbd { color: hsl(var(--muted-foreground)); font: 500 18px/1 var(--font-hand); }
+.ui-button-lit.kc-btn kbd { color: inherit; opacity: .75; }
+.kc-btn > .pencil-frame { color: hsl(var(--pencil) / 0.62); }
+.kc-btn:disabled > .pencil-frame { color: hsl(var(--pencil) / 0.4); }
+.kc-btn:focus-visible, .kc-link:focus-visible, .kc-opt:focus-visible { outline: 1.5px dashed hsl(var(--primary)); outline-offset: 4px; }
+
+/* A choice among several: drawn while free, lit while chosen (the frame steps aside). */
+.kc-choice { flex: 1 1 0; min-width: 0; padding: 0 10px; border-radius: var(--kc-radius-choice); font-size: 15px; font-weight: 500; }
+.kc-choice[aria-pressed="true"] { background: hsl(var(--lamp)); color: hsl(var(--on-lamp)); box-shadow: 0 0 22px hsl(var(--lamp) / calc(0.3 * var(--lamp-glow))), inset 0 0 0 1px hsl(var(--on-lamp) / 0.16); }
+.kc-choice[aria-pressed="true"]:hover:not(:disabled) { background: hsl(var(--lamp)); filter: brightness(1.07); }
+.kc-choice[aria-pressed="true"] > .pencil-frame { display: none; }
+
+.kc-spin { flex: none; animation: kc-spin 900ms linear infinite; }
+@keyframes kc-spin { to { transform: rotate(360deg); } }
+
+/* ---------- Links: text underlined in pencil ---------- */
+.kc-link { display: inline-flex; align-items: center; gap: 6px; min-height: var(--kc-tap); padding: 0 2px; border: 0; background: none; color: hsl(var(--foreground) / 0.82); font: 400 15px/1 var(--font-reading); text-decoration: underline; text-decoration-color: hsl(var(--pencil) / 0.55); text-decoration-thickness: 1px; text-underline-offset: 6px; cursor: pointer; transition: color 200ms, text-decoration-color 200ms, transform 120ms var(--ease-out); }
+.kc-link:hover:not(:disabled):not([aria-disabled="true"]) { color: hsl(var(--foreground)); text-decoration-color: hsl(var(--lamp)); }
+.kc-link:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(0.97); }
+.kc-link.is-lit { color: hsl(var(--primary)); text-decoration-color: hsl(var(--lamp)); }
+.kc-link:disabled, .kc-link[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.kc-link[aria-busy="true"] { cursor: wait; opacity: .7; }
+
+/* ---------- Radio: a sentence with a round dot, the chosen one lit ---------- */
+.kc-radio-group { display: grid; gap: 2px; }
+.kc-radio-group[aria-busy="true"] { cursor: wait; opacity: .7; }
+.kc-radio-group[aria-busy="true"] .kc-opt:disabled { opacity: 1; }
+.kc-opt { position: relative; display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 10px; border: 0; border-radius: 0; background: transparent; color: hsl(var(--foreground) / 0.82); font: italic 400 15px/1.5 var(--font-reading); text-align: left; cursor: pointer; transition: box-shadow 200ms, color 200ms, transform 120ms var(--ease-out); }
+.kc-opt:hover:not(:disabled) { box-shadow: inset 2px 0 0 hsl(var(--lamp) / 0.6); color: hsl(var(--foreground)); }
+.kc-opt:active:not(:disabled) { transform: scale(0.99); }
+.kc-opt:disabled { opacity: .45; cursor: not-allowed; }
+.kc-opt > i { flex: none; width: 12px; height: 12px; margin-top: 5px; border-radius: 50%; box-shadow: inset 0 0 0 1.3px hsl(var(--pencil) / 0.7); transition: background-color 200ms, box-shadow 200ms; }
+.kc-opt[aria-checked="true"] { color: hsl(var(--foreground)); }
+.kc-opt[aria-checked="true"] > i { background: hsl(var(--lamp)); box-shadow: 0 0 8px hsl(var(--lamp) / calc(0.6 * var(--lamp-glow))), inset 0 0 0 1.3px hsl(var(--lamp)); }
+.kc-opt em { color: hsl(var(--primary)); font-style: normal; }
+.kc-opt small { display: block; margin-top: 2px; color: hsl(var(--muted-foreground)); font-size: 13px; font-style: normal; }
+
+/* ---------- Text field: a caption, a line to write on, a quiet hint or the error ---------- */
+.kc-field { display: grid; gap: 2px; min-width: 0; }
+.kc-field-label { color: hsl(var(--muted-foreground)); font: italic 400 13.5px/1.3 var(--font-reading); }
+.kc-field-control { position: relative; display: flex; align-items: center; min-height: var(--kc-tap); color: hsl(var(--muted-foreground)); }
+.kc-field-control .ui-field { flex: 1; min-width: 0; }
+.kc-field-control .ui-input { height: 42px; font-size: 15px; }
+.kc-field-control:focus-within { color: hsl(var(--foreground) / 0.82); }
+.kc-field-spinner { position: absolute; right: 2px; top: 50%; display: grid; place-items: center; color: hsl(var(--muted-foreground)); transform: translateY(-50%); }
+.kc-field[data-loading="true"] .ui-input { padding-right: 26px; cursor: progress; }
+.kc-field[data-invalid="true"] .ui-field > .ui-field-line, .kc-field[data-invalid="true"] .ui-field:focus-within > .ui-field-line { color: hsl(var(--destructive) / 0.85); }
+.kc-field-hint { margin-top: 4px; color: hsl(var(--muted-foreground)); font-size: 12.5px; line-height: 1.45; }
+.kc-field[data-invalid="true"] .ui-field > .ui-field-line path { stroke-dasharray: 6 4; }
+.kc-field-error { margin-top: 4px; color: hsl(var(--destructive)); font: 500 18px/1.2 var(--font-hand); }
+
+@media (prefers-reduced-motion: reduce) {
+  .kc-btn, .kc-link, .kc-opt, .kc-opt > i { transition: none; }
+  .kc-spin { animation: none; }
+}

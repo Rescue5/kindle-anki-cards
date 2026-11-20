@@ -7,8 +7,8 @@ import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { PageHead } from "@/components/page-head";
 import { PencilRule } from "@/components/sketch/sketch";
-import { callBackend } from "@/lib/backend";
-import type { AppSettings } from "@/types";
+import { obsidianConfig, type ObsidianCheck } from "@/features/library/load-library";
+import { EXPORT_BATCH_SIZE_DEFAULT, type AppSettings, type Operation } from "@/types";
 
 type SettingsSectionProps = {
   title: string;
@@ -63,44 +63,56 @@ function Field({ label, hint, children }: FieldProps) {
 
 type SettingsViewProps = {
   settings: AppSettings;
-  onChange: (settings: AppSettings) => void;
+  onSave: (patch: Partial<AppSettings>) => Promise<void>;
+  saving: boolean;
+  demo: boolean;
+  busy: boolean;
+  obsidianCheck: ObsidianCheck;
+  operation: Operation;
+  onCheckObsidian: () => void;
+  onSyncObsidian: () => void;
 };
 
-export function SettingsView({ settings, onChange }: SettingsViewProps) {
-  const [saving, setSaving] = React.useState(false);
+export function SettingsView({ settings, onSave, saving, demo, busy, obsidianCheck, operation, onCheckObsidian, onSyncObsidian }: SettingsViewProps) {
   const [saveError, setSaveError] = React.useState("");
+  const latestSave = React.useRef(0);
+  const batchSize = settings.export_batch_size ?? EXPORT_BATCH_SIZE_DEFAULT;
+  const batchSizes = [5, 10, 15, 20, 25, 30, 40, 50, 75, 100];
+  if (!batchSizes.includes(batchSize)) batchSizes.push(batchSize);
+  batchSizes.sort((left, right) => left - right);
 
-  async function persist(next: AppSettings) {
-    onChange(next);
-    setSaving(true);
+  async function persist(patch: Partial<AppSettings>) {
+    const revision = ++latestSave.current;
     setSaveError("");
     try {
-      await callBackend<{ saved: boolean }>("save_settings", { settings: next });
+      await onSave(patch);
     } catch (error) {
-      setSaveError(String(error));
-    } finally {
-      setSaving(false);
+      if (revision === latestSave.current) setSaveError(String(error));
     }
   }
 
   function update<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
-    const next = { ...settings, [key]: value };
-    void persist(next);
+    void persist({ [key]: value });
   }
 
   function persistPatch(patch: Partial<AppSettings>) {
-    void persist({ ...settings, ...patch });
+    void persist(patch);
   }
 
+  const obsidianRunning = operation.kind === "obsidian" && operation.status === "running";
+  const obsidianDisabled = !settings.obsidian_sync_enabled || !obsidianConfig(settings);
+  const obsidianResult = operation.kind === "obsidian" && (operation.status === "completed" || operation.status === "error")
+    ? (operation.error || operation.message)
+    : "";
 
   return (
     <main className="reading-page app-scrollbar">
       <div className="screen-page settings-page">
-        <PageHead title="Настройки" lede="Внешний вид, перевод через ИИ и синхронизация с Obsidian.">
-          {saving ? <span className="home-note">сохраняем…</span> : saveError ? <span className="screen-error-note" role="alert">Ошибка сохранения: {saveError}</span> : <span className="reading-count">Изменения сохраняются сразу</span>}
+        <PageHead title="Настройки" lede="Внешний вид, экспорт, перевод через ИИ и Obsidian.">
+          {saving ? <span className="home-note">сохраняем…</span> : saveError ? <span className="screen-error-note" role="alert">Ошибка сохранения: {saveError}</span> : <span className="reading-count">Настройки сохраняются автоматически</span>}
         </PageHead>
 
-        <SettingsSection title="Общие" description="Тема повторяет выключатель внизу меню; экспорт — формат кнопки на экране слов.">
+        <SettingsSection title="Общие" description="Выберите освещение и настройте выгрузку слов с главной.">
           <div className="settings-grid">
             <Field label="Тема">
               <Select value={settings.theme} onChange={(event) => update("theme", event.target.value as AppSettings["theme"])}>
@@ -109,10 +121,16 @@ export function SettingsView({ settings, onChange }: SettingsViewProps) {
                 <option value="dark">Ночной свет</option>
               </Select>
             </Field>
-            <Field label="Формат экспорта по умолчанию">
-              <Select value={settings.default_export_format} onChange={(event) => update("default_export_format", event.target.value as AppSettings["default_export_format"])}>
+            <Field label="Куда выгружать слова" hint="Выбор действует на следующие выгрузки.">
+              <Select value={settings.export_destination ?? "anki"} onChange={(event) => update("export_destination", event.target.value === "csv" ? "csv" : "anki")}>
+                {settings.export_destination === "obsidian" ? <option value="obsidian" disabled>Выберите Anki или файл</option> : null}
                 <option value="anki">Anki</option>
-                <option value="quizlet">Quizlet</option>
+                <option value="csv">Файл TSV для Quizlet и таблиц</option>
+              </Select>
+            </Field>
+            <Field label="Слов за одну выгрузку">
+              <Select value={batchSize} onChange={(event) => update("export_batch_size", Number(event.target.value))}>
+                {batchSizes.map((size) => <option key={size} value={size}>{size}</option>)}
               </Select>
             </Field>
           </div>
@@ -120,17 +138,44 @@ export function SettingsView({ settings, onChange }: SettingsViewProps) {
 
         <LlmSettingsSection settings={settings} update={update} persistPatch={persistPatch} />
 
-        <SettingsSection title="Obsidian" description="Подходящие слова дописываются в хранилище Obsidian; сами заметки приложение не читает как источник.">
-          <SwitchRow id="obsidian-enabled-switch" label="Синхронизация с Obsidian" hint="Добавлять подходящие слова из библиотеки в Obsidian." checked={settings.obsidian_sync_enabled} onChange={(value) => update("obsidian_sync_enabled", value)} />
+        <SettingsSection title="Obsidian" description="Приложение сверяет существующие карточки. По кнопке синхронизации добавляет подходящие слова из библиотеки.">
+          <SwitchRow id="obsidian-enabled-switch" label="Синхронизация с Obsidian" hint="Добавлять подходящие слова из библиотеки в Obsidian." checked={settings.obsidian_sync_enabled} disabled={obsidianRunning} onChange={(value) => update("obsidian_sync_enabled", value)} />
           <div className="settings-grid">
             <Field label="Путь к хранилищу Obsidian" hint="Абсолютный путь до папки vault">
-              <Input value={settings.obsidian_vault_path} onChange={(event) => update("obsidian_vault_path", event.target.value)} placeholder="/Users/…/Documents/Obsidian Vault" />
+              <Input key={settings.obsidian_vault_path} defaultValue={settings.obsidian_vault_path} disabled={obsidianRunning} onBlur={(event) => {
+                const value = event.target.value.trim();
+                if (value !== settings.obsidian_vault_path) update("obsidian_vault_path", value);
+              }} placeholder="Путь к папке Obsidian" />
             </Field>
             <Field label="Папка для карточек" hint="Папка внутри vault">
-              <Input value={settings.obsidian_cards_path} onChange={(event) => update("obsidian_cards_path", event.target.value)} placeholder="Kindle Cards" />
+              <Input key={settings.obsidian_cards_path} defaultValue={settings.obsidian_cards_path} disabled={obsidianRunning} onBlur={(event) => {
+                const value = event.target.value.trim();
+                if (value !== settings.obsidian_cards_path) update("obsidian_cards_path", value);
+              }} placeholder="Kindle Cards" />
             </Field>
           </div>
-          <SwitchRow id="obsidian-backup-switch" label="Создавать резервную копию" hint="Перед синхронизацией сохранить текущее состояние папки карточек." checked={settings.obsidian_backup_enabled} onChange={(value) => update("obsidian_backup_enabled", value)} />
+          <SwitchRow id="obsidian-backup-switch" label="Создавать резервную копию" hint="Перед синхронизацией сохранить текущее состояние папки карточек." checked={settings.obsidian_backup_enabled} disabled={obsidianRunning} onChange={(value) => update("obsidian_backup_enabled", value)} />
+          {settings.obsidian_sync_enabled ? (
+            <div>
+              <Button type="button" variant="secondary" size="sm" onClick={onSyncObsidian} disabled={demo || busy || saving || obsidianDisabled || obsidianCheck.status !== "ready"}>
+                {obsidianRunning ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
+                {obsidianRunning ? "Синхронизируем…" : "Синхронизировать с Obsidian"}
+              </Button>
+              {obsidianCheck.status === "error" ? (
+                <>
+                  <p className="screen-error-note" role="alert">{obsidianCheck.message}</p>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => onCheckObsidian()} disabled={demo || busy || saving}>Повторить проверку папки</Button>
+                </>
+              ) : (
+                <p className={operation.kind === "obsidian" && operation.status === "error" ? "screen-error-note" : "settings-field-hint"} role={operation.kind === "obsidian" && operation.status === "error" ? "alert" : "status"}>
+                  {demo ? "Закройте пример на главной, чтобы синхронизировать свою библиотеку."
+                    : obsidianDisabled ? "Укажите хранилище и папку карточек."
+                      : obsidianCheck.status === "checking" ? "Сверяем существующие карточки…"
+                        : obsidianResult || (obsidianCheck.status === "ready" ? "Папка карточек доступна." : "")}
+                </p>
+              )}
+            </div>
+          ) : null}
         </SettingsSection>
       </div>
     </main>

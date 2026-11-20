@@ -1,7 +1,7 @@
 import * as React from "react";
 import { callBackend, cancelBackend, defaultSettings, listenProgress } from "@/lib/backend";
+import { mergeObsidianEvidence, obsidianConfig, readObsidianEvidence, type ObsidianCheck } from "./load-library";
 import {
-  ankiPendingCount,
   enrichmentCounts,
   filterLexemes,
   idleOperation,
@@ -18,11 +18,13 @@ import type {
   ConnectorStatus,
   CoverSummary,
   LexemeRecord,
+  LibraryRanking,
   LibraryResult,
   Operation,
   ProgressEvent,
   QueueStatus,
 } from "@/types";
+import { rankingOf, wordsLabel } from "@/features/home/home-domain";
 
 const unknownConnectors: ConnectorStatus = {
   kindle: { state: "unknown", label: "Kindle", checked_at: "" },
@@ -50,14 +52,6 @@ type EnrichResult = {
   queue_status: QueueStatus;
 };
 
-type ApkgResult = {
-  path: string;
-  exported: number;
-  skipped: number;
-  pushed?: boolean;
-  message: string;
-};
-
 type ObsidianResult = {
   added: number;
   skipped: number;
@@ -78,6 +72,15 @@ export function useLibraryController() {
   const [coversBusy, setCoversBusy] = React.useState(false);
   const [connectors, setConnectors] = React.useState<ConnectorStatus>(unknownConnectors);
   const [settings, setSettings] = React.useState<AppSettings>(defaultSettings);
+  const settingsRef = React.useRef(settings);
+  const savedSettingsRef = React.useRef(settings);
+  const settingsWritesRef = React.useRef<Promise<void>>(Promise.resolve());
+  const pendingSettingsWrites = React.useRef(0);
+  const [settingsSaving, setSettingsSaving] = React.useState(false);
+  const [obsidianCheck, setObsidianCheck] = React.useState<ObsidianCheck>({ status: "idle" });
+  const obsidianRevision = React.useRef(0);
+  const obsidianReadsRef = React.useRef<Promise<void>>(Promise.resolve());
+  const obsidianSyncInFlight = React.useRef(false);
   const [query, setQuery] = React.useState("");
   const [debouncedQuery, setDebouncedQuery] = React.useState("");
   const debounceRef = React.useRef<number | null>(null);
@@ -96,6 +99,11 @@ export function useLibraryController() {
   const [operation, setOperation] = React.useState<Operation>(idleOperation);
   const [queueStatus, setQueueStatus] = React.useState<QueueStatus>(emptyQueue);
   const [loading, setLoading] = React.useState(true);
+  // The short-list parts of the last library answer (null until the bridge sends them).
+  const [ranking, setRanking] = React.useState<LibraryRanking | null>(null);
+  // `load_demo` words are shown on Главная only; nothing of them is stored or exported.
+  const [demo, setDemo] = React.useState(false);
+  const demoRef = React.useRef(false);
   const operationRef = React.useRef(operation);
   operationRef.current = operation;
   const prevConnectorsRef = React.useRef<ConnectorStatus>(unknownConnectors);
@@ -130,6 +138,7 @@ export function useLibraryController() {
 
   const applyLibrary = React.useCallback((result: LibraryResult) => {
     setEntries(result.entries);
+    setRanking(rankingOf(result));
     setBooks(result.books.length ? result.books : [{ label: "Все книги", key: "" }]);
     setCoverSummary(result.coverSummary);
     setConnectors((current) => ({
@@ -145,13 +154,71 @@ export function useLibraryController() {
     applyLibrary(result);
   }, [applyLibrary]);
 
+  const checkObsidian = React.useCallback((current = savedSettingsRef.current) => {
+    const revision = ++obsidianRevision.current;
+    const config = obsidianConfig(current);
+    if (!config) {
+      setObsidianCheck({ status: "idle" });
+      return;
+    }
+    setObsidianCheck({ status: "checking" });
+    obsidianReadsRef.current = obsidianReadsRef.current.then(async () => {
+      if (revision !== obsidianRevision.current) return;
+      try {
+        const result = await readObsidianEvidence(config);
+        if (revision !== obsidianRevision.current) return;
+        setEntries((previous) => mergeObsidianEvidence(previous, result.entries));
+        setObsidianCheck({ status: "ready" });
+      } catch (error) {
+        if (revision !== obsidianRevision.current) return;
+        setObsidianCheck({ status: "error", message: String(error) });
+      }
+    });
+  }, []);
+
+  const saveSettings = React.useCallback((patch: Partial<AppSettings>) => {
+    settingsRef.current = { ...settingsRef.current, ...patch };
+    setSettings(settingsRef.current);
+    pendingSettingsWrites.current += 1;
+    setSettingsSaving(true);
+
+    const saved = settingsWritesRef.current.then(async () => {
+      const previous = savedSettingsRef.current;
+      await callBackend<{ saved: boolean }>("save_settings", { settings: patch });
+      const next = { ...previous, ...patch };
+      savedSettingsRef.current = next;
+      if (demoRef.current) return;
+      if (next.obsidian_sync_enabled !== previous.obsidian_sync_enabled
+        || next.obsidian_vault_path !== previous.obsidian_vault_path
+        || next.obsidian_cards_path !== previous.obsidian_cards_path) {
+        checkObsidian(next);
+      }
+      if (next.export_batch_size !== previous.export_batch_size) await loadLibrary();
+    }).finally(() => {
+      pendingSettingsWrites.current -= 1;
+      if (pendingSettingsWrites.current === 0) {
+        // Keep optimistic edits while writes are queued. After a failure, show what was saved.
+        settingsRef.current = savedSettingsRef.current;
+        setSettings(settingsRef.current);
+        setSettingsSaving(false);
+      }
+    });
+    settingsWritesRef.current = saved.catch(() => undefined);
+    return saved;
+  }, [checkObsidian, loadLibrary]);
+
   React.useEffect(() => {
     let cancelled = false;
     void Promise.all([callBackend<AppSettings>("load_settings", {}), callBackend<LibraryResult>("load_library", {})])
       .then(([loadedSettings, library]) => {
         if (cancelled) return;
-        setSettings(loadedSettings);
+        if (pendingSettingsWrites.current === 0) {
+          settingsRef.current = loadedSettings;
+          savedSettingsRef.current = loadedSettings;
+          setSettings(loadedSettings);
+        }
         applyLibrary(library);
+        checkObsidian();
       })
       .catch((error) => {
         if (cancelled) return;
@@ -163,16 +230,17 @@ export function useLibraryController() {
     return () => {
       cancelled = true;
     };
-  }, [applyLibrary]);
+  }, [applyLibrary, checkObsidian]);
 
   React.useEffect(() => {
     let unlisten: () => void = () => {};
     void listenProgress((progress: ProgressEvent) => {
       setOperation((current) => {
-        if (current.id !== progress.job_id) return current;
+        if (current.id !== progress.job_id || current.status !== "running") return current;
         return {
           ...current,
-          status: progress.stage === "completed" ? "completed" : "running",
+          // Processing is complete for the screen after the new ranking has loaded.
+          status: progress.stage === "completed" && current.kind !== "processing" ? "completed" : "running",
           stage: progress.stage,
           message: progress.message,
           current: progress.current,
@@ -276,7 +344,10 @@ export function useLibraryController() {
   }, []);
 
   const syncKindle = React.useCallback(async () => {
+    if (operationRef.current.status === "running") return;
     lastAutoSyncAttemptAtRef.current = Date.now();
+    demoRef.current = false;
+    setDemo(false);
     const id = begin("kindle", "Синхронизация", "Ищем подключённую читалку");
     try {
       const result = await callBackend<LibraryResult>("sync_kindle", { job_id: id });
@@ -286,45 +357,49 @@ export function useLibraryController() {
       if (connected && signature) {
         lastAutoSyncSignatureRef.current = signature;
       }
+      if (connected) checkObsidian();
       const covers = result.coverSummary;
       if (connected && covers && covers.available < covers.total) void fetchCoversInBackground();
       setOperation((current) => ({
         ...current,
         status: connected ? "completed" : "error",
         stage: connected ? "completed" : "failed",
-        title: connected ? `Синхронизировано: ${result.connectors.kindle.label}` : "Читалка не подключена",
-        message: connected ? `В библиотеке ${result.entries.length} лемм` : "Библиотека сохранена; подключите читалку по USB или выберите файл со словами",
-        error: connected ? "" : "Устройство не найдено",
+        title: connected ? `Синхронизировано: ${result.connectors.kindle.label}` : "Читалка не найдена",
+        message: connected ? `В библиотеке ${wordsLabel(result.entries.length)}` : "Библиотека сохранена; подключите читалку по USB или выберите файл со словами",
+        error: connected ? "" : "Читалка не найдена",
       }));
     } catch (error) {
       fail(id, "Синхронизация остановлена", error);
     } finally {
       void probeConnectors(true);
     }
-  }, [applyLibrary, begin, fail, fetchCoversInBackground, probeConnectors]);
+  }, [applyLibrary, begin, checkObsidian, fail, fetchCoversInBackground, probeConnectors]);
   syncKindleRef.current = syncKindle;
 
   // A words database picked by hand: Kindle vocab.db, KOReader or Kobo. The bridge detects which.
   const importReaderFile = React.useCallback(async (file: File) => {
     if (operationRef.current.status === "running") return;
+    demoRef.current = false;
+    setDemo(false);
     const id = begin("kindle", "Импорт слов", `Читаем ${file.name}`);
     try {
       if (file.size > MAX_IMPORT_BYTES) throw new Error(`${file.name} слишком большой для базы слов`);
       const result = await callBackend<LibraryResult>("import_reader_file", { job_id: id, file_name: file.name, data_base64: await fileToBase64(file) });
       applyLibrary(result);
+      checkObsidian();
       const imported = result.imported;
       setOperation((current) => ({
         ...current,
         status: "completed",
         stage: "completed",
         title: imported ? `Импорт из ${imported.label}` : "Импорт завершён",
-        message: imported ? `Новых слов: ${imported.new_words}; записей в файле: ${imported.lookups}` : `В библиотеке ${result.entries.length} лемм`,
+        message: imported ? `Новых слов: ${imported.new_words}; записей в файле: ${imported.lookups}` : `В библиотеке ${wordsLabel(result.entries.length)}`,
         error: "",
       }));
     } catch (error) {
       fail(id, "Не удалось импортировать файл", error);
     }
-  }, [applyLibrary, begin, fail]);
+  }, [applyLibrary, begin, checkObsidian, fail]);
 
   const downloadCovers = React.useCallback(async () => {
     if (operationRef.current.status === "running") return;
@@ -348,11 +423,16 @@ export function useLibraryController() {
     if (processingInFlightRef.current) return;
     processingInFlightRef.current = true;
     const queueSize = queueStatus.pending + (includeFailed ? queueStatus.failed : 0);
-    const id = begin("processing", "Offline-обработка", `В очереди ${queueSize} лемм`);
+    const id = begin("processing", "Обработка слов", `В очереди ${wordsLabel(queueSize)}`);
     try {
       const result = await callBackend<ProcessingResult>("process_queue", { job_id: id, include_failed: includeFailed });
       setEntries(result.entries);
       setQueueStatus(result.queue_status ?? emptyQueue);
+      // Newly analysed words get a place in the ranking; the short list must follow.
+      if (result.processed_new > 0) {
+        await loadLibrary().catch(() => undefined);
+        checkObsidian();
+      }
       const skipped = result.skipped_existing ?? 0;
       const failed = result.failed_new ?? 0;
       const defaultMessage = [
@@ -374,50 +454,73 @@ export function useLibraryController() {
         total: queueSize,
       }));
     } catch (error) {
-      void loadLibrary();
+      void loadLibrary().catch(() => undefined);
       fail(id, "Offline-обработка остановлена", error);
     } finally {
       processingInFlightRef.current = false;
     }
-  }, [begin, fail, loadLibrary, queueStatus.failed, queueStatus.pending]);
+  }, [begin, checkObsidian, fail, loadLibrary, queueStatus.failed, queueStatus.pending]);
 
   const retryFailed = React.useCallback(() => processQueue(true), [processQueue]);
 
-  React.useEffect(() => {
-    if (!shouldAutoProcessQueue({ loading, inFlight: processingInFlightRef.current, queue: queueStatus, operation })) return;
-    void processQueue();
-  }, [loading, operation, processQueue, queueStatus]);
+  // The example library on Главная for a reader who has no words yet. While it is shown the queue stays idle.
+  const loadDemo = React.useCallback(async () => {
+    if (demoRef.current || operationRef.current.status === "running") return;
+    demoRef.current = true;
+    setDemo(true);
+    setLoading(true);
+    setOperation(idleOperation);
+    // A late live-vault response must not affect the example library.
+    obsidianRevision.current += 1;
+    setObsidianCheck({ status: "idle" });
+    try {
+      applyLibrary(await callBackend<LibraryResult>("load_demo", {}));
+    } catch (error) {
+      demoRef.current = false;
+      setDemo(false);
+      setOperation({ ...idleOperation, status: "error", title: "Не удалось показать пример", message: String(error), error: String(error) });
+    } finally {
+      setLoading(false);
+    }
+  }, [applyLibrary]);
 
-  const lastExportKindRef = React.useRef<"apkg" | "tsv">("apkg");
+  const exitDemo = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      await loadLibrary();
+      demoRef.current = false;
+      setDemo(false);
+      setOperation(idleOperation);
+      checkObsidian();
+    } catch (error) {
+      setOperation({ ...idleOperation, status: "error", title: "Не удалось открыть библиотеку", message: String(error), error: String(error) });
+    } finally {
+      setLoading(false);
+    }
+  }, [checkObsidian, loadLibrary]);
+
+  React.useEffect(() => {
+    if (!shouldAutoProcessQueue({ loading: loading || demo, inFlight: processingInFlightRef.current, queue: queueStatus, operation })) return;
+    void processQueue();
+  }, [demo, loading, operation, processQueue, queueStatus]);
 
   const syncObsidian = React.useCallback(async () => {
+    if (demo || obsidianSyncInFlight.current || operationRef.current.status === "running"
+      || pendingSettingsWrites.current > 0 || obsidianCheck.status !== "ready") return;
+    obsidianSyncInFlight.current = true;
     const id = begin("obsidian", "Синхронизация Obsidian", "Сверяем глобальную очередь карточек");
     try {
       const result = await callBackend<ObsidianResult>("sync_obsidian", { job_id: id });
-      setEntries(result.entries);
-      setQueueStatus(result.queue_status ?? emptyQueue);
+      setEntries((previous) => mergeObsidianEvidence(previous, result.entries));
       setOperation((current) => ({ ...current, status: "completed", stage: "completed", title: "Obsidian синхронизирован", message: `Добавлено: ${result.added}; без изменений или заблокировано: ${result.skipped}` }));
     } catch (error) {
       fail(id, "Синхронизация Obsidian остановлена", error);
+    } finally {
+      obsidianSyncInFlight.current = false;
     }
-  }, [begin, fail]);
-
-  const exportVisible = React.useCallback(async (format: "anki" | "quizlet") => {
-    lastExportKindRef.current = "tsv";
-    const candidates = visibleEntries.filter((entry) => entry.processing.state === "ready");
-    if (!candidates.length) return;
-    const id = begin("export", `Экспорт ${format === "anki" ? "Anki" : "Quizlet"}`, `Готовим ${candidates.length} лемм`);
-    try {
-      const result = await callBackend<{ path: string; exported: number }>("export", { job_id: id, format, entries: candidates });
-      await loadLibrary();
-      setOperation((current) => ({ ...current, status: "completed", stage: "completed", title: "Экспорт завершён", message: `Экспортировано: ${result.exported}. Файл: ${result.path}` }));
-    } catch (error) {
-      fail(id, "Экспорт остановлен", error);
-    }
-  }, [begin, fail, loadLibrary, visibleEntries]);
+  }, [begin, demo, fail, obsidianCheck.status]);
 
   const enrichmentQueue = React.useMemo(() => enrichmentCounts(entries), [entries]);
-  const ankiPending = React.useMemo(() => ankiPendingCount(entries), [entries]);
   const enrichInFlightRef = React.useRef(false);
 
   const enrichWords = React.useCallback(async (options: { ids?: string[]; retryFailed?: boolean } = {}) => {
@@ -447,41 +550,14 @@ export function useLibraryController() {
     if (!shouldAutoEnrich({
       enabled: settings.llm_enabled,
       auto: settings.llm_auto_enrich,
-      loading,
+      loading: loading || demo,
       inFlight: enrichInFlightRef.current,
       pending: enrichmentQueue.pending,
       processingPending: queueStatus.pending,
       operation,
     })) return;
     void enrichWords();
-  }, [enrichWords, enrichmentQueue.pending, loading, operation, queueStatus.pending, settings.llm_auto_enrich, settings.llm_enabled]);
-
-  const [lastExportPath, setLastExportPath] = React.useState("");
-
-  const ankiConnected = connectors.anki?.state === "connected";
-  // With AnkiConnect the same .apkg is imported straight into the open Anki;
-  // otherwise the user opens the file and Anki imports it.
-  const exportAnki = React.useCallback(async () => {
-    lastExportKindRef.current = "apkg";
-    const id = begin("export", "Колода Anki", ankiConnected ? "Отправляем карточки в Anki" : "Собираем новые карточки");
-    try {
-      const result = await callBackend<ApkgResult>(ankiConnected ? "push_anki" : "export_apkg", { job_id: id });
-      setLastExportPath(result.pushed ? "" : result.path);
-      if (result.exported) await loadLibrary();
-      setOperation((current) => ({ ...current, status: "completed", stage: "completed", title: result.exported ? (result.pushed ? "Карточки в Anki" : "Колода Anki готова") : "Новых карточек нет", message: result.message, error: "" }));
-    } catch (error) {
-      fail(id, "Экспорт в Anki остановлен", error);
-    }
-  }, [ankiConnected, begin, fail, loadLibrary]);
-
-  const openExport = React.useCallback(async (reveal = false) => {
-    if (!lastExportPath) return;
-    try {
-      await callBackend<{ opened: boolean }>("open_path", { path: lastExportPath, reveal });
-    } catch (error) {
-      setOperation((current) => ({ ...current, status: "error", title: "Не удалось открыть файл", message: String(error), error: String(error) }));
-    }
-  }, [lastExportPath]);
+  }, [demo, enrichWords, enrichmentQueue.pending, loading, operation, queueStatus.pending, settings.llm_auto_enrich, settings.llm_enabled]);
 
   const cancel = React.useCallback(async () => {
     const current = operationRef.current;
@@ -496,9 +572,7 @@ export function useLibraryController() {
     if (kind === "covers") return void downloadCovers();
     if (kind === "processing") return void retryFailed();
     if (kind === "enrich") return void enrichWords({ retryFailed: true });
-    if (kind === "obsidian") return void syncObsidian();
-    if (kind === "export") return void (lastExportKindRef.current === "apkg" ? exportAnki() : exportVisible(settings.default_export_format));
-  }, [downloadCovers, enrichWords, exportAnki, exportVisible, retryFailed, settings.default_export_format, syncKindle, syncObsidian]);
+  }, [downloadCovers, enrichWords, retryFailed, syncKindle]);
 
   const dismissOperation = React.useCallback(() => setOperation(idleOperation), []);
 
@@ -511,7 +585,10 @@ export function useLibraryController() {
       downloadCovers,
       connectors,
       settings,
-      setSettings,
+      saveSettings,
+      settingsSaving,
+      obsidianCheck,
+      checkObsidian,
       query,
       setQuery,
       selectedBookKey,
@@ -525,19 +602,18 @@ export function useLibraryController() {
       operation,
       queueStatus,
       loading,
+      ranking,
+      demo,
+      loadDemo,
+      exitDemo,
       syncKindle,
       importReaderFile,
       syncObsidian,
-      exportVisible,
       cancel,
       retry,
       retryFailed,
       enrichmentQueue,
-      ankiPending,
       enrichWords,
-      exportAnki,
-      openExport,
-      lastExportPath,
       dismissOperation,
       loadLibrary,
     }),
@@ -549,7 +625,10 @@ export function useLibraryController() {
       downloadCovers,
       connectors,
       settings,
-      setSettings,
+      saveSettings,
+      settingsSaving,
+      obsidianCheck,
+      checkObsidian,
       query,
       setQuery,
       selectedBookKey,
@@ -563,19 +642,18 @@ export function useLibraryController() {
       operation,
       queueStatus,
       loading,
+      ranking,
+      demo,
+      loadDemo,
+      exitDemo,
       syncKindle,
       importReaderFile,
       syncObsidian,
-      exportVisible,
       cancel,
       retry,
       retryFailed,
       enrichmentQueue,
-      ankiPending,
       enrichWords,
-      exportAnki,
-      openExport,
-      lastExportPath,
       dismissOperation,
       loadLibrary,
     ],

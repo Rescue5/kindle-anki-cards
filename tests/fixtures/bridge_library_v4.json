@@ -1,0 +1,1054 @@
+{
+  "sourceName": "Kindle (fixture)",
+  "sourceStatus": "Fixture library",
+  "books": [
+    {
+      "label": "Все книги",
+      "key": ""
+    },
+    {
+      "label": "Sample Novel · A. Writer · 11",
+      "key": "book-1",
+      "title": "Sample Novel",
+      "authors": "A. Writer"
+    }
+  ],
+  "entries": [
+    {
+      "id": "w1",
+      "lemma": "ephemeral",
+      "display_form": "ephemeral",
+      "language": "en",
+      "forms": [
+        "ephemeral"
+      ],
+      "occurrences": [
+        {
+          "id": "w1-o1",
+          "source": "kindle",
+          "word": "ephemeral",
+          "context": "Joy is an ephemeral guest here.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-12T10:00:00Z"
+        },
+        {
+          "id": "w1-o2",
+          "source": "kindle",
+          "word": "ephemeral",
+          "context": "The ephemeral light faded.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-15T10:00:00Z"
+        }
+      ],
+      "freshness": "new",
+      "processing": {
+        "state": "ready",
+        "analysis": {
+          "base_form": "ephemeral",
+          "accepted": true,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 2,
+          "translation_status": "llm_enriched"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "ephemeral",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-12T10:00:00Z",
+      "last_seen_at": "2026-11-15T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": {
+        "status": "ready",
+        "meaning_ru": "недолговечный",
+        "provider": "fixture",
+        "model": "fixture",
+        "prompt_version": 1,
+        "error": "",
+        "updated_at": "2026-11-18T09:05:00Z"
+      },
+      "dictionary": null,
+      "ranking": {
+        "score": 0.91,
+        "shelf": "worth",
+        "rank": 1,
+        "lean": null,
+        "reasons": [
+          {
+            "code": "repeat_lookups",
+            "text": "искали 2 раза",
+            "weight": 0.75
+          },
+          {
+            "code": "reading_now",
+            "text": "из книги, которую вы читаете сейчас",
+            "weight": 0.4
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": null,
+      "card": {
+        "meaning_ru": "недолговечный",
+        "meaning_source": "llm",
+        "example_occurrence_id": "w1-o2",
+        "edited": false
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": true
+    },
+    {
+      "id": "w2",
+      "lemma": "lucid",
+      "display_form": "lucid",
+      "language": "en",
+      "forms": [
+        "lucid"
+      ],
+      "occurrences": [
+        {
+          "id": "w2-o1",
+          "source": "kindle",
+          "word": "lucid",
+          "context": "Her lucid reply ended the quarrel.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-16T10:00:00Z"
+        }
+      ],
+      "freshness": "new",
+      "processing": {
+        "state": "ready",
+        "analysis": {
+          "base_form": "lucid",
+          "accepted": true,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 1,
+          "translation_status": "llm_enriched"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "lucid",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-16T10:00:00Z",
+      "last_seen_at": "2026-11-16T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": {
+        "status": "ready",
+        "meaning_ru": "ясный",
+        "provider": "fixture",
+        "model": "fixture",
+        "prompt_version": 1,
+        "error": "",
+        "updated_at": "2026-11-18T09:05:00Z"
+      },
+      "dictionary": null,
+      "ranking": {
+        "score": 0.84,
+        "shelf": "worth",
+        "rank": 2,
+        "lean": null,
+        "reasons": [
+          {
+            "code": "recency",
+            "text": "искали на этой неделе",
+            "weight": 0.6
+          },
+          {
+            "code": "frequency",
+            "text": "редкое слово",
+            "weight": 0.5
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": null,
+      "card": {
+        "meaning_ru": "ясный, понятный",
+        "meaning_source": "edited",
+        "example_occurrence_id": "w2-o1",
+        "edited": true
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": true
+    },
+    {
+      "id": "w3",
+      "lemma": "wane",
+      "display_form": "wane",
+      "language": "en",
+      "forms": [
+        "wane"
+      ],
+      "occurrences": [
+        {
+          "id": "w3-o1",
+          "source": "kindle",
+          "word": "wane",
+          "context": "The moon began to wane.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-09T10:00:00Z"
+        }
+      ],
+      "freshness": "known",
+      "processing": {
+        "state": "ready",
+        "analysis": {
+          "base_form": "wane",
+          "accepted": true,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 1,
+          "translation_status": "offline_only"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "wane",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-09T10:00:00Z",
+      "last_seen_at": "2026-11-09T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": null,
+      "dictionary": {
+        "meaning_ru": "убывать",
+        "pos": "verb",
+        "source": "wiktionary"
+      },
+      "ranking": {
+        "score": 0.77,
+        "shelf": "worth",
+        "rank": 3,
+        "lean": null,
+        "reasons": [
+          {
+            "code": "decision_learn",
+            "text": "вы отметили «учить»",
+            "weight": 0.0
+          },
+          {
+            "code": "frequency",
+            "text": "редкое слово",
+            "weight": 0.5
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": {
+        "value": "learn",
+        "decided_at": "2026-11-17T18:30:00Z"
+      },
+      "card": {
+        "meaning_ru": "убывать",
+        "meaning_source": "dictionary",
+        "example_occurrence_id": "w3-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": false
+    },
+    {
+      "id": "w4",
+      "lemma": "gossamer",
+      "display_form": "gossamer",
+      "language": "en",
+      "forms": [
+        "gossamer"
+      ],
+      "occurrences": [
+        {
+          "id": "w4-o1",
+          "source": "kindle",
+          "word": "gossamer",
+          "context": "A gossamer veil hung there.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-02T10:00:00Z"
+        },
+        {
+          "id": "w4-o2",
+          "source": "kindle",
+          "word": "gossamer",
+          "context": "Gossamer threads caught the dew.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-04T10:00:00Z"
+        },
+        {
+          "id": "w4-o3",
+          "source": "kindle",
+          "word": "gossamer",
+          "context": "Gossamer again, she thought.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-14T10:00:00Z"
+        }
+      ],
+      "freshness": "known",
+      "processing": {
+        "state": "ready",
+        "analysis": {
+          "base_form": "gossamer",
+          "accepted": true,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 3,
+          "translation_status": "llm_enriched"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "gossamer",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "exported",
+          "last_exported_at": "2026-11-05T12:00:00Z"
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-02T10:00:00Z",
+      "last_seen_at": "2026-11-14T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": {
+        "status": "ready",
+        "meaning_ru": "паутинка",
+        "provider": "fixture",
+        "model": "fixture",
+        "prompt_version": 1,
+        "error": "",
+        "updated_at": "2026-11-18T09:05:00Z"
+      },
+      "dictionary": null,
+      "ranking": {
+        "score": 0.71,
+        "shelf": "worth",
+        "rank": 4,
+        "lean": null,
+        "reasons": [
+          {
+            "code": "after_export",
+            "text": "искали снова после экспорта",
+            "weight": 1.0
+          },
+          {
+            "code": "repeat_lookups",
+            "text": "искали 3 раза",
+            "weight": 0.9
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": null,
+      "card": {
+        "meaning_ru": "паутинка; тончайшая ткань",
+        "meaning_source": "llm",
+        "example_occurrence_id": "w4-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "exported",
+        "last_exported_at": "2026-11-05T12:00:00Z",
+        "again": true,
+        "lookups_after": 1
+      },
+      "is_new": false
+    },
+    {
+      "id": "w5",
+      "lemma": "tarry",
+      "display_form": "tarry",
+      "language": "en",
+      "forms": [
+        "tarry"
+      ],
+      "occurrences": [
+        {
+          "id": "w5-o1",
+          "source": "kindle",
+          "word": "tarry",
+          "context": "Do not tarry on the road.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-18T10:00:00Z"
+        }
+      ],
+      "freshness": "new",
+      "processing": {
+        "state": "ready",
+        "analysis": {
+          "base_form": "tarry",
+          "accepted": true,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 1,
+          "translation_status": "offline_only"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "tarry",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-18T10:00:00Z",
+      "last_seen_at": "2026-11-18T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": null,
+      "dictionary": null,
+      "ranking": {
+        "score": 0.52,
+        "shelf": "disputed",
+        "rank": 1,
+        "lean": "learn",
+        "reasons": [
+          {
+            "code": "recency",
+            "text": "искали вчера",
+            "weight": 0.6
+          },
+          {
+            "code": "thin_evidence",
+            "text": "мало признаков",
+            "weight": 0.0
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": null,
+      "card": {
+        "meaning_ru": "",
+        "meaning_source": "none",
+        "example_occurrence_id": "w5-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": true
+    },
+    {
+      "id": "w6",
+      "lemma": "sundry",
+      "display_form": "sundry",
+      "language": "en",
+      "forms": [
+        "sundry"
+      ],
+      "occurrences": [
+        {
+          "id": "w6-o1",
+          "source": "kindle",
+          "word": "sundry",
+          "context": "Sundry items lay on the shelf.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-18T10:00:00Z"
+        }
+      ],
+      "freshness": "new",
+      "processing": {
+        "state": "ready",
+        "analysis": {
+          "base_form": "sundry",
+          "accepted": true,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 1,
+          "translation_status": "llm_enriched"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "sundry",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-18T10:00:00Z",
+      "last_seen_at": "2026-11-18T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": {
+        "status": "ready",
+        "meaning_ru": "разный, различный",
+        "provider": "fixture",
+        "model": "fixture",
+        "prompt_version": 1,
+        "error": "",
+        "updated_at": "2026-11-18T09:05:00Z"
+      },
+      "dictionary": null,
+      "ranking": {
+        "score": 0.41,
+        "shelf": "disputed",
+        "rank": 2,
+        "lean": "skip",
+        "reasons": [
+          {
+            "code": "frequency",
+            "text": "довольно редкое слово",
+            "weight": 0.3
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": null,
+      "card": {
+        "meaning_ru": "разный, различный",
+        "meaning_source": "llm",
+        "example_occurrence_id": "w6-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": true
+    },
+    {
+      "id": "w7",
+      "lemma": "said",
+      "display_form": "said",
+      "language": "en",
+      "forms": [
+        "said"
+      ],
+      "occurrences": [
+        {
+          "id": "w7-o1",
+          "source": "kindle",
+          "word": "said",
+          "context": "He said nothing at all.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-06T10:00:00Z"
+        }
+      ],
+      "freshness": "known",
+      "processing": {
+        "state": "rejected",
+        "analysis": {
+          "base_form": "said",
+          "accepted": false,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 1,
+          "translation_status": "offline_only"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "said",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-06T10:00:00Z",
+      "last_seen_at": "2026-11-06T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": null,
+      "dictionary": null,
+      "ranking": {
+        "score": 0.05,
+        "shelf": "not_worth",
+        "rank": 1,
+        "lean": null,
+        "reasons": [
+          {
+            "code": "frequency_common",
+            "text": "очень частое слово, вы его знаете",
+            "weight": -1.4
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": null,
+      "card": {
+        "meaning_ru": "",
+        "meaning_source": "none",
+        "example_occurrence_id": "w7-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": false
+    },
+    {
+      "id": "w8",
+      "lemma": "zxqvt",
+      "display_form": "zxqvt",
+      "language": "en",
+      "forms": [
+        "zxqvt"
+      ],
+      "occurrences": [
+        {
+          "id": "w8-o1",
+          "source": "kindle",
+          "word": "zxqvt",
+          "context": "zxqvt",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-03T10:00:00Z"
+        }
+      ],
+      "freshness": "known",
+      "processing": {
+        "state": "rejected",
+        "analysis": {
+          "base_form": "zxqvt",
+          "accepted": false,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 1,
+          "translation_status": "offline_only"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "zxqvt",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-03T10:00:00Z",
+      "last_seen_at": "2026-11-03T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": null,
+      "dictionary": null,
+      "ranking": {
+        "score": 0.01,
+        "shelf": "junk",
+        "rank": 1,
+        "lean": null,
+        "reasons": [
+          {
+            "code": "junk_non_word",
+            "text": "не похоже на слово",
+            "weight": -3.0
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": null,
+      "card": {
+        "meaning_ru": "",
+        "meaning_source": "none",
+        "example_occurrence_id": "w8-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": false
+    },
+    {
+      "id": "w9",
+      "lemma": "nimble",
+      "display_form": "nimble",
+      "language": "en",
+      "forms": [
+        "nimble"
+      ],
+      "occurrences": [
+        {
+          "id": "w9-o1",
+          "source": "kindle",
+          "word": "nimble",
+          "context": "A nimble hand caught it.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-08T10:00:00Z"
+        }
+      ],
+      "freshness": "known",
+      "processing": {
+        "state": "ready",
+        "analysis": {
+          "base_form": "nimble",
+          "accepted": true,
+          "importance_score": 5,
+          "lemma_zipf": 3.4,
+          "source_occurrence_count": 1,
+          "translation_status": "llm_enriched"
+        },
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "nimble",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-08T10:00:00Z",
+      "last_seen_at": "2026-11-08T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": {
+        "status": "ready",
+        "meaning_ru": "проворный",
+        "provider": "fixture",
+        "model": "fixture",
+        "prompt_version": 1,
+        "error": "",
+        "updated_at": "2026-11-18T09:05:00Z"
+      },
+      "dictionary": null,
+      "ranking": {
+        "score": 0.6,
+        "shelf": "known",
+        "rank": 1,
+        "lean": null,
+        "reasons": [
+          {
+            "code": "decision_known",
+            "text": "вы отметили «знаю»",
+            "weight": 0.0
+          }
+        ],
+        "version": "r2"
+      },
+      "decision": {
+        "value": "known",
+        "decided_at": "2026-11-16T08:00:00Z"
+      },
+      "card": {
+        "meaning_ru": "проворный",
+        "meaning_source": "llm",
+        "example_occurrence_id": "w9-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": false
+    },
+    {
+      "id": "w10",
+      "lemma": "obdurate",
+      "display_form": "obdurate",
+      "language": "en",
+      "forms": [
+        "obdurate"
+      ],
+      "occurrences": [
+        {
+          "id": "w10-o1",
+          "source": "kindle",
+          "word": "obdurate",
+          "context": "He remained obdurate.",
+          "book_key": "book-1",
+          "book_title": "Sample Novel",
+          "authors": "A. Writer",
+          "looked_up_at": "2026-11-19T10:00:00Z"
+        }
+      ],
+      "freshness": "new",
+      "processing": {
+        "state": "pending",
+        "analysis": null,
+        "updated_at": "2026-11-18T09:00:00Z",
+        "error": ""
+      },
+      "sources": {
+        "kindle": true,
+        "legacy": false
+      },
+      "destinations": {
+        "obsidian": {
+          "state": "not_applicable",
+          "eligible": false,
+          "reason": "disabled",
+          "external_key": "obdurate",
+          "last_checked_at": "",
+          "last_synced_at": ""
+        },
+        "anki": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        },
+        "quizlet": {
+          "state": "not_exported",
+          "last_exported_at": ""
+        }
+      },
+      "first_seen_at": "2026-11-19T10:00:00Z",
+      "last_seen_at": "2026-11-19T10:00:00Z",
+      "last_kindle_sync_id": "sync-2",
+      "enrichment": null,
+      "dictionary": null,
+      "ranking": null,
+      "decision": null,
+      "card": {
+        "meaning_ru": "",
+        "meaning_source": "none",
+        "example_occurrence_id": "w10-o1",
+        "edited": false
+      },
+      "export": {
+        "state": "not_exported",
+        "last_exported_at": "",
+        "again": false,
+        "lookups_after": 0
+      },
+      "is_new": true
+    }
+  ],
+  "last_kindle_sync_id": "sync-2",
+  "connectors": {
+    "kindle": {
+      "state": "connected",
+      "label": "Kindle",
+      "checked_at": "2026-11-19T10:00:00Z"
+    },
+    "obsidian": {
+      "state": "disabled",
+      "label": "Obsidian",
+      "checked_at": ""
+    }
+  },
+  "queueStatus": {
+    "pending": 1,
+    "processing": 0,
+    "failed": 0,
+    "total": 10
+  },
+  "rankingVersion": "r2",
+  "rankingMode": "full",
+  "historyDays": 90,
+  "repeatSignal": true,
+  "shelves": {
+    "worth": 4,
+    "disputed": 2,
+    "not_worth": 1,
+    "junk": 1,
+    "known": 1
+  },
+  "newBatch": {
+    "count": 3,
+    "ids": [
+      "w1",
+      "w2",
+      "w3"
+    ]
+  },
+  "disputed": {
+    "ids": [
+      "w5",
+      "w6"
+    ]
+  },
+  "again": {
+    "count": 1,
+    "ids": [
+      "w4"
+    ],
+    "unavailable": false
+  }
+}

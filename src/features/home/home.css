@@ -1,0 +1,74 @@
+/*
+ * Главная: a desk under a lamp. One question, one lit button, the short list as dictionary entries.
+ * Colours, fonts and easing are the tokens of night-reading.css; buttons and links come from
+ * components/ui/pencil-controls (design/cabinet.css). Plain selectors: imported after Tailwind's layers.
+ */
+
+.home-page { --home-pad-l: 52px; --home-pad-r: 44px; container-type: inline-size; max-width: 1240px; margin: 0 auto; padding: 28px var(--home-pad-r) 64px var(--home-pad-l); }
+
+/* ---------- The desk: the question, the action, the lamp ---------- */
+.home-desk { --lamp-s: .8; display: flex; align-items: flex-start; min-height: 340px; padding-bottom: 30px; }
+@container (max-width: 900px) { .home-desk { --lamp-s: .66; } }
+@container (max-width: 680px) { .home-desk { --lamp-s: 0; min-height: 0; } .home-desk > .lamp:not(.lamp-pool) { display: none; } }
+.home-desk-text { flex: 1 1 320px; min-width: 0; max-width: 560px; margin-right: calc(366px * var(--lamp-s)); padding-top: 24px; }
+.home-desk > .home-desk-line { position: absolute; left: calc(-1 * var(--home-pad-l)); bottom: -4px; width: calc(100% + var(--home-pad-l) + var(--home-pad-r)); color: hsl(var(--pencil) / 0.55); }
+.home-desk > .home-desk-line path { stroke-width: 1.3; }
+
+.home-eyebrow { min-height: 24px; color: hsl(var(--foreground) / 0.8); font: italic 15.5px/1.4 var(--font-reading); }
+.home-title { margin-top: 8px; font: 500 clamp(34px, 4.6cqi, 52px)/1.04 var(--font-reading); letter-spacing: -.02em; font-variation-settings: "opsz" 72; text-wrap: balance; }
+.home-lede { max-width: 42ch; margin-top: 16px; color: hsl(var(--foreground) / 0.78); font-size: 16.5px; line-height: 1.5; }
+.home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; margin-top: 26px; }
+.home-note { margin-top: 16px; max-width: 52ch; color: hsl(var(--muted-foreground)); font-size: 14px; line-height: 1.5; }
+.home-hand { margin-top: 10px; color: hsl(var(--foreground) / 0.72); font: 500 24px/1.15 var(--font-hand); }
+.home-answer { margin-top: 16px; font: 400 22px/1.3 var(--font-reading); }
+
+/* ---------- What the last export did, written under the button ---------- */
+.home-status { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; margin-top: 14px; font-size: 16px; line-height: 1.45; }
+.home-status:focus { outline: none; }
+.home-status:empty { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); }
+.home-status svg { flex: none; width: 18px; height: 18px; fill: none; stroke: hsl(var(--lamp)); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.home-status-line { display: inline-flex; align-items: center; gap: 8px; }
+.home-status .home-cross { flex: none; width: 16px; height: 16px; fill: none; stroke: hsl(var(--foreground) / 0.8); stroke-width: 1.5; stroke-linecap: round; filter: url(#pencil-texture); }
+.home-status.is-error .kc-link { color: hsl(var(--foreground)); text-decoration-color: hsl(var(--foreground) / 0.7); }
+.home-status-hint { flex-basis: 100%; color: hsl(var(--muted-foreground)); font-size: 14px; }
+.home-export-hint { margin-top: 10px; color: hsl(var(--muted-foreground)); font-size: 14px; }
+.home-folder { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-top: 12px; }
+.home-folder:has(.home-folder-note:empty):not(:has(button)) { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); }
+.home-folder-note { color: hsl(var(--muted-foreground)); font-size: 14px; }
+.home-folder-note:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.home-folder-note:focus { outline: none; }
+.home-folder .kc-link[aria-disabled="true"] { opacity: 0.64; cursor: wait; }
+
+/* ---------- The short list ---------- */
+.home-list { max-width: 860px; margin-top: 40px; }
+.home-list h2, .home-places h2 { font: 500 22px/1.15 var(--font-reading); }
+.home-rows { margin-top: 10px; }
+.home-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 20px; width: 100%; min-height: 52px; padding: 13px 10px 11px; border-radius: 8px; text-align: left; }
+.home-row-text { flex: 1 1 280px; min-width: 0; color: hsl(var(--foreground) / 0.8); font-size: 16px; line-height: 1.4; }
+.home-lemma { color: hsl(var(--foreground)); font-size: 19px; font-weight: 600; }
+.home-row-text em { color: hsl(var(--muted-foreground)); font-size: 14px; }
+.home-why { flex: none; color: hsl(var(--foreground) / 0.74); font: 500 20px/1.1 var(--font-hand); white-space: nowrap; }
+
+/* ---------- The reader, quietly, at the foot ---------- */
+.home-reader { display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px; max-width: 860px; margin-top: 30px; color: hsl(var(--muted-foreground)); font-size: 14px; }
+.home-reader-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: hsl(var(--pencil) / 0.55); }
+.home-reader.is-connected { color: hsl(var(--foreground) / 0.85); }
+.home-reader.is-connected .home-reader-dot { background: hsl(var(--lamp)); box-shadow: 0 0 8px hsl(var(--lamp) / calc(0.8 * var(--lamp-glow))); }
+.home-reader-line { display: inline-flex; align-items: center; gap: 8px; }
+
+/* ---------- A reader without words: where the files live ---------- */
+.home-places { max-width: 860px; margin-top: 40px; }
+.home-places-lede { margin-top: 6px; color: hsl(var(--muted-foreground)); font-size: 14.5px; }
+.home-places ul { margin-top: 8px; }
+.home-places li { padding: 12px 10px 10px; color: hsl(var(--foreground) / 0.8); font-size: 15.5px; line-height: 1.5; }
+.home-places li strong { color: hsl(var(--foreground)); font-weight: 600; }
+.home-places code { color: hsl(var(--foreground)); font: 500 14.5px var(--font-reading); overflow-wrap: anywhere; }
+
+/* ---------- Until the first answer: pencil bars, nothing that reads as a statement ---------- */
+.home-skel { display: block; height: 14px; border-radius: 7px; background: hsl(var(--pencil) / 0.22); animation: home-skel 1.6s ease-in-out infinite; }
+.home-skel-button { width: 190px; height: 52px; border-radius: 12px; background: hsl(var(--pencil) / 0.14); }
+.home-skel-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 20px; padding: 16px 10px 14px; }
+@keyframes home-skel { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+
+@media (max-width: 760px) { .home-page { --home-pad-l: 18px; --home-pad-r: 18px; padding-top: 24px; padding-bottom: 48px; } }
+@media (prefers-reduced-motion: reduce) { .home-skel { animation: none; } }

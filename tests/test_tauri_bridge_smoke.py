@@ -15,6 +15,79 @@ from kindle_vocab_app.tauri_bridge import _analysis_by_lemma, _load_catalog_with
 
 
 class BridgeSmokeTests(unittest.TestCase):
+    def test_obsidian_word_alias_matches_without_import_or_append(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            catalog = vocab_cache.merge_kindle(vocab_cache.empty_catalog(), [{
+                "word": "glimpse", "stem": "glimpse", "language": "en",
+                "context": "A glimpse.", "book_key": "book",
+            }], sync_id="sync")
+            catalog["lexemes"][0]["processing"] = {
+                "state": "ready", "analysis": {"base_form": "glimpse", "accepted": True, "importance_score": 7},
+                "updated_at": "now", "error": "",
+            }
+            repository_for(workspace).save_catalog(catalog)
+            cards = workspace / "vault" / "cards"
+            cards.mkdir(parents=True)
+            path = cards / "04 - Priority 7.md"
+            path.write_text("**Glimpse.**\n?\n**glimpsing — смотреть мельком**\n", encoding="utf-8")
+            original = path.read_bytes()
+            result = dispatch("load_obsidian", {"vault_path": str(cards.parent), "cards_path": "cards"}, workspace)
+            self.assertEqual(len(result["entries"]), 1)
+            self.assertEqual(result["entries"][0]["destinations"]["obsidian"]["state"], "synced")
+            synced = dispatch("sync_obsidian", {"vault_path": str(cards.parent), "cards_path": "cards", "backup_enabled": False}, workspace)
+            self.assertEqual(synced["added"], 0)
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_load_obsidian_invalid_directory_preserves_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            catalog = vocab_cache.merge_kindle(vocab_cache.empty_catalog(), [{
+                "word": "glimpse", "stem": "glimpse", "language": "en",
+                "context": "A glimpse.", "book_key": "book",
+            }], sync_id="sync")
+            lexeme = catalog["lexemes"][0]
+            lexeme["processing"] = {
+                "state": "ready", "analysis": {"base_form": "glimpse", "accepted": True, "importance_score": 7},
+                "updated_at": "now", "error": "",
+            }
+            lexeme["destinations"]["obsidian"].update({
+                "state": "synced", "eligible": True,
+                "last_checked_at": "previous-check", "last_synced_at": "previous-sync",
+            })
+            repository = repository_for(workspace)
+            repository.save_catalog(catalog)
+            before = repository.load_catalog()
+            file_path = workspace / "not-a-directory.md"
+            file_path.write_text("synthetic", encoding="utf-8")
+            for invalid in (workspace / "missing", file_path):
+                with self.subTest(path=invalid.name):
+                    with self.assertRaisesRegex(ValueError, "Obsidian"):
+                        dispatch("load_obsidian", {"vault_path": str(workspace), "cards_path": invalid.name}, workspace)
+                    self.assertEqual(repository.load_catalog(), before)
+
+    def test_obsidian_check_cannot_replace_a_newer_reader_import(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            repository = repository_for(workspace)
+            first = {"word": "glimpse", "stem": "glimpse", "language": "en", "context": "A glimpse."}
+            catalog = vocab_cache.merge_kindle(vocab_cache.empty_catalog(), [first], sync_id="first")
+            repository.save_catalog(catalog)
+            cards = workspace / "vault" / "cards"
+            cards.mkdir(parents=True)
+
+            def import_while_reading(_directory):
+                second = {"word": "lantern", "stem": "lantern", "language": "en", "context": "A lantern."}
+                catalog = vocab_cache.merge_kindle(repository.load_catalog(), [second], sync_id="second")
+                repository.save_catalog(catalog)
+                return []
+
+            with patch("kindle_vocab_app.obsidian_sync.read_cards", side_effect=import_while_reading):
+                result = dispatch("load_obsidian", {"vault_path": str(cards.parent), "cards_path": "cards"}, workspace)
+            self.assertEqual({entry["lemma"] for entry in result["entries"]}, {"glimpse", "lantern"})
+            self.assertEqual(repository.load_catalog()["last_kindle_sync_id"], "second")
+            self.assertEqual(repository.queue_status()["pending"], 2)
+
     def test_connector_status_uses_passive_presence_probe(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)

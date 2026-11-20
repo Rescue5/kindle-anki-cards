@@ -37,6 +37,7 @@
   --lamp: 38 92% 56%;
   --lamp-hot: 40 45% 90%;
   --lamp-beam: 37 100% 75%;
+  --on-lamp: 30 60% 7%;
   --lamp-glow: 0;
   --pencil: 222 8% 30%;
   --shadow-color: 30 20% 30%;
@@ -141,8 +142,8 @@ body {
 .ui-button:active:not(:disabled) { transform: scale(0.97); }
 .ui-button:disabled { cursor: not-allowed; opacity: .45; }
 .ui-button[data-loading="true"] { cursor: wait; opacity: .7; }
-.ui-button-lit { background: hsl(var(--lamp)); color: hsl(30 60% 7%); box-shadow: inset 0 0 0 1px hsl(30 60% 7% / 0.16), 0 0 20px hsl(var(--lamp) / calc(0.24 * var(--lamp-glow))); }
-.ui-button-lit:hover:not(:disabled) { filter: brightness(1.07); box-shadow: inset 0 0 0 1px hsl(30 60% 7% / 0.16), 0 0 30px hsl(var(--lamp) / calc(0.4 * var(--lamp-glow) + 0.06)); }
+.ui-button-lit { background: hsl(var(--lamp)); color: hsl(var(--on-lamp)); box-shadow: inset 0 0 0 1px hsl(var(--on-lamp) / 0.16), 0 0 20px hsl(var(--lamp) / calc(0.24 * var(--lamp-glow))); }
+.ui-button-lit:hover:not(:disabled) { filter: brightness(1.07); box-shadow: inset 0 0 0 1px hsl(var(--on-lamp) / 0.16), 0 0 30px hsl(var(--lamp) / calc(0.4 * var(--lamp-glow) + 0.06)); }
 .ui-button-drawn { background: transparent; color: hsl(var(--foreground)); }
 .ui-button-ghost { background: transparent; color: hsl(var(--muted-foreground)); }
 .ui-button-drawn:hover:not(:disabled), .ui-button-ghost:hover:not(:disabled) { background: hsl(var(--lamp) / calc(0.06 + 0.02 * var(--lamp-glow))); color: hsl(var(--foreground)); }
@@ -167,7 +168,7 @@ body {
 .ui-switch:disabled { cursor: not-allowed; opacity: .45; }
 .ui-switch-bulb { width: 18px; height: 18px; border-radius: 50%; background: hsl(var(--background)); box-shadow: inset 0 0 0 1.25px hsl(var(--pencil) / 0.8); transition: transform 240ms var(--ease-in-out), background-color 240ms var(--ease-out), box-shadow 240ms var(--ease-out); }
 .ui-switch[aria-checked="true"] { background: hsl(var(--lamp) / calc(0.1 + 0.06 * var(--lamp-glow))); }
-.ui-switch[aria-checked="true"] .ui-switch-bulb { background: hsl(var(--lamp)); box-shadow: inset 0 0 0 1.25px hsl(30 60% 7% / 0.25), 0 0 12px hsl(var(--lamp) / calc(0.25 + 0.5 * var(--lamp-glow))); transform: translateX(20px); }
+.ui-switch[aria-checked="true"] .ui-switch-bulb { background: hsl(var(--lamp)); box-shadow: inset 0 0 0 1.25px hsl(var(--on-lamp) / 0.25), 0 0 12px hsl(var(--lamp) / calc(0.25 + 0.5 * var(--lamp-glow))); transform: translateX(20px); }
 .ui-switch:active:not(:disabled) .ui-switch-bulb { transform: scale(0.92); }
 .ui-switch[aria-checked="true"]:active:not(:disabled) .ui-switch-bulb { transform: translateX(20px) scale(0.92); }
 

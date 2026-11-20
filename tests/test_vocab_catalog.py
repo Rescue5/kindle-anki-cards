@@ -23,11 +23,36 @@ def kindle_entry(context: str = "She admitted it.") -> dict[str, object]:
 
 
 class VocabularyCatalogTests(unittest.TestCase):
-    def test_new_lemma_becomes_known_on_next_successful_sync(self) -> None:
+    def test_new_batch_survives_syncs_that_add_no_word(self) -> None:
         catalog = vocab_cache.merge_kindle(vocab_cache.empty_catalog(), [kindle_entry()], sync_id="one")
         self.assertEqual(catalog["lexemes"][0]["freshness"], "new")
-        catalog = vocab_cache.merge_kindle(catalog, [kindle_entry()], sync_id="two")
-        self.assertEqual(catalog["lexemes"][0]["freshness"], "known")
+
+        catalog = vocab_cache.merge_kindle(catalog, [], sync_id="two")
+        self.assertEqual(catalog["lexemes"][0]["freshness"], "new")
+        # The same lookups again, and a new context for a word already known.
+        catalog = vocab_cache.merge_kindle(catalog, [kindle_entry()], sync_id="three")
+        catalog = vocab_cache.merge_kindle(
+            catalog, [kindle_entry("He kept admitting it.")], sync_id="four"
+        )
+        self.assertEqual([item["freshness"] for item in catalog["lexemes"]], ["new"])
+        self.assertEqual(catalog["last_kindle_sync_id"], "four")
+
+    def test_sync_that_adds_a_word_replaces_the_new_batch(self) -> None:
+        catalog = vocab_cache.merge_kindle(vocab_cache.empty_catalog(), [kindle_entry()], sync_id="one")
+        catalog = vocab_cache.merge_kindle(catalog, [], sync_id="two")
+        added = {**kindle_entry("A gentle zephyr."), "word": "zephyr", "stem": "zephyr"}
+
+        catalog = vocab_cache.merge_kindle(catalog, [kindle_entry(), added], sync_id="three")
+
+        freshness = {item["lemma"]: item["freshness"] for item in catalog["lexemes"]}
+        self.assertEqual(freshness, {"admit": "known", "zephyr": "new"})
+
+    def test_reconciling_without_marking_new_keeps_the_batch(self) -> None:
+        catalog = vocab_cache.merge_kindle(vocab_cache.empty_catalog(), [kindle_entry()], sync_id="one")
+        added = {**kindle_entry("A gentle zephyr."), "word": "zephyr", "stem": "zephyr"}
+        catalog = vocab_cache.merge_kindle(catalog, [added], sync_id="one", mark_new=False)
+        freshness = {item["lemma"]: item["freshness"] for item in catalog["lexemes"]}
+        self.assertEqual(freshness, {"admit": "new", "zephyr": "known"})
 
     def test_repeated_lemma_keeps_processing_and_adds_context(self) -> None:
         catalog = vocab_cache.merge_kindle(vocab_cache.empty_catalog(), [kindle_entry()], sync_id="one")

@@ -7,10 +7,12 @@ from datetime import UTC, datetime, timedelta
 
 from kindle_vocab_app.ranking import (
     DEFAULT_WEIGHTS,
+    FULL_MODE_MIN_DAYS,
     RANKING_VERSION,
     REASON_CODES,
     Ranking,
     WordFacts,
+    library_mode,
     rank,
 )
 
@@ -346,8 +348,47 @@ class ContractTests(unittest.TestCase):
                 seen.update(_codes(rank(replace(variant, decision=decision), NOW)))
         known = replace(facts, decision="known", decided_at=_ago(30))
         seen.update(_codes(rank(known, NOW)))
+        seen.update(_codes(rank(_facts(lookups=((_ago(40), "a"),)), NOW)))
         self.assertEqual(seen, set(REASON_CODES))
         self.assertEqual(len(REASON_CODES), len(set(REASON_CODES)))
+
+    def test_every_word_on_not_worth_carries_a_negative_reason(self) -> None:
+        thin = 0
+        for zipf in (0.0, 1.5, 2.5, 3.0, 3.6, 4.4, 4.8, 5.4, 6.5):
+            for days in (0, 3, 10, 25, 34, 40, 50, 60, 120, 400):
+                for lookups in (1, 2, 3, 9):
+                    for books in (1, 2):
+                        for warnings in (frozenset(), frozenset({"possibly_glued_words"}), frozenset({"non_word"})):
+                            when = tuple((_ago(days + 2 * i), f"book-{i % books}") for i in range(lookups))
+                            for reading in (frozenset(), frozenset({"book-0"})):
+                                facts = _facts(zipf=zipf, lookups=when, warnings=warnings, reading_books=reading)
+                                ranking = rank(facts, NOW)
+                                if ranking.shelf != "not_worth":
+                                    continue
+                                against = [reason for reason in ranking.reasons if reason.weight < 0]
+                                if against:
+                                    self.assertNotIn("thin_evidence", _codes(ranking))
+                                    continue
+                                # Only the bias is against it: the last reason says so, in words, with weight 0.
+                                thin += 1
+                                self.assertEqual(ranking.reasons[-1].code, "thin_evidence")
+                                self.assertEqual(ranking.reasons[-1].weight, 0.0)
+        self.assertGreater(thin, 0)  # the grid does reach the case the fallback exists for
+
+    def test_a_word_with_one_lookup_and_nothing_else_says_so(self) -> None:
+        ranking = rank(_facts(lookups=((_ago(40), "a"),)), NOW)
+        self.assertEqual(ranking.shelf, "not_worth")
+        self.assertEqual(ranking.reasons[-1].text, "искали один раз, других признаков нет")
+        # With the default weights two lookups are already enough for the worth shelf; weaker weights are not.
+        weak = replace(DEFAULT_WEIGHTS, repeat=0.2)
+        many = rank(_facts(lookups=((_ago(40), "a"), (_ago(41), "a"))), NOW, weak)
+        self.assertEqual(many.shelf, "not_worth")
+        self.assertEqual(many.reasons[-1].text, "мало признаков, что слово вам нужно")
+
+    def test_the_fallback_reason_keeps_the_score_decomposable(self) -> None:
+        ranking = rank(_facts(lookups=((_ago(40), "a"),)), NOW)
+        total = DEFAULT_WEIGHTS.bias + sum(reason.weight for reason in ranking.reasons)
+        self.assertAlmostEqual(ranking.score, 1 / (1 + math.exp(-total)))
 
     def test_the_version_is_named(self) -> None:
         self.assertEqual(RANKING_VERSION, "r2")
@@ -395,6 +436,75 @@ class EdgeTests(unittest.TestCase):
             self.assertTrue(0.0 <= ranking.score <= 1.0)
         self.assertEqual(top.shelf, "worth")
         self.assertEqual(bottom.shelf, "junk")
+
+
+REPEAT_CODES = {"repeat_lookups", "after_export", "several_books"}
+
+
+class RankingModeTests(unittest.TestCase):
+    def test_library_mode_needs_repeats_and_enough_history(self) -> None:
+        self.assertEqual(library_mode(FULL_MODE_MIN_DAYS, True), "full")
+        self.assertEqual(library_mode(400, True), "full")
+        self.assertEqual(library_mode(FULL_MODE_MIN_DAYS - 1, True), "learning")
+        self.assertEqual(library_mode(0, True), "learning")
+        # A source without repeat lookups stays in learning however long the history is.
+        self.assertEqual(library_mode(1000, False), "learning")
+        self.assertEqual(library_mode(10, True, min_days=7), "full")
+
+    def test_full_is_the_default_and_unchanged(self) -> None:
+        facts = _facts(lookups=((_ago(30), "a"), (_ago(4), "b")), reading_books=frozenset({"b"}), exported_at=_ago(10))
+        self.assertEqual(rank(facts, NOW), rank(facts, NOW, mode="full"))
+        self.assertEqual(rank(facts, NOW).mode, "full")
+
+    def test_unknown_mode_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            rank(_facts(), NOW, mode="fast")
+
+    def test_learning_ignores_repeats_books_and_exports_and_never_cites_them(self) -> None:
+        many = _facts(
+            lookups=((_ago(30), "a"), (_ago(9), "b"), (_ago(4), "c"), (_ago(2), "c")),
+            reading_books=frozenset({"c"}),
+            exported_at=_ago(20),
+        )
+        once = _facts(lookups=((_ago(2), "c"),), reading_books=frozenset({"c"}))
+        learning = rank(many, NOW, mode="learning")
+        self.assertEqual(learning.mode, "learning")
+        self.assertTrue(REPEAT_CODES.isdisjoint(_codes(learning)))
+        self.assertEqual(learning.score, rank(once, NOW, mode="learning").score)
+        self.assertNotIn("раз", " ".join(_texts(learning)).replace("встречается раз в", ""))
+        self.assertGreater(rank(many, NOW).score, learning.score)
+
+    def test_learning_leans_on_the_book_being_read_recency_and_the_frequency_band(self) -> None:
+        base = _facts(lookups=((_ago(3), "a"),), reading_books=frozenset({"a"}))
+        reading = rank(base, NOW, mode="learning")
+        self.assertIn("reading_now", _codes(reading))
+        self.assertGreater(reading.score, rank(replace(base, reading_books=frozenset()), NOW, mode="learning").score)
+        self.assertGreater(reading.score, rank(replace(base, lookups=((_ago(60), "a"),)), NOW, mode="learning").score)
+        self.assertGreater(reading.score, rank(replace(base, lemma_zipf=2.0, form_zipf=2.0), NOW, mode="learning").score)
+        self.assertGreater(reading.score, rank(replace(base, lemma_zipf=6.0, form_zipf=6.0), NOW, mode="learning").score)
+
+    def test_learning_scores_still_decompose_and_decisions_still_win(self) -> None:
+        facts = _facts(lookups=((_ago(40), "a"), (_ago(4), "a")), reading_books=frozenset({"a"}))
+        ranking = rank(facts, NOW, mode="learning")
+        logit = DEFAULT_WEIGHTS.bias + sum(reason.weight for reason in ranking.reasons)
+        self.assertAlmostEqual(ranking.score, 1.0 / (1.0 + math.exp(-logit)))
+        for decision, shelf in (("learn", "worth"), ("skip", "not_worth"), ("junk", "junk"), ("known", "known")):
+            with self.subTest(decision=decision):
+                self.assertEqual(rank(replace(facts, decision=decision), NOW, mode="learning").shelf, shelf)
+
+    def test_learning_keeps_junk_evidence_and_the_negative_reason(self) -> None:
+        junk = rank(_facts(warnings=frozenset({"non_word"})), NOW, mode="learning")
+        self.assertEqual(junk.shelf, "junk")
+        old = rank(_facts(lookups=((_ago(300), "a"),)), NOW, mode="learning")
+        self.assertEqual(old.shelf, "not_worth")
+        self.assertTrue(any(reason.weight < 0 for reason in old.reasons))
+
+    def test_known_again_is_only_a_note_in_learning(self) -> None:
+        facts = _facts(lookups=((_ago(40), "a"), (_ago(4), "a")), decision="known", decided_at=_ago(10))
+        learning = rank(facts, NOW, mode="learning")
+        again = next(reason for reason in learning.reasons if reason.code == "known_again")
+        self.assertEqual(again.weight, 0.0)
+        self.assertNotEqual(learning.shelf, "known")
 
 
 if __name__ == "__main__":

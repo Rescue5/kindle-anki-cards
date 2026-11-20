@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from kindle_vocab_app.contracts import (
+    BATCH_SIZE_DEFAULT,
+    BATCH_SIZE_MAX,
+    BATCH_SIZE_MIN,
+    EXPORT_DESTINATION_DEFAULT,
+    EXPORT_DESTINATIONS,
+)
 from kindle_vocab_app.logging_config import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -36,6 +42,9 @@ class AppSettings:
     obsidian_vault_path: str = ""
     obsidian_cards_path: str = "cards/Book Vocab"
     obsidian_backup_enabled: bool = True
+    # Where `export_words` sends the short list (contracts.EXPORT_DESTINATIONS) and how many words at a time.
+    export_destination: str = EXPORT_DESTINATION_DEFAULT
+    export_batch_size: int = BATCH_SIZE_DEFAULT
 
 
 def settings_path(workspace: Path) -> Path:
@@ -90,6 +99,8 @@ def to_dict(settings: AppSettings) -> dict[str, Any]:
         "obsidian_vault_path": settings.obsidian_vault_path,
         "obsidian_cards_path": settings.obsidian_cards_path,
         "obsidian_backup_enabled": settings.obsidian_backup_enabled,
+        "export_destination": settings.export_destination,
+        "export_batch_size": settings.export_batch_size,
     }
 
 
@@ -110,6 +121,21 @@ def from_dict(data: dict[str, Any]) -> AppSettings:
         raise ValueError(
             f"Invalid default_export_format: {default_export_format!r}; "
             f"expected one of {_VALID_EXPORT_FORMATS}"
+        )
+
+    export_destination = data.get("export_destination", EXPORT_DESTINATION_DEFAULT)
+    if export_destination not in EXPORT_DESTINATIONS:
+        raise ValueError(
+            "Неизвестное место экспорта. Допустимо: " + ", ".join(EXPORT_DESTINATIONS)
+        )
+    export_batch_size = data.get("export_batch_size", BATCH_SIZE_DEFAULT)
+    if (
+        not isinstance(export_batch_size, int)
+        or isinstance(export_batch_size, bool)
+        or not BATCH_SIZE_MIN <= export_batch_size <= BATCH_SIZE_MAX
+    ):
+        raise ValueError(
+            f"Размер порции экспорта: целое число от {BATCH_SIZE_MIN} до {BATCH_SIZE_MAX}"
         )
 
     llm_base_url = str(data.get("llm_base_url", ""))
@@ -133,4 +159,6 @@ def from_dict(data: dict[str, Any]) -> AppSettings:
         obsidian_vault_path=str(data.get("obsidian_vault_path", "")),
         obsidian_cards_path=str(data.get("obsidian_cards_path", "cards/Book Vocab")),
         obsidian_backup_enabled=bool(data.get("obsidian_backup_enabled", True)),
+        export_destination=export_destination,
+        export_batch_size=export_batch_size,
     )

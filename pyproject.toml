@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kindle-vocab-app"
-version = "0.3.0"
+version = "0.4.0"
 description = "Cross-platform desktop app for previewing, filtering, and exporting Kindle Vocabulary Builder data."
 readme = "README.md"
 license = "MIT"
@@ -38,6 +38,9 @@ dev = [
 kindle-vocab-app = "kindle_vocab_app.app:main"
 kindle-vocab-doctor = "kindle_vocab_app.doctor:main"
 kindle-vocab-optimize = "kindle_vocab_app.optimizer_cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100

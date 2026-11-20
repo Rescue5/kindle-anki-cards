@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import html
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from kindle_vocab_app import card_fields
 from kindle_vocab_app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -134,11 +135,17 @@ def build_note_fields(
     lexeme: dict[str, Any],
     *,
     definition_lookup: Any = None,
+    edit: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
-    """Return escaped HTML field values for one lexeme."""
+    """Return escaped HTML field values for one lexeme.
+
+    The meaning and the example sentence are the card the reader saw (`card_fields.resolve`):
+    `edit` is the reader's row from `card_edits`, if any.
+    """
     analysis = (lexeme.get("processing") or {}).get("analysis") or {}
     enrichment = lexeme.get("enrichment") or {}
-    occurrence = primary_occurrence(lexeme)
+    card = card_fields.resolve(lexeme, edit)
+    occurrence = card.occurrence
     word = str(occurrence.get("word") or lexeme.get("display_form") or lexeme.get("lemma") or "")
     lemma = str(analysis.get("base_form") or lexeme.get("lemma") or word)
     pos = _POS_LABELS.get(str(analysis.get("pos") or ""), "")
@@ -156,7 +163,7 @@ def build_note_fields(
         "Lemma": _escape(lemma),
         "PartOfSpeech": _escape(pos),
         "Context": highlight(context, [word, *lexeme.get("forms", []), lemma]),
-        "Meaning": _escape(_clean(enrichment.get("meaning_ru")) or _clean((lexeme.get("dictionary") or {}).get("meaning_ru"))),
+        "Meaning": _escape(card.meaning_ru),
         "Definition": _escape(definition),
         "DefinitionSource": definition_source,
         "ContextTranslation": _escape(_clean(enrichment.get("context_ru"))),
@@ -191,7 +198,15 @@ def write_apkg(
     *,
     deck_name: str = DEFAULT_DECK_NAME,
     definition_lookup: Any = None,
+    edits: Mapping[str, Mapping[str, Any]] | None = None,
+    require_eligible: bool = True,
 ) -> ApkgResult:
+    """Write the notes of `lexemes` to an .apkg.
+
+    `require_eligible` keeps the old rule (processed, accepted, score 3 to 10); the export pipeline
+    selects its words with `export_policy` first and passes False. `edits` holds the reader's card
+    edits by lexeme id.
+    """
     import genanki
 
     model = genanki.Model(
@@ -205,10 +220,14 @@ def write_apkg(
     exported: list[str] = []
     skipped = 0
     for lexeme in lexemes:
-        if not is_exportable(lexeme):
+        if require_eligible and not is_exportable(lexeme):
             skipped += 1
             continue
-        fields = build_note_fields(lexeme, definition_lookup=definition_lookup)
+        fields = build_note_fields(
+            lexeme,
+            definition_lookup=definition_lookup,
+            edit=(edits or {}).get(str(lexeme.get("id") or "")),
+        )
         deck.add_note(
             genanki.Note(
                 model=model,

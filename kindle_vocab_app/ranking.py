@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 RANKING_VERSION = "r2"
+# `full` uses every personal signal; `learning` is for a library that cannot support them yet (see `library_mode`).
+RANKING_MODES = ("learning", "full")
 DECISIONS = frozenset({"known", "learn", "skip", "junk"})
 SHELVES = ("worth", "disputed", "not_worth", "junk", "known")
 # Every reason code `rank` can emit. The sign of a reason's weight says "for" (>0) or "against" (<0).
@@ -42,6 +44,7 @@ REASON_CODES = (
     "junk_unknown_word",
     "junk_glued_words",
     "junk_proper_noun",
+    "thin_evidence",
 )
 
 # A book is about 90 thousand words, a page about 300; Zipf z means 10**z per 10**9 words.
@@ -49,6 +52,8 @@ WORDS_PER_BOOK = 90_000
 WORDS_PER_PAGE = 300
 # From here a word is simply «частое» (about once in 100 pages).
 FREQUENT_ZIPF = 4.5
+# Days of history from which a library that keeps repeat lookups is ranked in `full` mode; see `library_mode`.
+FULL_MODE_MIN_DAYS = 56
 # Contributions smaller than this do not become a reason (the frequency band always does).
 MIN_REASON_WEIGHT = 0.1
 
@@ -108,6 +113,8 @@ class Ranking:
     reasons: tuple[Reason, ...]
     # Suggested answer for a disputed word ('learn' | 'skip' | 'junk'); None on every other shelf.
     lean: str | None = None
+    # The mode the word was ranked in; the reasons only cite signals that mode uses.
+    mode: str = "full"
 
 
 @dataclass(frozen=True)
@@ -130,8 +137,11 @@ class Weights:
     recency_reference: float = 0.25
     # Looked up in a book the reader is reading now.
     reading: float = 0.5
-    # Looked up again after the word had been exported: it did not stick.
-    after_export: float = 2.0
+    # Looked up again after the word had been exported: it did not stick. Measured on the only export
+    # evidence the author's library has (words found in Obsidian): those words came back 1.8-2.1 times
+    # as often as the rest, an odds ratio of 2.1-2.4 (log 0.7-0.9), and moving the weight between 1 and 3
+    # changes AUC and lift@50 by less than their bootstrap noise. Halved from 2.0 to 1.0 to match.
+    after_export: float = 1.0
     # Per Zipf unit below rare_zipf (capped at two units) and above common_zipf (capped at two).
     rare: float = -1.0
     rare_zipf: float = 3.0
@@ -171,10 +181,27 @@ _JUNK_FEATURES = (
 )
 
 
-def rank(facts: WordFacts, now: datetime, weights: Weights = DEFAULT_WEIGHTS) -> Ranking:
-    """Score one word at the moment `now` and place it on a shelf, with reasons."""
+def library_mode(history_days: int, repeat_signal: bool, min_days: int = FULL_MODE_MIN_DAYS) -> str:
+    """The ranking mode of a whole library: `full` or `learning`.
+
+    `full` needs two things: the source keeps repeat lookups (`repeat_signal`; Kindle does, KOReader and Kobo keep
+    one row per word) and at least `min_days` days between the first and the last lookup (`history_days`). Otherwise
+    the personal signals behind `full` are missing or still too thin, and `learning` orders by what the reader's
+    first lookups can tell: the frequency band, the book being read now and recency.
+    """
+    return "full" if repeat_signal and history_days >= min_days else "learning"
+
+
+def rank(facts: WordFacts, now: datetime, weights: Weights = DEFAULT_WEIGHTS, mode: str = "full") -> Ranking:
+    """Score one word at the moment `now` and place it on a shelf, with reasons.
+
+    In `learning` mode repeat lookups, the number of books and "looked up again after export" take no part in the
+    score and never appear as reasons; everything else works as in `full`.
+    """
+    if mode not in RANKING_MODES:
+        raise ValueError(f"Unknown ranking mode: {mode!r}")
     now = _aware(now)
-    contributions = _contributions(facts, now, weights)
+    contributions = _contributions(facts, now, weights, mode)
     logit = weights.bias + sum(reason.weight for reason in contributions)
     junk_evidence = -sum(reason.weight for reason in contributions if reason.code.startswith("junk_"))
     score = _sigmoid(logit)
@@ -184,16 +211,34 @@ def rank(facts: WordFacts, now: datetime, weights: Weights = DEFAULT_WEIGHTS) ->
     if decision is not None:
         decided = Reason(f"decision_{decision}", _DECISION_TEXT[decision], 0.0)
         # The score stays the model's; "учить" and the other decisions only fix the shelf.
-        return Ranking(score=score, shelf=_DECISION_SHELF[decision], reasons=(decided, *reasons))
+        return Ranking(score=score, shelf=_DECISION_SHELF[decision], reasons=(decided, *reasons), mode=mode)
     if junk_evidence >= weights.strong_junk:
-        return Ranking(score=score, shelf="junk", reasons=reasons)
+        return Ranking(score=score, shelf="junk", reasons=reasons, mode=mode)
     if junk_evidence > 0:
         # Some evidence that it is not a word: the reader decides, the suggestion is "не слово".
-        return Ranking(score=score, shelf="disputed", reasons=reasons, lean="junk")
+        return Ranking(score=score, shelf="disputed", reasons=reasons, lean="junk", mode=mode)
     if weights.disputed_from <= score < weights.worth_from:
         middle = (weights.disputed_from + weights.worth_from) / 2
-        return Ranking(score=score, shelf="disputed", reasons=reasons, lean="learn" if score >= middle else "skip")
-    return Ranking(score=score, shelf="worth" if score >= weights.worth_from else "not_worth", reasons=reasons)
+        lean = "learn" if score >= middle else "skip"
+        return Ranking(score=score, shelf="disputed", reasons=reasons, lean=lean, mode=mode)
+    if score >= weights.worth_from:
+        return Ranking(score=score, shelf="worth", reasons=reasons, mode=mode)
+    return Ranking(
+        score=score, shelf="not_worth", reasons=_with_negative_reason(reasons, len(facts.lookups)), mode=mode
+    )
+
+
+def _with_negative_reason(reasons: tuple[Reason, ...], lookups: int) -> tuple[Reason, ...]:
+    """A word on «Не стоит учить» always says why.
+
+    Usually a negative contribution does (rare or very common word, old lookup, evidence of junk). A word looked
+    up once, in the middle of the frequency band, with a lookup neither fresh nor stale, scores low only because
+    of the bias: «not enough signals». That is stated as a reason of weight 0.0, so `score` still decomposes.
+    """
+    if any(reason.weight < 0 for reason in reasons):
+        return reasons
+    text = "искали один раз, других признаков нет" if lookups == 1 else "мало признаков, что слово вам нужно"
+    return (*reasons, Reason("thin_evidence", text, 0.0))
 
 
 def _effective_decision(facts: WordFacts) -> str | None:
@@ -207,26 +252,28 @@ def _looked_up_after(facts: WordFacts, moment: datetime | None) -> bool:
     return moment is not None and any(_aware(when) > _aware(moment) for when, _ in facts.lookups)
 
 
-def _contributions(facts: WordFacts, now: datetime, weights: Weights) -> list[Reason]:
+def _contributions(facts: WordFacts, now: datetime, weights: Weights, mode: str = "full") -> list[Reason]:
     """Named contributions to the log-odds, in a fixed order (ties keep this order)."""
     lookups = [(_aware(when), book) for when, book in facts.lookups]
     reasons: list[Reason] = []
 
+    personal = mode == "full"
     count = len(lookups)
-    if count > 1:
+    if personal and count > 1:
         value = weights.repeat * math.log2(min(count, weights.repeat_cap))
         reasons.append(Reason("repeat_lookups", f"искали {_times(count)}", value))
 
     exported_at = _aware(facts.exported_at) if facts.exported_at is not None else None
-    if exported_at is not None and any(when > exported_at for when, _ in lookups):
+    if personal and exported_at is not None and any(when > exported_at for when, _ in lookups):
         reasons.append(Reason("after_export", "снова искали после экспорта", weights.after_export))
     if facts.decision == "known" and _effective_decision(facts) is None:
         # Not counted twice when the word was also looked up again after an export.
-        counted = any(reason.code == "after_export" for reason in reasons)
+        # In `learning` mode it is only a note: the score does not use repeat signals.
+        counted = not personal or any(reason.code == "after_export" for reason in reasons)
         reasons.append(Reason("known_again", "снова искали после «знаю»", 0.0 if counted else weights.after_export))
 
     books = {book for _, book in lookups}
-    if len(books) > 1:
+    if personal and len(books) > 1:
         reasons.append(Reason("several_books", _in_books(len(books)), weights.books * math.log2(len(books))))
 
     if books & facts.reading_books:

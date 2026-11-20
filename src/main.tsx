@@ -1,76 +1,36 @@
 import * as React from "react";
 import ReactDOM from "react-dom/client";
-import { BarChart3, BookOpen, Home, Library, RotateCcw, Settings } from "lucide-react";
+import { Home, Library, Settings } from "lucide-react";
 import { SettingsView } from "@/components/settings-view";
 import { LibraryWorkspace } from "@/features/library/library-workspace";
 import { useLibraryController } from "@/features/library/use-library-controller";
-import { BooksView } from "@/features/reading/books-view";
-import { InsightsView } from "@/features/reading/insights-view";
-import { ReadingHome } from "@/features/reading/reading-home";
-import { ReviewView } from "@/features/reading/review-view";
-import { callBackend } from "@/lib/backend";
-import type { LexemeRecord } from "@/types";
+import { HomeScreen } from "@/features/home/home-screen";
+import { homeQueueState, shortList } from "@/features/home/home-domain";
+import { useHomeExport } from "@/features/home/use-home-export";
+import { navViewOf, parseView, type NavView, type View } from "@/features/shell/views";
 import "@fontsource-variable/literata/opsz.css";
 import "@fontsource-variable/literata/opsz-italic.css";
 import "@fontsource-variable/caveat";
 import "@/index.css";
 import "@/design/night-reading.css";
+import "@/design/cabinet.css";
 import "@/features/reading/reading.css";
+import "@/features/home/home.css";
 import { Sconce, useLightSwitch } from "@/components/light/light";
 import { PencilDefs } from "@/components/sketch/sketch";
-import { ankiPendingCount } from "@/features/library/domain";
 import { ruCount } from "@/features/reading/reading-domain";
 
-type View = "home" | "books" | "words" | "review" | "insights" | "settings";
-const views: View[] = ["home", "books", "words", "review", "insights", "settings"];
-
-const navigation = [
-  { label: "Главная", icon: Home, view: "home" as const },
-  { label: "Книги", icon: BookOpen, view: "books" as const },
-  { label: "Слова", icon: Library, view: "words" as const },
-  { label: "Повторение", icon: RotateCcw, view: "review" as const },
-  { label: "Аналитика", icon: BarChart3, view: "insights" as const },
-  { label: "Настройки", icon: Settings, view: "settings" as const },
+const navigation: { label: string; icon: typeof Home; view: NavView }[] = [
+  { label: "Главная", icon: Home, view: "home" },
+  { label: "Слова", icon: Library, view: "words" },
+  { label: "Настройки", icon: Settings, view: "settings" },
 ];
+const noExportIds: string[] = [];
 
 function App() {
   const controller = useLibraryController();
   // `?view=` opens a screen directly; used for browser previews and README screenshots.
-  const [view, setView] = React.useState<View>(() => {
-    const requested = new URLSearchParams(window.location.search).get("view");
-    return views.includes(requested as View) ? (requested as View) : "home";
-  });
-  const [dueCount, setDueCount] = React.useState(0);
-
-  React.useEffect(() => {
-    let active = true;
-    void callBackend<{ due_count: number }>("load_review", { limit: 1 })
-      .then((result) => { if (active) setDueCount(result.due_count); })
-      .catch(() => { if (active) setDueCount(0); });
-    return () => { active = false; };
-  }, [controller.entries]);
-
-  function openWord(entry?: LexemeRecord | string) {
-    controller.setQuery("");
-    controller.setSelectedBookKey("");
-    controller.setQuickFilter("all");
-    if (entry) controller.setSelectedId(typeof entry === "string" ? entry : entry.id);
-    setView("words");
-  }
-
-  function searchWords(query: string) {
-    controller.setSelectedBookKey("");
-    controller.setQuickFilter("all");
-    controller.setQuery(query);
-    setView("words");
-  }
-
-  function openNewWords() {
-    controller.setQuery("");
-    controller.setSelectedBookKey("");
-    controller.setQuickFilter("new");
-    setView("words");
-  }
+  const [view, setView] = React.useState<View>(() => parseView(window.location.search));
 
   // The room's light: night when the theme resolves to dark.
   const prefersDark = useMediaQuery("(prefers-color-scheme: dark)");
@@ -81,17 +41,30 @@ function App() {
     root.classList.toggle("dark", night);
     root.classList.toggle("light", !night);
   }, [night]);
-  const { setSettings, settings } = controller;
+  const { saveSettings, loading } = controller;
   const flipLight = React.useCallback(() => {
-    const next = { ...settings, theme: night ? "light" : "dark" } as typeof settings;
-    setSettings(next);
-    void callBackend("save_settings", { settings: next }).catch(() => undefined);
-  }, [night, setSettings, settings]);
+    if (!loading) void saveSettings({ theme: night ? "light" : "dark" }).catch(() => undefined);
+  }, [loading, night, saveSettings]);
   const { toggle: pullCord, curtain } = useLightSwitch(flipLight);
 
   const busy = controller.operation.status === "running";
-  const ankiPending = React.useMemo(() => ankiPendingCount(controller.entries), [controller.entries]);
-  const activeIndex = navigation.findIndex((item) => item.view === view);
+  const rankedIds = controller.ranking?.newBatch.ids;
+  const exportIds = React.useMemo(() => shortList(controller.entries, rankedIds ?? noExportIds).map((entry) => entry.id),
+    [controller.entries, rankedIds]);
+  const homeQueue = homeQueueState(controller.queueStatus, controller.operation);
+  const exporter = useHomeExport({
+    ids: controller.demo || controller.settingsSaving || busy || homeQueue === "working" ? noExportIds : exportIds,
+    reload: controller.loadLibrary,
+    active: view === "home" && !controller.demo,
+  });
+  const homeHandlesProcessing = view === "home" && !controller.demo && controller.entries.length > 0
+    && exportIds.length === 0 && homeQueue === "stopped" && controller.operation.kind === "processing";
+  const { dismiss } = exporter;
+  React.useEffect(() => {
+    if (controller.operation.status === "running" && controller.operation.kind === "kindle") dismiss();
+  }, [dismiss, controller.operation.kind, controller.operation.status]);
+  // The sconce rides to the entry that holds the current view (Спорные and Экспорт belong to Слова).
+  const activeIndex = navigation.findIndex((item) => item.view === navViewOf(view));
   const wordCount = controller.entries.length;
   const status = busy
     ? controller.operation.message || controller.operation.title
@@ -99,7 +72,7 @@ function App() {
       ? controller.operation.error || controller.operation.message || controller.operation.title
       : controller.queueStatus.total > 0
         ? `Обработка: ${controller.queueStatus.total} слов`
-      : controller.operation.status === "completed" && controller.operation.message
+      : controller.operation.status === "completed" && controller.operation.kind !== "processing" && controller.operation.message
         ? controller.operation.message
         : "Библиотека готова";
 
@@ -121,13 +94,12 @@ function App() {
           <ul>
             {navigation.map((item) => {
               const Icon = item.icon;
-              const active = view === item.view;
+              const active = navViewOf(view) === item.view;
               return (
                 <li key={item.view}>
                   <button type="button" onClick={() => setView(item.view)} aria-current={active ? "page" : undefined} className={active ? "is-active" : undefined}>
                     <Icon size={18} strokeWidth={1.6} />
                     <span>{item.label}</span>
-                    {item.view === "review" && dueCount > 0 ? <em aria-label={`${dueCount} к повторению`}>{dueCount}</em> : null}
                   </button>
                 </li>
               );
@@ -155,16 +127,27 @@ function App() {
 
       <div className="reading-app-main">
         <div className="reading-view-frame">
-          {view === "home" ? <ReadingHome bookOptions={controller.books} entries={controller.entries} connectors={controller.connectors} operation={controller.operation} dueCount={dueCount} ankiPending={ankiPending} onSync={() => void controller.syncKindle()} onReview={() => setView("review")} onBooks={() => setView("books")} onWords={openWord} onNewWords={openNewWords} onSearch={searchWords} onSendToAnki={() => void controller.exportAnki()} onImportFile={(file) => void controller.importReaderFile(file)} /> : null}
-          {view === "books" ? <BooksView books={controller.books} entries={controller.entries} onOpenWord={openWord} onDownloadCovers={controller.downloadCovers} coversBusy={controller.coversBusy || controller.operation.status === "running"} coverSummary={controller.coverSummary} /> : null}
-          {view === "words" ? <LibraryWorkspace controller={controller} /> : null}
-          {view === "review" ? <ReviewView onCountsChange={setDueCount} onOpenWords={() => openWord()} /> : null}
-          {view === "insights" ? <InsightsView books={controller.books} entries={controller.entries} onOpenWord={openWord} /> : null}
-          {view === "settings" ? <SettingsView settings={controller.settings} onChange={controller.setSettings} /> : null}
+          {view === "home" ? <HomeScreen controller={controller} exporter={exporter} /> : null}
+          {/* Until Спорные and Экспорт ship, their views open the library workspace. */}
+          {view === "words" || view === "triage" || view === "export" ? <LibraryWorkspace controller={controller} /> : null}
+          {view === "settings" && loading ? <main className="reading-page app-scrollbar"><p className="screen-page" role="status">Загружаю настройки…</p></main> : null}
+          {view === "settings" && !loading ? (
+            <SettingsView
+              settings={controller.settings}
+              onSave={controller.saveSettings}
+              saving={controller.settingsSaving}
+              demo={controller.demo}
+              busy={busy || exporter.state.kind === "running"}
+              obsidianCheck={controller.obsidianCheck}
+              operation={controller.operation}
+              onCheckObsidian={controller.checkObsidian}
+              onSyncObsidian={() => void controller.syncObsidian()}
+            />
+          ) : null}
         </div>
         {curtain}
         <div className="paper-grain" aria-hidden="true" />
-        <div className="reading-status" role="status"><span className={busy ? "reading-status-dot is-busy" : "reading-status-dot"} />{status}{controller.operation.status === "error" ? <button type="button" onClick={controller.retry}>Повторить</button> : null}</div>
+        <div className="reading-status" role="status"><span className={busy ? "reading-status-dot is-busy" : "reading-status-dot"} />{status}{controller.operation.status === "error" && controller.operation.kind !== "obsidian" && !homeHandlesProcessing ? <button type="button" onClick={controller.retry}>Повторить</button> : null}</div>
       </div>
     </div>
   );

@@ -3,19 +3,19 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterator, Protocol
+from typing import Any, Protocol
 
-from kindle_vocab_app import vocab_cache
+from kindle_vocab_app import library_migrations, library_state, vocab_cache
 from kindle_vocab_app.logging_config import get_logger
-
 
 logger = get_logger(__name__)
 
 DATABASE_FILENAME = "kindle_cards.sqlite3"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = library_migrations.SCHEMA_VERSION
 
 
 class VocabularyRepository(Protocol):
@@ -51,7 +51,12 @@ class SQLiteVocabularyRepository:
             connection.close()
 
     def load_catalog(self) -> dict[str, Any]:
+        # A fixed number of whole-table queries, grouped in Python: the library
+        # is loaded in full anyway, and per-lexeme queries cost ~4 round trips
+        # per word. One read transaction makes them a single snapshot, so a
+        # commit by another process between two queries cannot be half-seen.
         with self.connect() as connection:
+            connection.execute("BEGIN")
             meta = {
                 row["key"]: row["value"]
                 for row in connection.execute("SELECT key, value FROM metadata")
@@ -60,25 +65,19 @@ class SQLiteVocabularyRepository:
                 (str(item["language"]), str(item["canonical_key"])): _enrichment_from_row(item)
                 for item in connection.execute("SELECT * FROM enrichments")
             }
-            lexemes: list[dict[str, Any]] = []
-            for row in connection.execute(
+            forms: dict[str, list[str]] = {}
+            for item in connection.execute("SELECT lexeme_id, form FROM forms ORDER BY rowid"):
+                forms.setdefault(str(item["lexeme_id"]), []).append(str(item["form"]))
+            occurrences: dict[str, list[dict[str, str]]] = {}
+            for item in connection.execute(
                 """
-                SELECT id, language, canonical_key, display_form, freshness,
-                       first_seen_at, last_seen_at, last_kindle_sync_id,
-                       source_kindle, source_legacy
-                FROM lexemes
-                ORDER BY first_seen_at, canonical_key
+                SELECT id, lexeme_id, source, word, context, book_key, book_title,
+                       authors, looked_up_at
+                FROM occurrences
+                ORDER BY looked_up_at, id
                 """
             ):
-                lexeme_id = str(row["id"])
-                forms = [
-                    str(item["form"])
-                    for item in connection.execute(
-                        "SELECT form FROM forms WHERE lexeme_id = ? ORDER BY rowid",
-                        (lexeme_id,),
-                    )
-                ]
-                occurrences = [
+                occurrences.setdefault(str(item["lexeme_id"]), []).append(
                     {
                         "id": str(item["id"]),
                         "source": str(item["source"]),
@@ -89,80 +88,64 @@ class SQLiteVocabularyRepository:
                         "authors": str(item["authors"]),
                         "looked_up_at": str(item["looked_up_at"]),
                     }
-                    for item in connection.execute(
-                        """
-                        SELECT id, source, word, context, book_key, book_title,
-                               authors, looked_up_at
-                        FROM occurrences WHERE lexeme_id = ?
-                        ORDER BY looked_up_at, id
-                        """,
-                        (lexeme_id,),
-                    )
-                ]
-                analysis_row = connection.execute(
-                    """
-                    SELECT state, payload_json, updated_at, error
-                    FROM analyses WHERE lexeme_id = ?
-                    """,
-                    (lexeme_id,),
-                ).fetchone()
-                processing = {
-                    "state": str(analysis_row["state"]) if analysis_row else "pending",
-                    "analysis": json.loads(str(analysis_row["payload_json"]))
-                    if analysis_row and analysis_row["payload_json"]
-                    else None,
-                    "updated_at": str(analysis_row["updated_at"]) if analysis_row else "",
-                    "error": str(analysis_row["error"]) if analysis_row else "",
-                }
-                destinations = {
-                    "obsidian": _default_obsidian_destination(),
-                    "anki": {"state": "not_exported", "last_exported_at": ""},
-                    "quizlet": {"state": "not_exported", "last_exported_at": ""},
-                }
-                for destination in connection.execute(
-                    """
-                    SELECT destination, state, eligible, reason, external_key,
-                           last_checked_at, last_synced_at, last_exported_at
-                    FROM destinations WHERE lexeme_id = ?
-                    """,
-                    (lexeme_id,),
-                ):
-                    name = str(destination["destination"])
-                    if name == "obsidian":
-                        destinations[name] = {
-                            "state": str(destination["state"]),
-                            "eligible": bool(destination["eligible"]),
-                            "reason": str(destination["reason"]),
-                            "external_key": str(destination["external_key"]),
-                            "last_checked_at": str(destination["last_checked_at"]),
-                            "last_synced_at": str(destination["last_synced_at"]),
-                        }
-                    elif name in {"anki", "quizlet"}:
-                        destinations[name] = {
-                            "state": str(destination["state"]),
-                            "last_exported_at": str(destination["last_exported_at"]),
-                        }
-                lexemes.append(
-                    {
-                        "id": lexeme_id,
-                        "lemma": str(row["canonical_key"]),
-                        "display_form": str(row["display_form"]),
-                        "language": str(row["language"]),
-                        "forms": forms,
-                        "occurrences": occurrences,
-                        "freshness": str(row["freshness"]),
-                        "processing": processing,
-                        "sources": {
-                            "kindle": bool(row["source_kindle"]),
-                            "legacy": bool(row["source_legacy"]),
-                        },
-                        "destinations": destinations,
-                        "first_seen_at": str(row["first_seen_at"]),
-                        "last_seen_at": str(row["last_seen_at"]),
-                        "last_kindle_sync_id": str(row["last_kindle_sync_id"]),
-                        "enrichment": enrichments.get((str(row["language"]), str(row["canonical_key"]))),
-                    }
                 )
+            analyses = {
+                str(item["lexeme_id"]): item
+                for item in connection.execute(
+                    "SELECT lexeme_id, state, payload_json, updated_at, error FROM analyses"
+                )
+            }
+            destination_rows: dict[str, list[sqlite3.Row]] = {}
+            for item in connection.execute(
+                """
+                SELECT lexeme_id, destination, state, eligible, reason, external_key,
+                       last_checked_at, last_synced_at, last_exported_at
+                FROM destinations
+                """
+            ):
+                destination_rows.setdefault(str(item["lexeme_id"]), []).append(item)
+            lexeme_rows = connection.execute(
+                """
+                SELECT id, language, canonical_key, display_form, freshness,
+                       first_seen_at, last_seen_at, last_kindle_sync_id,
+                       source_kindle, source_legacy
+                FROM lexemes
+                ORDER BY first_seen_at, canonical_key
+                """
+            ).fetchall()
+        lexemes: list[dict[str, Any]] = []
+        for row in lexeme_rows:
+            lexeme_id = str(row["id"])
+            analysis_row = analyses.get(lexeme_id)
+            processing = {
+                "state": str(analysis_row["state"]) if analysis_row else "pending",
+                "analysis": json.loads(str(analysis_row["payload_json"]))
+                if analysis_row and analysis_row["payload_json"]
+                else None,
+                "updated_at": str(analysis_row["updated_at"]) if analysis_row else "",
+                "error": str(analysis_row["error"]) if analysis_row else "",
+            }
+            lexemes.append(
+                {
+                    "id": lexeme_id,
+                    "lemma": str(row["canonical_key"]),
+                    "display_form": str(row["display_form"]),
+                    "language": str(row["language"]),
+                    "forms": forms.get(lexeme_id, []),
+                    "occurrences": occurrences.get(lexeme_id, []),
+                    "freshness": str(row["freshness"]),
+                    "processing": processing,
+                    "sources": {
+                        "kindle": bool(row["source_kindle"]),
+                        "legacy": bool(row["source_legacy"]),
+                    },
+                    "destinations": _destinations_from_rows(destination_rows.get(lexeme_id, [])),
+                    "first_seen_at": str(row["first_seen_at"]),
+                    "last_seen_at": str(row["last_seen_at"]),
+                    "last_kindle_sync_id": str(row["last_kindle_sync_id"]),
+                    "enrichment": enrichments.get((str(row["language"]), str(row["canonical_key"]))),
+                }
+            )
         return {
             "version": 3,
             "cached_at": meta.get("updated_at", vocab_cache.utc_now()),
@@ -173,7 +156,98 @@ class SQLiteVocabularyRepository:
     def save_catalog(self, catalog: dict[str, Any]) -> None:
         canonical = _canonicalize_catalog(catalog)
         with self.connect() as connection:
+            # One write transaction: the replacement and the re-link of the
+            # reader's rows are seen together or not at all.
+            connection.execute("BEGIN IMMEDIATE")
             self._replace_catalog(connection, canonical)
+
+    def save_obsidian_evidence(self, lexemes: list[dict[str, Any]]) -> None:
+        """Save the checked destination without replacing a concurrent import or analysis."""
+        updates = []
+        for lexeme in lexemes:
+            evidence = (lexeme.get("destinations") or {}).get("obsidian") or {}
+            checked_at = evidence.get("last_checked_at")
+            if not checked_at:
+                continue
+            destination = _normalize_obsidian_destination(lexeme, evidence)
+            updates.append((
+                destination["state"], int(destination["eligible"]), destination["reason"],
+                destination["external_key"], checked_at, destination["last_synced_at"],
+                lexeme["id"], checked_at, lexeme["lemma"], lexeme["last_seen_at"],
+                (lexeme.get("processing") or {}).get("updated_at") or "",
+            ))
+        if not updates:
+            return
+        with self.connect() as connection:
+            connection.executemany(
+                """
+                UPDATE destinations
+                SET state = ?, eligible = ?, reason = ?, external_key = ?,
+                    last_checked_at = ?, last_synced_at = ?
+                WHERE destination = 'obsidian' AND lexeme_id = ? AND last_checked_at <= ?
+                  AND EXISTS (
+                    SELECT 1 FROM lexemes l LEFT JOIN analyses a ON a.lexeme_id = l.id
+                    WHERE l.id = destinations.lexeme_id AND l.canonical_key = ?
+                      AND l.last_seen_at = ? AND COALESCE(a.updated_at, '') = ?
+                  )
+                """,
+                updates,
+            )
+
+    def set_decision(
+        self,
+        lexeme_id: str,
+        decision: str | None,
+        *,
+        shelf_at: str = "",
+        score_at: float | None = None,
+        ranking_version: str = "",
+    ) -> dict[str, Any] | None:
+        """Store or remove the reader's decision; see `library_state.set_decision`."""
+        with self.connect() as connection:
+            return library_state.set_decision(
+                connection,
+                lexeme_id,
+                decision,
+                shelf_at=shelf_at,
+                score_at=score_at,
+                ranking_version=ranking_version,
+            )
+
+    def save_card_edit(self, lexeme_id: str, **changes: Any) -> dict[str, Any] | None:
+        """Edit `meaning_ru` and/or `example_occurrence_id`; see `library_state.save_card_edit`."""
+        unknown = set(changes) - {"meaning_ru", "example_occurrence_id"}
+        if unknown:
+            raise TypeError(f"unexpected card fields: {sorted(unknown)}")
+        with self.connect() as connection:
+            return library_state.save_card_edit(connection, lexeme_id, **changes)
+
+    def load_reader_state(self) -> dict[str, Any]:
+        """The reader's decisions, card edits and last export times as one snapshot."""
+        with self.connect() as connection:
+            connection.execute("BEGIN")
+            return {
+                "decisions": library_state.read_decisions(connection),
+                "card_edits": library_state.read_card_edits(connection),
+                "exported_at": library_state.read_last_exports(connection),
+            }
+
+    def record_export_run(
+        self, destination: str, lexeme_ids: list[str], *, path: str = "", scope: str = "new"
+    ) -> int:
+        """Append an export run after a push or a file succeeded; see `library_state`."""
+        with self.connect() as connection:
+            return library_state.record_export_run(
+                connection, destination, lexeme_ids, path=path, scope=scope
+            )
+
+    def load_decisions(self) -> dict[str, dict[str, Any]]:
+        with self.connect() as connection:
+            return library_state.read_decisions(connection)
+
+    def load_card_edits(self) -> dict[str, dict[str, Any]]:
+        with self.connect() as connection:
+            return library_state.read_card_edits(connection)
 
     def queue_status(self) -> dict[str, int]:
         result = {"pending": 0, "processing": 0, "failed": 0}
@@ -320,7 +394,14 @@ class SQLiteVocabularyRepository:
             str(analysis.get("base_form") or lexeme.get("lemma") or "")
         )
         language = str(lexeme.get("language") or "en")
+        processing = dict(lexeme.get("processing") or {})
+        destination = _normalize_obsidian_destination(
+            lexeme, ((lexeme.get("destinations") or {}).get("obsidian") or {})
+        )
         with self.connect() as connection:
+            # The conflict check and the writes share one write transaction, so
+            # another process cannot add the same key in between.
+            connection.execute("BEGIN IMMEDIATE")
             conflict = connection.execute(
                 """
                 SELECT id FROM lexemes
@@ -328,98 +409,107 @@ class SQLiteVocabularyRepository:
                 """,
                 (language, canonical_key, lexeme_id),
             ).fetchone()
-        if conflict is not None:
-            self.save_catalog(catalog)
-            return True
-
-        processing = dict(lexeme.get("processing") or {})
-        destination = _normalize_obsidian_destination(
-            lexeme, ((lexeme.get("destinations") or {}).get("obsidian") or {})
-        )
-        with self.connect() as connection:
-            connection.execute(
-                """
-                UPDATE lexemes
-                SET canonical_key = ?, display_form = ?, freshness = ?,
-                    last_seen_at = ?, last_kindle_sync_id = ?
-                WHERE id = ?
-                """,
-                (
-                    canonical_key,
-                    str(lexeme.get("display_form") or canonical_key),
-                    str(lexeme.get("freshness") or "known"),
-                    str(lexeme.get("last_seen_at") or vocab_cache.utc_now()),
-                    str(lexeme.get("last_kindle_sync_id") or ""),
-                    lexeme_id,
-                ),
-            )
-            for form in [canonical_key, *(lexeme.get("forms") or [])]:
-                normalized = vocab_cache.normalize_lemma(str(form or ""))
-                if normalized:
-                    connection.execute(
-                        "INSERT OR IGNORE INTO forms(lexeme_id, form, normalized_form) VALUES (?, ?, ?)",
-                        (lexeme_id, str(form), normalized),
-                    )
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO analyses(
-                    lexeme_id, state, payload_json, updated_at, error, origin
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    lexeme_id,
-                    processing.get("state") or "pending",
-                    json.dumps(processing.get("analysis"), ensure_ascii=False, sort_keys=True)
-                    if processing.get("analysis")
-                    else None,
-                    processing.get("updated_at") or "",
-                    processing.get("error") or "",
-                    processing.get("origin") or "sqlite_optimizer",
-                ),
-            )
-            state = str(processing.get("state") or "pending")
-            if state in {"ready", "rejected"}:
-                connection.execute("DELETE FROM processing_queue WHERE lexeme_id = ?", (lexeme_id,))
+            if conflict is not None:
+                connection.rollback()
             else:
-                queue_state = "pending" if state == "processing" else state
+                previous = connection.execute(
+                    "SELECT language, canonical_key FROM lexemes WHERE id = ?", (lexeme_id,)
+                ).fetchone()
                 connection.execute(
                     """
-                    INSERT OR REPLACE INTO processing_queue(
-                        lexeme_id, status, created_at, updated_at, error
-                    ) VALUES (?, ?, COALESCE(
-                        (SELECT created_at FROM processing_queue WHERE lexeme_id = ?), ?
-                    ), ?, ?)
+                    UPDATE lexemes
+                    SET canonical_key = ?, display_form = ?, freshness = ?,
+                        last_seen_at = ?, last_kindle_sync_id = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        canonical_key,
+                        str(lexeme.get("display_form") or canonical_key),
+                        str(lexeme.get("freshness") or "known"),
+                        str(lexeme.get("last_seen_at") or vocab_cache.utc_now()),
+                        str(lexeme.get("last_kindle_sync_id") or ""),
+                        lexeme_id,
+                    ),
+                )
+                for form in [canonical_key, *(lexeme.get("forms") or [])]:
+                    normalized = vocab_cache.normalize_lemma(str(form or ""))
+                    if normalized:
+                        connection.execute(
+                            "INSERT OR IGNORE INTO forms(lexeme_id, form, normalized_form) VALUES (?, ?, ?)",
+                            (lexeme_id, str(form), normalized),
+                        )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO analyses(
+                        lexeme_id, state, payload_json, updated_at, error, origin
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         lexeme_id,
-                        queue_state,
-                        lexeme_id,
-                        str(lexeme.get("first_seen_at") or vocab_cache.utc_now()),
-                        processing.get("updated_at") or vocab_cache.utc_now(),
+                        processing.get("state") or "pending",
+                        json.dumps(processing.get("analysis"), ensure_ascii=False, sort_keys=True)
+                        if processing.get("analysis")
+                        else None,
+                        processing.get("updated_at") or "",
                         processing.get("error") or "",
+                        processing.get("origin") or "sqlite_optimizer",
                     ),
                 )
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO destinations(
-                    lexeme_id, destination, state, eligible, reason, external_key,
-                    last_checked_at, last_synced_at, last_exported_at
-                ) VALUES (?, 'obsidian', ?, ?, ?, ?, ?, ?, '')
-                """,
-                (
-                    lexeme_id,
-                    destination["state"],
-                    int(destination["eligible"]),
-                    destination["reason"],
-                    destination["external_key"],
-                    destination["last_checked_at"],
-                    destination["last_synced_at"],
-                ),
-            )
-            connection.execute(
-                "INSERT OR REPLACE INTO metadata(key, value) VALUES ('updated_at', ?)",
-                (vocab_cache.utc_now(),),
-            )
+                state = str(processing.get("state") or "pending")
+                if state in {"ready", "rejected"}:
+                    connection.execute("DELETE FROM processing_queue WHERE lexeme_id = ?", (lexeme_id,))
+                else:
+                    queue_state = "pending" if state == "processing" else state
+                    connection.execute(
+                        """
+                        INSERT OR REPLACE INTO processing_queue(
+                            lexeme_id, status, created_at, updated_at, error
+                        ) VALUES (?, ?, COALESCE(
+                            (SELECT created_at FROM processing_queue WHERE lexeme_id = ?), ?
+                        ), ?, ?)
+                        """,
+                        (
+                            lexeme_id,
+                            queue_state,
+                            lexeme_id,
+                            str(lexeme.get("first_seen_at") or vocab_cache.utc_now()),
+                            processing.get("updated_at") or vocab_cache.utc_now(),
+                            processing.get("error") or "",
+                        ),
+                    )
+                connection.execute(
+                    """
+                    INSERT OR REPLACE INTO destinations(
+                        lexeme_id, destination, state, eligible, reason, external_key,
+                        last_checked_at, last_synced_at, last_exported_at
+                    ) VALUES (?, 'obsidian', ?, ?, ?, ?, ?, ?, '')
+                    """,
+                    (
+                        lexeme_id,
+                        destination["state"],
+                        int(destination["eligible"]),
+                        destination["reason"],
+                        destination["external_key"],
+                        destination["last_checked_at"],
+                        destination["last_synced_at"],
+                    ),
+                )
+                connection.execute(
+                    "INSERT OR REPLACE INTO metadata(key, value) VALUES ('updated_at', ?)",
+                    (vocab_cache.utc_now(),),
+                )
+                # The key may have changed under the same id: the rows of this
+                # word follow it, so the next catalog save (which recomputes ids)
+                # re-links them.
+                if previous is not None:
+                    old_identity = (str(previous["language"]), str(previous["canonical_key"]))
+                    library_state.follow_key_change(
+                        connection, lexeme_id, old_identity, (old_identity[0], canonical_key)
+                    )
+                library_state.relink(connection)
+        if conflict is not None:
+            self.save_catalog(catalog)
+            return True
         return False
 
     def save_enrichment(
@@ -474,128 +564,11 @@ class SQLiteVocabularyRepository:
             )
 
     def _initialize(self) -> None:
-        migration_completed = False
+        library_migrations.migrate(self.path)
         with self.connect() as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            self._create_schema(connection)
-            version = connection.execute(
-                "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1"
-            ).fetchone()
-            if version is None or int(version["version"]) < SCHEMA_VERSION:
-                connection.execute(
-                    "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
-                    (SCHEMA_VERSION, vocab_cache.utc_now()),
-                )
-            migration_completed = connection.execute(
-                "SELECT value FROM metadata WHERE key = 'legacy_migration_completed'"
-            ).fetchone() is not None
+            migration_completed = _legacy_migration_completed(connection)
         if not migration_completed:
             self._migrate_legacy_files()
-
-    def _create_schema(self, connection: sqlite3.Connection) -> None:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS schema_migrations(
-                version INTEGER PRIMARY KEY,
-                applied_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS metadata(
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS lexemes(
-                id TEXT PRIMARY KEY,
-                language TEXT NOT NULL,
-                canonical_key TEXT NOT NULL,
-                display_form TEXT NOT NULL,
-                freshness TEXT NOT NULL,
-                first_seen_at TEXT NOT NULL,
-                last_seen_at TEXT NOT NULL,
-                last_kindle_sync_id TEXT NOT NULL,
-                source_kindle INTEGER NOT NULL DEFAULT 0,
-                source_legacy INTEGER NOT NULL DEFAULT 0,
-                UNIQUE(language, canonical_key)
-            );
-            CREATE TABLE IF NOT EXISTS forms(
-                lexeme_id TEXT NOT NULL REFERENCES lexemes(id) ON DELETE CASCADE,
-                form TEXT NOT NULL,
-                normalized_form TEXT NOT NULL,
-                PRIMARY KEY(lexeme_id, normalized_form)
-            );
-            CREATE INDEX IF NOT EXISTS idx_forms_normalized ON forms(normalized_form);
-            CREATE TABLE IF NOT EXISTS occurrences(
-                id TEXT PRIMARY KEY,
-                lexeme_id TEXT NOT NULL REFERENCES lexemes(id) ON DELETE CASCADE,
-                source TEXT NOT NULL,
-                word TEXT NOT NULL,
-                context TEXT NOT NULL,
-                book_key TEXT NOT NULL,
-                book_title TEXT NOT NULL,
-                authors TEXT NOT NULL,
-                looked_up_at TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_occurrences_lexeme ON occurrences(lexeme_id);
-            CREATE TABLE IF NOT EXISTS analyses(
-                lexeme_id TEXT PRIMARY KEY REFERENCES lexemes(id) ON DELETE CASCADE,
-                state TEXT NOT NULL,
-                payload_json TEXT,
-                updated_at TEXT NOT NULL,
-                error TEXT NOT NULL,
-                origin TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS processing_queue(
-                lexeme_id TEXT PRIMARY KEY REFERENCES lexemes(id) ON DELETE CASCADE,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                error TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS destinations(
-                lexeme_id TEXT NOT NULL REFERENCES lexemes(id) ON DELETE CASCADE,
-                destination TEXT NOT NULL,
-                state TEXT NOT NULL,
-                eligible INTEGER NOT NULL DEFAULT 0,
-                reason TEXT NOT NULL,
-                external_key TEXT NOT NULL,
-                last_checked_at TEXT NOT NULL,
-                last_synced_at TEXT NOT NULL,
-                last_exported_at TEXT NOT NULL,
-                PRIMARY KEY(lexeme_id, destination)
-            );
-            CREATE TABLE IF NOT EXISTS sync_runs(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                connector TEXT NOT NULL,
-                status TEXT NOT NULL,
-                added INTEGER NOT NULL DEFAULT 0,
-                skipped INTEGER NOT NULL DEFAULT 0,
-                error TEXT NOT NULL,
-                completed_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS review_cards(
-                lexeme_id TEXT PRIMARY KEY REFERENCES lexemes(id) ON DELETE CASCADE,
-                interval_days REAL NOT NULL DEFAULT 0,
-                repetitions INTEGER NOT NULL DEFAULT 0,
-                due_at TEXT NOT NULL,
-                reviewed_at TEXT NOT NULL,
-                last_rating TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_review_cards_due ON review_cards(due_at);
-            -- Keyed by canonical identity, not lexeme id, so enrichments survive
-            -- full catalog replacement and lexeme merges without a cascade.
-            CREATE TABLE IF NOT EXISTS enrichments(
-                language TEXT NOT NULL,
-                canonical_key TEXT NOT NULL,
-                status TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                model TEXT NOT NULL,
-                prompt_version INTEGER NOT NULL,
-                payload_json TEXT,
-                error TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY(language, canonical_key)
-            );
-            """
-        )
 
     def _migrate_legacy_files(self) -> None:
         catalog_path = self.workspace / ".app-data" / vocab_cache.CACHE_FILENAME
@@ -615,20 +588,34 @@ class SQLiteVocabularyRepository:
                 logger.exception("Failed to read legacy processed snapshot path=%s", snapshot_path)
         migrated = _canonicalize_catalog(catalog, snapshot.get("processed") or {})
         with self.connect() as connection:
-            self._replace_catalog(connection, migrated)
+            # The checks and the replacement share one write transaction, so a
+            # sync committed by another process in between is never overwritten.
+            connection.execute("BEGIN IMMEDIATE")
+            if _legacy_migration_completed(connection):
+                return
+            has_lexemes = connection.execute("SELECT 1 FROM lexemes LIMIT 1").fetchone() is not None
+            if has_lexemes:
+                # Once SQLite holds words it is the only source of truth: never
+                # replace them from legacy JSON, even if the marker is missing.
+                logger.warning("Legacy JSON migration skipped: the SQLite library already has words")
+            else:
+                self._replace_catalog(connection, migrated)
             connection.execute(
                 "INSERT OR REPLACE INTO metadata(key, value) VALUES ('legacy_migration_completed', ?)",
                 (vocab_cache.utc_now(),),
             )
-        logger.info(
-            "Migrated legacy vocabulary state to SQLite path=%s lexemes=%d",
-            self.path,
-            len(migrated["lexemes"]),
-        )
+        if not has_lexemes:
+            logger.info(
+                "Migrated legacy vocabulary state to SQLite path=%s lexemes=%d",
+                self.path,
+                len(migrated["lexemes"]),
+            )
 
     def _replace_catalog(self, connection: sqlite3.Connection, catalog: dict[str, Any]) -> None:
         # Full catalog replacement is used by Kindle and Obsidian sync. Keep
-        # review progress by canonical identity across the FK cascade.
+        # review progress by canonical identity across the FK cascade. The
+        # reader's own rows have no FK: they are re-linked to the new ids at
+        # the end, in the same transaction.
         review_states = {
             (str(row["language"]), str(row["canonical_key"])): row
             for row in connection.execute(
@@ -785,6 +772,38 @@ class SQLiteVocabularyRepository:
                 "INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)",
                 (key, value),
             )
+        library_state.relink(connection, catalog.get("id_map") or {})
+
+
+def _legacy_migration_completed(connection: sqlite3.Connection) -> bool:
+    return connection.execute(
+        "SELECT 1 FROM metadata WHERE key = 'legacy_migration_completed'"
+    ).fetchone() is not None
+
+
+def _destinations_from_rows(rows: list[sqlite3.Row]) -> dict[str, Any]:
+    destinations: dict[str, Any] = {
+        "obsidian": _default_obsidian_destination(),
+        "anki": {"state": "not_exported", "last_exported_at": ""},
+        "quizlet": {"state": "not_exported", "last_exported_at": ""},
+    }
+    for destination in rows:
+        name = str(destination["destination"])
+        if name == "obsidian":
+            destinations[name] = {
+                "state": str(destination["state"]),
+                "eligible": bool(destination["eligible"]),
+                "reason": str(destination["reason"]),
+                "external_key": str(destination["external_key"]),
+                "last_checked_at": str(destination["last_checked_at"]),
+                "last_synced_at": str(destination["last_synced_at"]),
+            }
+        elif name in {"anki", "quizlet"}:
+            destinations[name] = {
+                "state": str(destination["state"]),
+                "last_exported_at": str(destination["last_exported_at"]),
+            }
+    return destinations
 
 
 def _enrichment_from_row(row: sqlite3.Row) -> dict[str, Any]:
@@ -805,10 +824,10 @@ def repository_for(workspace: Path) -> SQLiteVocabularyRepository:
 
 
 def _review_now(value: datetime | None) -> datetime:
-    current = value or datetime.now(timezone.utc)
+    current = value or datetime.now(UTC)
     if current.tzinfo is None or current.utcoffset() is None:
         raise ValueError("review time must include a timezone")
-    return current.astimezone(timezone.utc)
+    return current.astimezone(UTC)
 
 
 def _review_eligible(lexeme: dict[str, Any]) -> bool:
@@ -845,6 +864,8 @@ def _canonicalize_catalog(
 ) -> dict[str, Any]:
     snapshot = snapshot or {}
     grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    # Old id -> the id it is saved under now (merges and key changes), for re-link.
+    id_map: dict[str, str] = {}
     for raw in catalog.get("lexemes") or []:
         sources = raw.get("sources") or {}
         if sources.get("obsidian") and not sources.get("kindle") and not sources.get("legacy"):
@@ -871,6 +892,9 @@ def _canonicalize_catalog(
                 "_all_new": True,
             }
             grouped[group_key] = target
+        raw_id = str(raw.get("id") or "")
+        if raw_id and raw_id != target["id"]:
+            id_map[raw_id] = target["id"]
         target["first_seen_at"] = min(
             str(target.get("first_seen_at") or vocab_cache.utc_now()),
             str(raw.get("first_seen_at") or vocab_cache.utc_now()),
@@ -938,6 +962,7 @@ def _canonicalize_catalog(
         "cached_at": vocab_cache.utc_now(),
         "last_kindle_sync_id": str(catalog.get("last_kindle_sync_id") or ""),
         "lexemes": list(grouped.values()),
+        "id_map": id_map,
     }
 
 
