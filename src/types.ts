@@ -127,6 +127,7 @@ export type LexemeRecord = {
   dictionary?: DictionaryMeaning | null;
   /** Short-list contract (C0). Optional until the bridge sends it; see `LexemeRecordV4`. */
   ranking?: LexemeRanking | null;
+  study_priority?: StudyPriority;
   decision?: LexemeDecision | null;
   card?: CardFields;
   export?: ExportInfo;
@@ -141,6 +142,8 @@ export type Shelf = "worth" | "disputed" | "not_worth" | "junk" | "known";
 export type DecisionValue = "known" | "learn" | "skip" | "junk";
 export type LeanValue = "learn" | "skip" | "junk";
 export type RankingMode = "learning" | "full";
+/** Personal study order. Level 1 comes first. A provisional 6 awaits sufficient analysis. */
+export type StudyPriority = { level: number; score: number; provisional: boolean; reason: string };
 export type MeaningSource = "edited" | "llm" | "dictionary" | "none";
 export type ExportDestination = "anki" | "csv" | "obsidian";
 export type ExportScope = "new" | "again";
@@ -189,7 +192,7 @@ export type ExportInfo = {
 
 /** A library entry as the short-list bridge sends it: the old fields plus all new ones. */
 export type LexemeRecordV4 = LexemeRecord &
-  Required<Pick<LexemeRecord, "ranking" | "decision" | "card" | "export" | "is_new">>;
+  Required<Pick<LexemeRecord, "study_priority" | "ranking" | "decision" | "card" | "export" | "is_new">>;
 
 export type ShelfCounts = Record<Shelf, number>;
 

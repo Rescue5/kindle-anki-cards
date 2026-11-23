@@ -46,6 +46,7 @@ import {
   type SetDecisionResult,
   type Shelf,
   type ShelfCounts,
+  type StudyPriority,
   type WordAnalysis,
 } from "@/types";
 import { BridgeError, defaultSettings } from "./backend";
@@ -81,6 +82,8 @@ type Spec = {
   fresh: boolean;
   shelf: Shelf;
   rankScore: number;
+  /** Sample of the priority the Python bridge would return for this invented word. */
+  studyLevel: number;
   lean?: LeanValue;
   reasons: RankingReason[];
 };
@@ -93,74 +96,80 @@ const specs: Spec[] = [
   {
     word: "admitting", lemma: "admit", pos: "v", meaning: "признавать; сознаваться",
     lookups: [["She knew the answer but shied from admitting it.", ...MIRROR, 10], ["He was slow to admit his own mistake.", ...MIRROR, 20]],
-    state: "ready", importance: 10, fresh: false, shelf: "worth", rankScore: 0.93,
+    state: "ready", importance: 10, fresh: false, shelf: "worth", rankScore: 0.42, studyLevel: 1,
     reasons: [{ code: "repeat_lookups", text: "Искали 2 раза", weight: 0.75 }, { code: "after_export", text: "Снова искали после экспорта", weight: 0.4 }],
   },
   {
     word: "glimpse", lemma: "glimpse", pos: "n", meaning: "проблеск; мимолётное впечатление",
     lookups: [["For a moment he caught a glimpse of the city below.", ...NIGHT, 9]],
-    state: "pending", importance: 7, fresh: true, shelf: "worth", rankScore: 0.88,
+    state: "pending", importance: 7, fresh: true, shelf: "worth", rankScore: 0.33, studyLevel: 2,
     reasons: [{ code: "reading_now", text: "Из книги с недавними поисками", weight: 0.5 }, { code: "frequency", text: "Не слишком частое слово", weight: 0.3 }],
   },
   {
     word: "dread", lemma: "dread", pos: "n", meaning: "страх; тревожное предчувствие",
     lookups: [["A quiet dread settled over the room.", ...SHADOWS, 8]],
-    state: "pending", importance: 7, fresh: true, shelf: "worth", rankScore: 0.84,
+    state: "pending", importance: 7, fresh: true, shelf: "worth", rankScore: 0.31, studyLevel: 2,
     reasons: [{ code: "recency", text: "Искали на этой неделе", weight: 0.4 }, { code: "frequency", text: "Не слишком частое слово", weight: 0.3 }],
   },
   {
     word: "submerged", lemma: "submerge", pos: "v", meaning: "погружать; затоплять",
     lookups: [["He tried to submerge the memory before it surfaced again.", ...NIGHT, 7]],
-    state: "pending", importance: 6, fresh: false, shelf: "worth", rankScore: 0.71,
+    state: "pending", importance: 6, fresh: false, shelf: "worth", rankScore: 0.27, studyLevel: 3,
     reasons: [{ code: "frequency", text: "Не слишком частое слово", weight: 0.35 }],
   },
   {
     word: "resilient", lemma: "resilient", pos: "a", meaning: "стойкий; жизнестойкий",
     lookups: [["Her resilient spirit never broke.", ...SHADOWS, 6], ["The town proved more resilient than anyone expected.", ...SHADOWS, 14]],
-    state: "ready", importance: 7, fresh: false, shelf: "worth", rankScore: 0.66,
+    state: "ready", importance: 7, fresh: false, shelf: "worth", rankScore: 0.25, studyLevel: 4,
     reasons: [{ code: "repeat_lookups", text: "Искали 2 раза", weight: 0.6 }],
   },
   {
     word: "vigilant", lemma: "vigilant", pos: "a", meaning: "бдительный, внимательный",
     lookups: [["They remained vigilant through the night.", ...SHADOWS, 5]],
-    state: "rejected", importance: 1, fresh: false, shelf: "not_worth", rankScore: 0.2,
-    reasons: [{ code: "frequency_common", text: "Слово из частых, вы его, скорее всего, знаете", weight: -0.6 }],
+    state: "rejected", importance: 1, fresh: false, shelf: "not_worth", rankScore: 0.08, studyLevel: 8,
+    reasons: [{ code: "frequency_common", text: "Часто встречается в текстах", weight: -0.6 }],
   },
   {
     word: "ephemeral", lemma: "ephemeral", pos: "a", meaning: "мимолётный; недолговечный",
     lookups: [["Joy is an ephemeral guest here.", ...NIGHT, 11], ["The ephemeral light faded.", ...NIGHT, 15]],
-    state: "ready", importance: 6, fresh: true, shelf: "worth", rankScore: 0.8,
+    state: "ready", importance: 6, fresh: true, shelf: "worth", rankScore: 0.29, studyLevel: 3,
     reasons: [{ code: "repeat_lookups", text: "Искали 2 раза", weight: 0.75 }, { code: "reading_now", text: "Из книги с недавними поисками", weight: 0.4 }],
   },
   {
     word: "wistful", lemma: "wistful", pos: "a", meaning: "тоскливый; задумчиво-грустный",
     lookups: [["A wistful smile crossed her face.", ...MIRROR, 12]],
-    state: "ready", importance: 5, fresh: true, shelf: "disputed", rankScore: 0.52, lean: "learn",
+    state: "ready", importance: 5, fresh: true, shelf: "disputed", rankScore: 0.21, studyLevel: 5, lean: "learn",
     reasons: [{ code: "frequency", text: "Не слишком частое слово", weight: 0.25 }, { code: "thin_evidence", text: "Искали один раз, данных мало", weight: -0.1 }],
   },
   {
     word: "sundry", lemma: "sundry", pos: "a", meaning: "",
     lookups: [["He packed sundry odds and ends into the bag.", ...MIRROR, 13]],
-    state: "ready", importance: 4, fresh: true, shelf: "disputed", rankScore: 0.47, lean: "skip",
+    state: "ready", importance: 4, fresh: true, shelf: "disputed", rankScore: 0.2, studyLevel: 6, lean: "skip",
     reasons: [{ code: "frequency", text: "Редкое слово, но в книгах бывает", weight: 0.15 }, { code: "thin_evidence", text: "Искали один раз, данных мало", weight: -0.2 }],
   },
   {
     word: "languid", lemma: "languid", pos: "a", meaning: "томный; вялый",
     lookups: [["The languid afternoon stretched on.", ...NIGHT, 4]],
-    state: "ready", importance: 5, fresh: false, shelf: "disputed", rankScore: 0.45, lean: "learn",
+    state: "ready", importance: 5, fresh: false, shelf: "disputed", rankScore: 0.195, studyLevel: 6, lean: "learn",
     reasons: [{ code: "recency", text: "Искали недавно", weight: 0.2 }, { code: "thin_evidence", text: "Искали один раз, данных мало", weight: -0.1 }],
   },
   {
     word: "Aldric", lemma: "aldric", pos: "", meaning: "",
     lookups: [["Aldric lowered his sword and waited.", ...MIRROR, 3]],
-    state: "rejected", importance: 1, fresh: false, shelf: "junk", rankScore: 0.02,
+    state: "rejected", importance: 1, fresh: false, shelf: "junk", rankScore: 0.02, studyLevel: 9,
     reasons: [{ code: "junk_proper_noun", text: "Похоже на имя персонажа", weight: -0.9 }],
   },
   {
     word: "cheerful", lemma: "cheerful", pos: "a", meaning: "весёлый; бодрый",
     lookups: [["A cheerful fire crackled in the hearth.", ...SHADOWS, 2]],
-    state: "ready", importance: 3, fresh: false, shelf: "worth", rankScore: 0.3,
+    state: "ready", importance: 3, fresh: false, shelf: "worth", rankScore: 0.14, studyLevel: 7,
     reasons: [{ code: "frequency_common", text: "Слово из частых", weight: -0.2 }],
+  },
+  {
+    word: "00:17", lemma: "00:17", pos: "", meaning: "",
+    lookups: [["The clock read 00:17 when the phone rang.", ...NIGHT, 2]],
+    state: "rejected", importance: 1, fresh: false, shelf: "junk", rankScore: 0, studyLevel: 10,
+    reasons: [{ code: "junk_non_word", text: "В записи нет букв", weight: -1 }],
   },
 ];
 
@@ -342,7 +351,7 @@ function scoreEntries(): Scored[] {
   for (const entry of mockEntries) {
     const spec = specOf(entry);
     // A word that was not processed yet has no ranking, as in the real library.
-    if (entry.processing.state === "pending" || entry.processing.state === "processing") continue;
+    if (entry.processing.state !== "ready" && entry.processing.state !== "rejected") continue;
     if (!spec && entry.processing.state !== "ready") continue;
     const decision = decisions.get(entry.id);
     if (decision) {
@@ -384,12 +393,30 @@ function withV4(entry: LexemeRecord, rankings: Map<string, LexemeRanking>): Lexe
   const mark = exportMarks.get(entry.id);
   return {
     ...entry,
+    study_priority: mockStudyPriority(entry),
     ranking: rankings.get(entry.id) ?? null,
     decision: decisions.get(entry.id) ?? null,
     card: cardOf(entry),
     export: { state: mark ? "exported" : "not_exported", last_exported_at: mark?.at ?? "", again: Boolean(mark && mark.lookupsAfter > 0), lookups_after: mark?.lookupsAfter ?? 0 },
     is_new: entry.freshness === "new" && !mark,
   };
+}
+
+function mockStudyPriority(entry: LexemeRecord): StudyPriority {
+  const spec = specOf(entry);
+  const state = entry.processing.state;
+  if (spec && (state === "ready" || state === "rejected")) {
+    const reason = spec.reasons.find((item) => keepsRepeats() || !REPEAT_REASONS.has(item.code));
+    return {
+      level: spec.studyLevel, score: spec.rankScore, provisional: false,
+      reason: reason?.text ?? "Пока мало признаков, что слово понадобится снова.",
+    };
+  }
+  const pendingReasons: Partial<Record<ProcessingState, string>> = {
+    pending: "Слово ожидает обработки.", processing: "Слово обрабатывается.",
+    failed: "Обработку не удалось завершить.",
+  };
+  return { level: 6, score: 0, provisional: true, reason: pendingReasons[state] ?? "Для оценки пока недостаточно данных." };
 }
 
 function v4Entries(): LexemeRecordV4[] {

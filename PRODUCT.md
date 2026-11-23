@@ -20,9 +20,8 @@ when they plug the reader in — about once a week.
 
 ## The promise
 
-"Out of everything you looked up while reading, here is what is worth learning
-— with the sentence from your own book — ready for your flashcard app. And
-later we will show you whether it stuck."
+"See every word you looked up, in the order it could be useful to learn.
+Choose what to study and take the sentence from your book into your flashcard app."
 
 ## What the product does, and does not
 
@@ -30,8 +29,11 @@ Does:
 
 1. **Collects** looked-up words from the reader (USB or a picked file — the
    file path is shown on the first screen, not hidden in a tooltip).
-2. **Ranks** them by how worth learning they are for this reader, filters out
-   junk, and explains every decision in one plain line (details on click).
+2. **Ranks every word** for this reader on a scale of 1 through 10. Start
+   with 1. Level 10 flags a possible recording error for inspection.
+   Each word stays searchable and has a reason in its card. Words awaiting
+   sufficient analysis show an explicitly provisional 6. A reader can choose
+   to learn a word at any level.
    This is the core and a statistics/ML problem; it is measured with
    `kindle_vocab_app/ranking_eval.py`. The book being read now is detected
    from recent lookups — the reader never sets a book status.
@@ -81,9 +83,9 @@ reference for look and copy, but the scope above wins where they differ:
 
 - **Главная** — since last time, the short list to export, «снова искали после
   экспорта» with its action. No reading-percent bar (no data for it).
-- **Слова** — the «Стоит учить» list by default; everything else behind one
-  «Остальные» filter; disputed words as a counter link, not a shelf; the card
-  inspector with translation, example choice and a one-line reason.
+- **Слова** opens the complete library ordered from priority 1 through 10,
+  with search, book and priority filters. Each card explains the recommendation
+  and lets the reader choose to study a word, edit its translation and pick an example.
 - **Спорные** — one by one, at most 5–7, from the counter link.
 - **Экспорт** — one button; the destination is remembered (chosen once, changed
   in Настройки); done/empty/error states.
@@ -103,8 +105,8 @@ Each milestone ends in something a reader can feel, with checks that pass.
 
 - Ranking v2 replaces the importance score: personal signals (repeat lookups,
   several books, recency, the book being read) outweigh corpus frequency;
-  every word gets a shelf (Стоит учить / Не стоит учить / Спорные / Не слова)
-  and one-line reasons.
+  every word gets a visible study priority and a reason. Internal shelves
+  continue to serve the short list and export.
 - The reader's decisions (Знаю / Учить / Не учить / Не слово) are stored and
   always win.
 - Done when: on `ranking_eval` the new ranking beats the current score at the

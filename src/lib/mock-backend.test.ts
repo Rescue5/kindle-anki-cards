@@ -57,12 +57,28 @@ describe("browser mock speaks the C0 contract", () => {
 
   it("ranks words that get processed and keeps the contract after processing", async () => {
     const before = await load();
-    expect(before.entries.filter((entry) => entry.ranking === null).length).toBeGreaterThan(0);
+    const waiting = before.entries.filter((entry) => entry.ranking === null);
+    expect(waiting.length).toBeGreaterThan(0);
+    for (const entry of waiting) expect(entry.study_priority).toMatchObject({ provisional: true, level: 6 });
     await callBackend("process_queue", {});
     const after = await load();
-    expect(after.entries.every((entry) => entry.ranking !== null)).toBe(true);
+    expect(after.entries.every((entry) => entry.ranking !== null && !entry.study_priority.provisional)).toBe(true);
     expectRanksAndCounts(after);
     expectShortList(after);
+  });
+
+  it("keeps a name and a malformed entry visible when the reader chooses to learn them", async () => {
+    const library = await load();
+    for (const [id, level] of [["lexeme-aldric", 9], ["lexeme-00:17", 10]] as const) {
+      const initial = library.entries.find((entry) => entry.id === id)!;
+      expect(initial.study_priority).toMatchObject({ level, provisional: false });
+      const chosen = await callBackend<SetDecisionResult>("set_decision", { lexeme_id: id, decision: "learn" });
+      expect(chosen.entry.study_priority).toEqual(initial.study_priority);
+      expect(chosen.newBatch.ids).toContain(id);
+      const undone = await callBackend<SetDecisionResult>("set_decision", { lexeme_id: id, decision: null });
+      expect(undone.entry.study_priority).toEqual(initial.study_priority);
+      expect(undone.newBatch.ids).not.toContain(id);
+    }
   });
 
   it("moves a disputed word to the shelf its decision names and back", async () => {

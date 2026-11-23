@@ -5,6 +5,7 @@ import { PencilFrame } from "@/components/sketch/sketch";
 import { MEANING_MAX_LENGTH, type DecisionValue, type LexemeRecord } from "@/types";
 import { cardChanges, cardDraft, selectedExample, type CardChanges, type CardDraft } from "./card-editor-domain";
 import { isCardEligible, obsidianSyncReason, partOfSpeechLabel, processingLabel, russianMeaning } from "./domain";
+import { decisionLabel, studyPriority } from "./study-priority";
 
 type Props = {
   entry: LexemeRecord;
@@ -33,6 +34,7 @@ export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headin
   const examples = entry.occurrences.filter((item) => item.context.trim());
   const fallbackMeaning = russianMeaning(entry)?.text || "";
   const tooLong = changes.meaning_ru !== undefined && [...draft.meaning].length > MEANING_MAX_LENGTH;
+  const priority = studyPriority(entry);
 
   // Background library refreshes may update the effective card. Keep an active draft intact.
   React.useEffect(() => {
@@ -63,15 +65,15 @@ export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headin
     }
   }
 
-  async function decide() {
-    if (disabled || pendingRef.current) return;
+  async function decide(decision: DecisionValue | null) {
+    if (disabled || dirty || pendingRef.current) return;
     pendingRef.current = true;
     setPending(true);
     setError("");
     setMessage("");
     try {
-      await onDecision(entry.id, entry.decision ? null : "skip");
-      setMessage(entry.decision ? "Решение снято" : "Слово исключено из подборки");
+      await onDecision(entry.id, decision);
+      setMessage(decision === null ? "Решение снято" : decision === "learn" ? "Вы выбрали учить это слово" : "Вы решили не учить это слово");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Не удалось изменить отбор. Попробуйте ещё раз.");
     } finally {
@@ -86,7 +88,10 @@ export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headin
       <PencilFrame />
       <div className="word-card-head"><h2 ref={headingRef} tabIndex={-1}>{entry.lemma}</h2></div>
       {readOnly ? <p className="words-meta">Пример · только просмотр</p> : null}
-      {entry.ranking?.reasons[0] ? <p className="words-meta">{entry.ranking.reasons[0].text}</p> : null}
+      <div className="card-priority">
+        <p>Приоритет {priority.level} из 10{priority.provisional ? " · предварительно" : ""}</p>
+        <p className="words-meta">{priority.reason}</p>
+      </div>
       <form onSubmit={(event) => void save(event)} className="card-edit-form" aria-busy={pending}>
         <label htmlFor="card-meaning">Перевод</label>
         <textarea id="card-meaning" value={draft.meaning} disabled={disabled} rows={3}
@@ -118,15 +123,20 @@ export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headin
         {error ? <p role="alert" className="words-error">{error}</p> : null}
         <p role="status" className="words-meta">{message || (dirty ? "Есть несохранённые правки" : "")}</p>
       </form>
-      <div className="card-decision"><Button variant="ghost" disabled={disabled || dirty} onClick={() => void decide()}>
-        {entry.decision ? "Снять моё решение" : "Не учить"}
-      </Button>{entry.decision?.value === "skip" ? <p className="words-meta">Вы решили не учить это слово.</p> : null}</div>
+      <div className="card-decision" aria-busy={pending}>
+        <p className="words-meta">Моё решение · {decisionLabel(entry)}</p>
+        <div className="card-edit-actions" role="group" aria-label="Моё решение">
+          <Button variant="secondary" aria-pressed={entry.decision?.value === "learn"} disabled={disabled || dirty || entry.decision?.value === "learn"} onClick={() => void decide("learn")}>Учить</Button>
+          <Button variant="ghost" aria-pressed={entry.decision?.value === "skip"} disabled={disabled || dirty || entry.decision?.value === "skip"} onClick={() => void decide("skip")}>Не учить</Button>
+          {entry.decision ? <Button variant="ghost" disabled={disabled || dirty} onClick={() => void decide(null)}>Снять моё решение</Button> : null}
+        </div>
+      </div>
     </article>
     <details className="card-details"><summary>Подробнее о слове</summary>
       <p className="words-meta">Формы · {entry.forms.join(" · ")}</p>
       <p className="words-meta">{processingLabel(entry.processing.state)} · {partOfSpeechLabel(entry.processing.analysis?.pos)}</p>
       {entry.processing.analysis?.frequency_note ? <p className="words-meta">{entry.processing.analysis.frequency_note}</p> : null}
-      {entry.ranking?.reasons.slice(1).map((reason) => <p className="words-meta" key={reason.code}>{reason.text}</p>)}
+      {entry.ranking?.reasons.map((reason) => <p className="words-meta" key={reason.code}>{reason.text}</p>)}
       {entry.processing.error ? <p className="words-error">{entry.processing.error}</p> : null}
       {entry.enrichment?.error ? <p className="words-error">{entry.enrichment.error}</p> : null}
       {entry.processing.analysis?.importance_note ? <p className="words-meta">{entry.processing.analysis.importance_note}</p> : null}

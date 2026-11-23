@@ -21,9 +21,3 @@ export function cardChanges(original: CardDraft, draft: CardDraft): CardChanges 
 export function selectedExample(entry: LexemeRecord, id: string) {
   return entry.occurrences.find((occurrence) => occurrence.id === id);
 }
-
-export function worthLearning(entry: LexemeRecord): boolean {
-  if (entry.ranking) return entry.ranking.shelf === "worth";
-  if (entry.decision) return entry.decision.value === "learn";
-  return entry.processing.state === "ready" && entry.processing.analysis?.accepted !== false;
-}

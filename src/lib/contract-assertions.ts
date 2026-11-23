@@ -7,7 +7,7 @@ import { DISPUTED_CAP, type LexemeRecordV4, type LibraryRanking, type LibraryRes
 export const libraryKeys: (keyof LibraryRanking)[] = [
   "rankingVersion", "rankingMode", "historyDays", "repeatSignal", "shelves", "newBatch", "disputed", "again",
 ];
-export const lexemeKeys: (keyof LexemeRecordV4)[] = ["ranking", "decision", "card", "export", "is_new"];
+export const lexemeKeys: (keyof LexemeRecordV4)[] = ["study_priority", "ranking", "decision", "card", "export", "is_new"];
 export const allShelves: Shelf[] = ["worth", "disputed", "not_worth", "junk", "known"];
 
 export function expectEveryKey(library: LibraryResultV4): void {

@@ -76,6 +76,7 @@ export function filterLexemes(
   query: string,
   selectedBook: BookOption | undefined,
   filter: QuickFilter,
+  compare?: (left: LexemeRecord, right: LexemeRecord) => number,
 ): LexemeRecord[] {
   const normalizedQuery = query.trim().toLocaleLowerCase("ru");
   const selectedBookKey = selectedBook?.key ?? "";
@@ -95,10 +96,10 @@ export function filterLexemes(
         value.toLocaleLowerCase("ru").includes(normalizedQuery),
       );
     })
-    .sort((left, right) => {
+    .sort(compare ?? ((left, right) => {
       if (left.freshness !== right.freshness) return left.freshness === "new" ? -1 : 1;
       return right.last_seen_at.localeCompare(left.last_seen_at) || left.lemma.localeCompare(right.lemma);
-    });
+    }));
 }
 
 export function counts(entries: LexemeRecord[]) {

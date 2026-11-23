@@ -3,12 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { CardEditor, WordTranslationDetails } from "./card-editor";
 import { mockBackend, resetMockBackend } from "@/lib/mock-backend";
-import type { Enrichment, LibraryResult } from "@/types";
+import type { DecisionValue, Enrichment, LibraryResult } from "@/types";
 
-async function renderEditor(readOnly = false, edited = false) {
+async function renderEditor(readOnly = false, edited = false, decision: DecisionValue | null = null) {
   resetMockBackend({ scenario: "mixed", instant: true });
   const library = await mockBackend<LibraryResult>("load_library", {});
   const entry = library.entries[0];
+  entry.decision = decision ? { value: decision, decided_at: "" } : null;
+  entry.study_priority = { level: 8, score: .07, provisional: true, reason: "Недостаточно истории для точной оценки" };
   if (edited && entry.card) entry.card = { ...entry.card, meaning_source: "edited", meaning_ru: "Мой перевод" };
   return renderToStaticMarkup(<CardEditor entry={entry} readOnly={readOnly} busy={false} headingRef={React.createRef()}
     llmEnabled={true} onEnrich={() => {}}
@@ -26,6 +28,16 @@ describe("card editor states", () => {
     expect(html).toMatch(/<textarea[^>]*disabled/);
     expect(html).toMatch(/<select[^>]*disabled/);
     expect(html).toMatch(/<button[^>]*disabled[^>]*>Не учить/);
+    const learnButton = html.split("</button>").find((fragment) => fragment.endsWith("Учить"));
+    expect(learnButton).toMatch(/<button[^>]*disabled/);
+  });
+  it("separates the priority reason from the personal choice and allows changing or removing it", async () => {
+    const html = await renderEditor(false, false, "skip");
+    expect(html).toContain("Приоритет 8 из 10 · предварительно");
+    expect(html).toContain("Недостаточно истории для точной оценки");
+    expect(html).toContain("Моё решение · Не учить");
+    expect(html).toContain(">Учить</button>");
+    expect(html).toContain("Снять моё решение");
   });
   it("offers individual translation and retry only for eligible words with LLM enabled, respecting the lock", async () => {
     resetMockBackend({ scenario: "mixed", instant: true });

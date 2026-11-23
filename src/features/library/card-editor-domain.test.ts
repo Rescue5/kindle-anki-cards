@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardChanges, cardDraft, selectedExample, worthLearning } from "./card-editor-domain";
+import { cardChanges, cardDraft, selectedExample } from "./card-editor-domain";
 import { mockBackend, resetMockBackend } from "@/lib/mock-backend";
 import type { LibraryResult } from "@/types";
 
@@ -28,15 +28,4 @@ describe("card editor payload", () => {
     expect(selectedExample(entry, "removed")).toBeUndefined();
   });
 
-  it("keeps an explicit skip out of the worth list and restores ranking when it is removed", async () => {
-    const entry = await exampleEntry();
-    entry.ranking = null;
-    entry.decision = { value: "skip", decided_at: "" };
-    expect(worthLearning(entry)).toBe(false);
-    entry.decision = null;
-    entry.ranking = { score: 4, shelf: "worth", rank: 1, reasons: [], lean: null, version: "r2" };
-    expect(worthLearning(entry)).toBe(true);
-    entry.decision = { value: "known", decided_at: "" };
-    expect(worthLearning(entry)).toBe(true);
-  });
 });

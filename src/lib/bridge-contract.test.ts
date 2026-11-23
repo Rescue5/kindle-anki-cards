@@ -21,7 +21,7 @@ const learning = learningFixture as LibraryResultV4;
 const libraryKeys: (keyof LibraryRanking)[] = [
   "rankingVersion", "rankingMode", "historyDays", "repeatSignal", "shelves", "newBatch", "disputed", "again",
 ];
-const lexemeKeys: (keyof LexemeRecordV4)[] = ["ranking", "decision", "card", "export", "is_new"];
+const lexemeKeys: (keyof LexemeRecordV4)[] = ["study_priority", "ranking", "decision", "card", "export", "is_new"];
 const shelves: Shelf[] = ["worth", "disputed", "not_worth", "junk", "known"];
 const errorCodes: ErrorCode[] = [
   "no_destination", "too_long", "example_not_found", "nothing_to_export", "export_failed",
