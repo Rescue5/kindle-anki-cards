@@ -56,12 +56,62 @@
 }
 .fox-lantern-close { margin-top: 6px; padding: 6px 0; min-height: 32px; color: hsl(var(--muted-foreground)); text-decoration: underline; text-underline-offset: 4px; }
 .fox-lantern-close:hover, .fox-lantern-close:active { color: hsl(var(--foreground)); }
-.fox-lantern[data-motion="true"] .fox-eyes { transform-box: fill-box; transform-origin: center; animation: fox-lantern-blink 18s linear infinite; }
-.fox-lantern[data-active="false"] .fox-eyes { animation-play-state: paused; }
-@keyframes fox-lantern-blink { 0%, 96%, 99%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.12); } }
+.fox-head, .fox-gaze, .fox-ear-near, .fox-ear-far, .fox-tail, .fox-pendant { transform-box: view-box; }
+.fox-head { transform-origin: 189px 227px; }
+.fox-gaze { transform-origin: 160px 166px; }
+.fox-ear-near { transform-origin: 183px 130px; }
+.fox-ear-far { transform-origin: 239px 153px; }
+.fox-tail { transform-origin: 232px 365px; }
+.fox-pendant { transform-origin: 49px 244px; }
+.fox-lantern[data-motion="true"] .fox-head { animation: fox-lantern-look 40s ease-in-out infinite; }
+.fox-lantern[data-motion="true"] .fox-gaze { animation: fox-lantern-gaze 40s ease-in-out infinite; }
+.fox-lantern[data-motion="true"] .fox-ear-near { animation: fox-lantern-ear-near 40s ease-in-out infinite; }
+.fox-lantern[data-motion="true"] .fox-ear-far { animation: fox-lantern-ear-far 40s ease-in-out infinite; }
+.fox-lantern[data-motion="true"] .fox-tail { animation: fox-lantern-tail 40s ease-in-out infinite; }
+.fox-lantern[data-motion="true"] .fox-pendant { animation: fox-lantern-pendant 40s ease-in-out infinite; }
+.fox-lantern[data-motion="true"] .fox-eyes { transform-box: fill-box; transform-origin: center; animation: fox-lantern-blink 40s ease-in-out infinite; }
+.fox-lantern[data-active="false"] :is(.fox-head, .fox-gaze, .fox-ear-near, .fox-ear-far, .fox-tail, .fox-pendant, .fox-eyes),
+.fox-lantern[data-speaking="true"] :is(.fox-head, .fox-gaze, .fox-ear-near, .fox-ear-far, .fox-tail, .fox-pendant, .fox-eyes) { animation-play-state: paused; }
+/* One shared 40-second timeline keeps gestures separated on every repetition. */
+@keyframes fox-lantern-look {
+  0%, 7%, 16%, 100% { transform: rotate(0deg); }
+  9%, 11% { transform: rotate(-7deg); }
+  14% { transform: rotate(1.8deg); }
+}
+@keyframes fox-lantern-gaze {
+  0%, 7.5%, 16%, 100% { transform: translate(0, 0) scaleX(1); }
+  9%, 11% { transform: translate(-8px, -2px) scaleX(.84); }
+  14% { transform: translate(1px, 0) scaleX(.98); }
+}
+@keyframes fox-lantern-ear-near {
+  0%, 20%, 24%, 100% { transform: rotate(0deg); }
+  21.5% { transform: rotate(-15deg); }
+  23% { transform: rotate(8deg); }
+}
+@keyframes fox-lantern-ear-far {
+  0%, 24%, 28%, 100% { transform: rotate(0deg); }
+  25.5% { transform: rotate(12deg); }
+  26.5% { transform: rotate(-5deg); }
+}
+@keyframes fox-lantern-tail {
+  0%, 55%, 68%, 100% { transform: rotate(0deg); }
+  58% { transform: rotate(8deg); }
+  61% { transform: rotate(-5deg); }
+  64% { transform: rotate(2deg); }
+}
+@keyframes fox-lantern-pendant {
+  0%, 33%, 46%, 100% { transform: rotate(0deg); }
+  36% { transform: rotate(3.8deg); }
+  39% { transform: rotate(-2.4deg); }
+  42% { transform: rotate(1.4deg); }
+  44% { transform: rotate(-.6deg); }
+}
+@keyframes fox-lantern-blink { 0%, 78%, 79.2%, 100% { transform: scaleY(1); } 78.5% { transform: scaleY(.12); } }
 @container (max-width: 520px) {
   .home-preparing:has(.fox-lantern) .home-desk { --fox-width: min(300px, 100%); display: flex; flex-direction: column; align-items: stretch; min-height: 0; padding-top: 0; }
   .home-preparing:has(.fox-lantern) .home-desk > .home-desk-text { order: 1; flex: none; margin-right: 0; max-width: none; }
   .home-preparing:has(.fox-lantern) .home-desk > .fox-lantern { position: relative; order: 2; align-self: flex-end; flex: none; margin-top: 22px; }
 }
-@media (prefers-reduced-motion: reduce) { .fox-lantern .fox-eyes { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  .fox-lantern :is(.fox-head, .fox-gaze, .fox-ear-near, .fox-ear-far, .fox-tail, .fox-pendant, .fox-eyes) { animation: none !important; }
+}

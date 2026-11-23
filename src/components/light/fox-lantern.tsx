@@ -70,7 +70,7 @@ export function FoxLantern({ motion = true }: { motion?: boolean } = {}) {
     };
   }, [open, close]);
 
-  return <div ref={scene} className="fox-lantern" data-motion={motion && !reduced} data-active={active}>
+  return <div ref={scene} className="fox-lantern" data-motion={motion && !reduced} data-active={active} data-speaking={open}>
     <div className="fox-lantern-figure" aria-hidden="true"><FoxFigure /></div>
     <button ref={trigger} type="button" className="fox-lantern-greet" aria-label="Поприветствовать лиса"
       aria-expanded={open} aria-controls={open ? speechId : undefined} onClick={() => setOpen((value) => !value)} />
