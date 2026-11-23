@@ -17,7 +17,7 @@ The module is pure and deterministic: no I/O, no randomness, no clock.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 RANKING_VERSION = "r2"
@@ -179,6 +179,7 @@ _JUNK_FEATURES = (
     ("unknown_word", {"unknown_to_local_lexicons"}, "нет в словарях"),
     ("glued_words", {"possibly_glued_words"}, "похоже на слитые слова"),
 )
+_STUDY_LEVEL_THRESHOLDS = (0.34, 0.30, 0.26, 0.22, 0.205, 0.19, 0.12, 0.06)
 
 
 def library_mode(history_days: int, repeat_signal: bool, min_days: int = FULL_MODE_MIN_DAYS) -> str:
@@ -226,6 +227,43 @@ def rank(facts: WordFacts, now: datetime, weights: Weights = DEFAULT_WEIGHTS, mo
     return Ranking(
         score=score, shelf="not_worth", reasons=_with_negative_reason(reasons, len(facts.lookups)), mode=mode
     )
+
+
+def structural_study_priority(token: str) -> dict[str, int | float | bool | str] | None:
+    """A non-blank token with no Unicode letters needs no lexical or time evidence."""
+    token = token.strip()
+    if token and not any(character.isalpha() for character in token):
+        return {"level": 10, "score": 0.0, "provisional": False, "reason": "В записи нет букв"}
+    return None
+
+
+def study_priority(
+    facts: WordFacts, now: datetime, *, mode: str, token: str, assessed: Ranking | None = None
+) -> dict[str, int | float | bool | str]:
+    """Describe an analysed token on the 1–10 scale independently of reader decisions."""
+    structural = structural_study_priority(token)
+    if structural is not None:
+        return structural
+    if facts.decision is not None:
+        assessed = rank(replace(facts, decision=None, decided_at=None), now, mode=mode)
+    elif assessed is None or assessed.mode != mode:
+        assessed = rank(facts, now, mode=mode)
+
+    level = next(
+        (position for position, threshold in enumerate(_STUDY_LEVEL_THRESHOLDS, 1) if assessed.score >= threshold), 9
+    )
+    strongest = next((reason for reason in assessed.reasons if reason.weight), None)
+    text = strongest.text if strongest else "Пока мало признаков полезности"
+    if strongest and strongest.code == "junk_unknown_word":
+        text = (
+            "Словарная проверка неполная" if "wordnet_unavailable" in facts.warnings
+            else "Слово не найдено в доступных словарях"
+        )
+    elif strongest and strongest.code in {"junk_non_word", "junk_non_english"}:
+        text = "Форма слова распознана неуверенно"
+    elif strongest and strongest.code == "recency":
+        text = "Недавний поиск в истории читалки" if strongest.weight > 0 else "Давний поиск в истории читалки"
+    return {"level": level, "score": assessed.score, "provisional": False, "reason": text}
 
 
 def _with_negative_reason(reasons: tuple[Reason, ...], lookups: int) -> tuple[Reason, ...]:

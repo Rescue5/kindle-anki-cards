@@ -387,7 +387,7 @@ _V4_LIBRARY_KEYS = (
     "rankingVersion", "rankingMode", "historyDays", "repeatSignal", "shelves", "newBatch",
     "disputed", "again",
 )
-_V4_ENTRY_KEYS = ("ranking", "decision", "card", "export", "is_new")
+_V4_ENTRY_KEYS = ("ranking", "study_priority", "decision", "card", "export", "is_new")
 
 
 def _without_v4(library: dict[str, Any]) -> dict[str, Any]:

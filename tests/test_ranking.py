@@ -14,6 +14,7 @@ from kindle_vocab_app.ranking import (
     WordFacts,
     library_mode,
     rank,
+    study_priority,
 )
 
 NOW = datetime(2026, 11, 1, 12, tzinfo=UTC)
@@ -46,6 +47,48 @@ def _codes(ranking: Ranking) -> list[str]:
 
 def _texts(ranking: Ranking) -> list[str]:
     return [reason.text for reason in ranking.reasons]
+
+
+class StudyPriorityTests(unittest.TestCase):
+    def test_inclusive_boundaries_use_the_unrounded_score(self) -> None:
+        thresholds = (0.34, 0.30, 0.26, 0.22, 0.205, 0.19, 0.12, 0.06)
+        for level, threshold in enumerate(thresholds, 1):
+            for score, expected in ((threshold, level), (math.nextafter(threshold, 0), level + 1)):
+                with self.subTest(score=score):
+                    assessed = Ranking(score, "worth", (), mode="learning")
+                    result = study_priority(_facts(), NOW, mode="learning", token="river", assessed=assessed)
+                    self.assertEqual((result["level"], result["score"], result["provisional"]), (expected, score, False))
+
+    def test_reader_decisions_including_lapsed_known_do_not_change_priority(self) -> None:
+        facts = _facts(lookups=((NOW, "book-a"),))
+        for mode in ("learning", "full"):
+            expected = study_priority(facts, NOW, mode=mode, token="river")
+            for decision in ("learn", "skip", "junk", "known"):
+                with self.subTest(mode=mode, decision=decision):
+                    changed = replace(facts, decision=decision, decided_at=_ago(1))
+                    assessed = rank(changed, NOW, mode=mode)
+                    self.assertEqual(study_priority(changed, NOW, mode=mode, token="river", assessed=assessed), expected)
+
+    def test_only_nonempty_tokens_without_letters_have_level_ten(self) -> None:
+        for token in ("42", "3.14", "—?!", "🐋"):
+            with self.subTest(token=token):
+                result = study_priority(_facts(), NOW, mode="full", token=token)
+                self.assertEqual((result["level"], result["reason"]), (10, "В записи нет букв"))
+        suspect = _facts(zipf=0, synset_count=0, proper_noun=True, warnings=frozenset({"non_word", "non_english"}))
+        for token in ("Ё", "ё-моё", "co-operate", "3-D", "B2B", "I", "", "旧文"):
+            with self.subTest(token=token):
+                self.assertIn(study_priority(suspect, NOW, mode="full", token=token)["level"], range(1, 10))
+
+    def test_unknown_name_and_missing_dictionary_keep_uncertain_reasons(self) -> None:
+        unknown = _facts(zipf=0, synset_count=0, proper_noun=True)
+        incomplete = replace(unknown, warnings=frozenset({"wordnet_unavailable"}))
+        self.assertEqual(
+            study_priority(unknown, NOW, mode="learning", token="Irwen")["reason"],
+            "Слово не найдено в доступных словарях",
+        )
+        self.assertEqual(
+            study_priority(incomplete, NOW, mode="learning", token="Irwen")["reason"], "Словарная проверка неполная"
+        )
 
 
 class DecisionTests(unittest.TestCase):

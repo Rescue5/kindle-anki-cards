@@ -112,6 +112,8 @@ def merge_kindle(
     }
 
     for entry in entries:
+        if not str(entry.get("word") or "").strip():
+            continue
         key = lexical_key(entry)
         candidate_id = lexeme_id(str(entry.get("language") or "en"), key)
         is_new_lexeme = candidate_id not in existing_ids
@@ -146,7 +148,12 @@ def merge_obsidian(catalog: dict[str, Any], entries: Iterable[dict[str, Any]]) -
 def lexical_key(entry: dict[str, Any]) -> str:
     analysis = entry.get("analysis") or {}
     value = analysis.get("base_form") or entry.get("lemma") or entry.get("stem") or entry.get("word") or entry.get("id")
-    return normalize_lemma(str(value or ""))
+    return normalize_lexical_key(str(value or ""))
+
+
+def normalize_lexical_key(value: str) -> str:
+    """Keep a non-blank reader token even if lemma normalization strips it entirely."""
+    return normalize_lemma(value) or " ".join(value.split())
 
 
 def normalize_lemma(value: str) -> str:

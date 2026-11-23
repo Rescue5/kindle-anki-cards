@@ -24,7 +24,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from kindle_vocab_app import card_fields, export_policy
-from kindle_vocab_app.contracts import BATCH_SIZE_DEFAULT, DISPUTED_CAP
+from kindle_vocab_app.contracts import BATCH_SIZE_DEFAULT, DISPUTED_CAP, StudyPriority
 from kindle_vocab_app.library_state import parse_moment
 from kindle_vocab_app.ranking import (
     RANKING_VERSION,
@@ -32,6 +32,8 @@ from kindle_vocab_app.ranking import (
     WordFacts,
     library_mode,
     rank,
+    structural_study_priority,
+    study_priority,
 )
 
 # Books with a lookup in this many days before `now` count as being read (see `WordFacts`).
@@ -40,6 +42,11 @@ READING_DAYS = 14
 NO_REPEAT_PREFIXES = ("koreader:", "kobo:")
 _SCORE_DIGITS = 4
 _WEIGHT_DIGITS = 3
+_PRIORITY_PENDING_REASONS = {
+    "pending": "Слово ожидает обработки",
+    "processing": "Слово обрабатывается",
+    "failed": "Обработка слова не удалась",
+}
 
 
 def decorate(
@@ -50,7 +57,7 @@ def decorate(
     exported_at: Mapping[str, str] | None = None,
     batch_size: int = BATCH_SIZE_DEFAULT,
 ) -> dict[str, Any]:
-    """Add `ranking`, `decision`, `card`, `export` and `is_new` to every entry, in place.
+    """Add `ranking`, `study_priority`, `decision`, `card`, `export` and `is_new` in place.
 
     Returns the library-level fields: `rankingVersion`, `rankingMode`, `historyDays`,
     `repeatSignal`, `shelves`, `newBatch`, `disputed` and `again`.
@@ -79,16 +86,37 @@ def decorate(
         lexeme_id = str(entry.get("id") or "")
         state = str((entry.get("processing") or {}).get("state") or "")
         if state not in export_policy.PROCESSED_STATES:
+            entry["study_priority"] = _provisional_priority(
+                _PRIORITY_PENDING_REASONS.get(state, "Анализ слова ещё недоступен")
+            )
             continue
         decision = decisions.get(lexeme_id)
+        word_lookups = lookups[lexeme_id]
         facts = _facts(
             entry,
-            lookups[lexeme_id] or [(_fallback_moment(entry, now), "")],
+            word_lookups or [(_fallback_moment(entry, now), "")],
             reading_books,
             decision,
             exported_at.get(lexeme_id),
         )
-        ranked[lexeme_id] = rank(facts, now, mode=mode)
+        outcome = rank(facts, now, mode=mode)
+        ranked[lexeme_id] = outcome
+        token = str(entry.get("lemma") or entry.get("display_form") or "")
+        structural = structural_study_priority(token)
+        if structural is not None:
+            entry["study_priority"] = structural
+        elif not _has_lexical_analysis(entry):
+            entry["study_priority"] = _provisional_priority("Недостаточно данных анализа")
+        elif not word_lookups:
+            entry["study_priority"] = _provisional_priority("Нет даты поиска слова")
+        else:
+            entry["study_priority"] = study_priority(
+                facts,
+                now,
+                mode=mode,
+                token=token,
+                assessed=outcome,
+            )
 
     positions = _positions(entries, ranked)
     for entry in entries:
@@ -170,6 +198,23 @@ def _lookups(entry: Mapping[str, Any]) -> list[tuple[datetime, str]]:
 def _fallback_moment(entry: Mapping[str, Any], now: datetime) -> datetime:
     """A word with no readable lookup time (an old import) counts from when it first appeared."""
     return parse_moment(str(entry.get("first_seen_at") or "")) or now
+
+
+def _provisional_priority(reason: str) -> StudyPriority:
+    return {"level": 6, "score": 0.0, "provisional": True, "reason": reason}
+
+
+def _has_lexical_analysis(entry: Mapping[str, Any]) -> bool:
+    analysis = (entry.get("processing") or {}).get("analysis") or {}
+    def measured(value: Any) -> bool:
+        return type(value) in (int, float) and math.isfinite(value)
+
+    frequencies = [analysis.get(key) for key in ("lemma_zipf", "form_zipf")]
+    synsets = analysis.get("wordnet_synset_count")
+    # Positive evidence suffices. Inferring a word is unknown takes measurements from both sources.
+    return any(measured(value) and value > 0 for value in [*frequencies, synsets]) or (
+        measured(synsets) and any(measured(value) for value in frequencies)
+    )
 
 
 def _facts(

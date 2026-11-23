@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -15,6 +18,56 @@ from kindle_vocab_app.tauri_bridge import _analysis_by_lemma, _load_catalog_with
 
 
 class BridgeSmokeTests(unittest.TestCase):
+    def test_scan_and_file_import_preserve_nonblank_tokens_after_processing_and_repeat(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            device_db = root / "vocab.db"
+            tokens = ("00:17", "?!", "123", "旧文", "glimpse", " \t ", "")
+            with closing(sqlite3.connect(device_db)) as connection:
+                connection.executescript("""
+                    CREATE TABLE WORDS(id TEXT, word TEXT, stem TEXT, lang TEXT);
+                    CREATE TABLE LOOKUPS(id TEXT, word_key TEXT, book_key TEXT, usage TEXT, timestamp INTEGER);
+                    CREATE TABLE BOOK_INFO(id TEXT, guid TEXT, title TEXT, authors TEXT);
+                    INSERT INTO BOOK_INFO VALUES ('book', 'guid', 'Sample Book', 'Sample Writer');
+                """)
+                for number, token in enumerate(tokens):
+                    key = str(number)
+                    connection.execute("INSERT INTO WORDS VALUES (?, ?, ?, 'en')", (key, token, token))
+                    timestamp = None if token == "?!" else 1783000000000 + number
+                    connection.execute(
+                        "INSERT INTO LOOKUPS VALUES (?, ?, 'book', ?, ?)", (key, key, f"A {token}.", timestamp)
+                    )
+                connection.commit()
+            payload = {"file_name": device_db.name, "data_base64": base64.b64encode(device_db.read_bytes()).decode()}
+            source = SimpleNamespace(label="Kindle fixture", copy_to_cache=lambda _target: device_db)
+            priority_10 = {"level": 10, "score": 0, "provisional": False, "reason": "В записи нет букв"}
+            expected_ids = {vocab_cache.lexeme_id("en", token) for token in tokens[:5]}
+
+            with (
+                patch("kindle_vocab_app.tauri_bridge.find_kindle_source", return_value=source),
+                patch("kindle_vocab_app.tauri_bridge.mounted_volume_roots", return_value=[]),
+                patch("kindle_vocab_app.tauri_bridge._download_book_covers"),
+                patch("kindle_vocab_app.tauri_bridge._connector_status", return_value={"kindle": {"state": "unknown"}}),
+            ):
+                for action, request in (("import_reader_file", payload), ("scan", {})):
+                    with self.subTest(action=action):
+                        workspace = root / action
+                        imported = dispatch(action, request, workspace)
+                        self.assertEqual({entry["id"] for entry in imported["entries"]}, expected_ids)
+                        self.assertTrue(all(entry["study_priority"]["provisional"] for entry in imported["entries"]))
+                        dispatch("process_queue", {}, workspace)
+                        repeated = dispatch(action, request, workspace)
+                        self.assertEqual(repeated["queueStatus"]["total"], 0)
+                        self.assertEqual({entry["id"] for entry in repeated["entries"]}, expected_ids)
+                        entries = {entry["lemma"]: entry for entry in repeated["entries"]}
+                        self.assertTrue(all(len(entry["occurrences"]) == 1 for entry in entries.values()))
+                        self.assertEqual(entries["glimpse"]["processing"]["state"], "ready")
+                        self.assertLess(entries["旧文"]["study_priority"]["level"], 10)
+                        for token in ("00:17", "?!", "123"):
+                            self.assertEqual(entries[token]["processing"]["state"], "rejected")
+                            self.assertEqual(entries[token]["study_priority"], priority_10)
+                            self.assertNotIn(entries[token]["id"], repeated["newBatch"]["ids"])
+
     def test_obsidian_word_alias_matches_without_import_or_append(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)

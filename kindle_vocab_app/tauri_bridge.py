@@ -381,7 +381,7 @@ def _process_queued_lexemes(
                 "error": "",
                 "origin": "sqlite_optimizer",
             }
-            lexeme["lemma"] = vocab_cache.normalize_lemma(
+            lexeme["lemma"] = vocab_cache.normalize_lexical_key(
                 str(analysis.get("base_form") or lexeme.get("lemma") or "")
             )
             processed_new += 1

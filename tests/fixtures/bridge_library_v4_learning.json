@@ -115,7 +115,13 @@
         "again": false,
         "lookups_after": 0
       },
-      "is_new": true
+      "is_new": true,
+      "study_priority": {
+        "level": 1,
+        "score": 0.3543436937742045,
+        "provisional": false,
+        "reason": "Недавний поиск в истории читалки"
+      }
     },
     {
       "id": "k2",
@@ -205,7 +211,13 @@
         "again": false,
         "lookups_after": 0
       },
-      "is_new": false
+      "is_new": false,
+      "study_priority": {
+        "level": 3,
+        "score": 0.2934921496382375,
+        "provisional": false,
+        "reason": "Недавний поиск в истории читалки"
+      }
     }
   ],
   "last_kindle_sync_id": "sync-2",

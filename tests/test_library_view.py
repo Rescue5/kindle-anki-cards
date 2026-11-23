@@ -95,6 +95,75 @@ class PayloadTests(unittest.TestCase):
             result = dispatch("process_queue", {}, workspace)
         self.assertEqual(_problems(result), [])
 
+    def test_study_priority_covers_all_records_without_queuing_or_rewriting_analysis(self) -> None:
+        unfinished = [word(name, state=state) for name, state in (
+            ("waiting", "pending"), ("running", "processing"), ("broken", "failed"),
+        )]
+        legacy = word("legacy")
+        legacy["processing"]["analysis"] = {"base_form": "legacy", "importance_score": 7, "lemma_zipf": 0}
+        unobserved = word("unobserved")
+        unobserved["occurrences"][0]["looked_up_at"] = ""
+        words = [*unfinished, legacy, unobserved, word("admitted"), word("declined", state="rejected")]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            repository = build_library(workspace, words)
+            before = repository.load_catalog()["lexemes"], repository.queue_status()
+            result = _load(workspace)
+            self.assertEqual((repository.load_catalog()["lexemes"], repository.queue_status()), before)
+
+        self.assertEqual({entry["id"] for entry in result["entries"]}, {item["id"] for item in words})
+        for name, reason in (
+            ("waiting", "Слово ожидает обработки"), ("running", "Слово обрабатывается"),
+            ("broken", "Обработка слова не удалась"), ("legacy", "Недостаточно данных анализа"),
+            ("unobserved", "Нет даты поиска слова"),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(_entry(result, name)["study_priority"], {
+                    "level": 6, "score": 0, "provisional": True, "reason": reason,
+                })
+        self.assertFalse(_entry(result, "admitted")["study_priority"]["provisional"])
+        self.assertFalse(_entry(result, "declined")["study_priority"]["provisional"])
+
+    def test_study_priority_is_unchanged_even_when_a_lapsed_decision_changes_the_ranking(self) -> None:
+        lexeme = word("lumena", days=(0, 1, 180))
+        entry = [lexeme]
+        auto = library_view.decorate(entry)
+        self.assertEqual(auto["rankingMode"], "full")
+        priority, score = lexeme["study_priority"], lexeme["ranking"]["score"]
+        library_view.decorate(entry, decisions={lexeme["id"]: {
+            "value": "known", "decided_at": "2026-11-08T12:00:00+00:00",
+        }})
+        self.assertNotEqual(lexeme["ranking"]["score"], score)
+        self.assertEqual(lexeme["study_priority"], priority)
+
+    def test_ready_nonletter_token_is_level_ten_without_lexical_data_or_lookup_date(self) -> None:
+        lexeme = word("?!")
+        lexeme["processing"]["analysis"] = {"base_form": "?!"}
+        lexeme["occurrences"][0]["looked_up_at"] = ""
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            build_library(workspace, [lexeme])
+            [entry] = _load(workspace)["entries"]
+        self.assertEqual(entry["id"], lexeme["id"])
+        self.assertEqual(entry["study_priority"], {
+            "level": 10, "score": 0, "provisional": False, "reason": "В записи нет букв",
+        })
+
+    def test_rejected_word_with_manual_learn_keeps_its_priority_and_is_exportable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            lexeme = word("lumena", state="rejected", warnings=["possibly_glued_words"])
+            build_library(workspace, [lexeme])
+            settings.save(workspace, settings.AppSettings(export_destination="csv"))
+            before = _load(workspace)
+            self.assertEqual(before["newBatch"]["ids"], [])
+            learned = dispatch("set_decision", {"lexeme_id": lexeme["id"], "decision": "learn"}, workspace)
+            self.assertEqual(learned["entry"]["study_priority"], before["entries"][0]["study_priority"])
+            self.assertEqual(learned["newBatch"]["ids"], [lexeme["id"]])
+            result = dispatch("export_words", {"scope": "new", "ids": [lexeme["id"]]}, workspace)
+            self.assertEqual(result["exported"], 1)
+
 
 class NewBatchTests(unittest.TestCase):
     def test_batch_is_the_best_ranked_words_cut_at_the_size_setting(self) -> None:

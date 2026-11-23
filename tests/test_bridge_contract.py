@@ -75,6 +75,14 @@ class ValidatorCatchesTests(unittest.TestCase):
         self._entry("w1")["ranking"]["rank"] = 0
         self.assertProblem("ranks in shelf worth")
 
+    def test_study_priority_is_required_and_well_formed(self):
+        del self._entry("w1")["study_priority"]
+        self._entry("w2")["study_priority"].update(level=11, score=float("nan"), reason=" ")
+        self._entry("w3")["study_priority"].update(level=5, score=0.15, provisional=True)
+        for fragment in ("missing study_priority", "integer in 1..10", "score: not in 0..1", "reason: empty",
+                         "provisional priority must have level 6 and score 0"):
+            self.assertProblem(fragment)
+
     def test_more_than_five_disputed(self):
         self.library["disputed"]["ids"] = ["w5", "w6", "w1", "w2", "w3", "w4"]
         self.assertProblem("more than 5")

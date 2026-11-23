@@ -67,6 +67,7 @@ __all__ = [
     "SaveCardEditResult",
     "Shelf",
     "ShelfCounts",
+    "StudyPriority",
     "error_response",
     "validate_library",
 ]
@@ -161,6 +162,13 @@ class RankingInfo(TypedDict):
     version: str  # RANKING_VERSION
 
 
+class StudyPriority(TypedDict):
+    level: int  # 1 best, 10 possible recording error
+    score: float  # 0..1, before display bands; 0 if provisional
+    provisional: bool
+    reason: str
+
+
 class DecisionRecord(TypedDict):
     value: DecisionValue
     decided_at: str  # ISO 8601
@@ -184,6 +192,7 @@ class LexemePayloadV4(TypedDict):
     """The parts added to every library entry; the entry keeps its old fields beside them."""
 
     ranking: RankingInfo | None  # None until the word is processed
+    study_priority: StudyPriority  # for the library list; independent of manual decisions
     decision: DecisionRecord | None
     card: CardFields
     export: ExportInfo
@@ -325,6 +334,7 @@ def error_response(code: ErrorCode, detail: str = "") -> ActionError:
 # --- validation (used by the shared-fixture test and by bridge tests) -------------------------
 
 _RANKING_KEYS = {"score", "shelf", "rank", "lean", "reasons", "version"}
+_STUDY_PRIORITY_KEYS = {"level", "score", "provisional", "reason"}
 _REASON_KEYS = {"code", "text", "weight"}
 _DECISION_KEYS = {"value", "decided_at"}
 _CARD_KEYS = {"meaning_ru", "meaning_source", "example_occurrence_id", "edited"}
@@ -355,6 +365,22 @@ def _keys(problems: list[str], where: str, value: Any, expected: set[str]) -> bo
 
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _validate_study_priority(problems: list[str], where: str, priority: Any) -> None:
+    if not _keys(problems, where, priority, _STUDY_PRIORITY_KEYS):
+        return
+    level, score = priority["level"], priority["score"]
+    if not _is_int(level) or not 1 <= level <= 10:
+        problems.append(f"{where}.level: must be an integer in 1..10")
+    if isinstance(score, bool) or not isinstance(score, int | float) or not 0.0 <= score <= 1.0:
+        problems.append(f"{where}.score: not in 0..1")
+    if not isinstance(priority["provisional"], bool):
+        problems.append(f"{where}.provisional: must be a boolean")
+    elif priority["provisional"] and (level != 6 or score != 0):
+        problems.append(f"{where}: provisional priority must have level 6 and score 0")
+    if not isinstance(priority["reason"], str) or not priority["reason"].strip():
+        problems.append(f"{where}.reason: empty")
 
 
 def _validate_ranking(problems: list[str], where: str, ranking: Any) -> None:
@@ -440,9 +466,11 @@ def validate_library(payload: dict[str, Any]) -> list[str]:
         lexeme_id = str(entry.get("id", ""))
         where = f"entry {lexeme_id or '?'}"
         by_id[lexeme_id] = entry
-        for key in ("ranking", "decision", "card", "export", "is_new"):
+        for key in ("ranking", "study_priority", "decision", "card", "export", "is_new"):
             if key not in entry:
                 problems.append(f"{where}: missing {key}")
+        if "study_priority" in entry:
+            _validate_study_priority(problems, f"{where}.study_priority", entry["study_priority"])
         if "ranking" not in entry or "export" not in entry or "card" not in entry:
             continue
         ranking = entry["ranking"]

@@ -390,7 +390,7 @@ class SQLiteVocabularyRepository:
         if lexeme is None:
             return False
         analysis = (lexeme.get("processing") or {}).get("analysis") or {}
-        canonical_key = vocab_cache.normalize_lemma(
+        canonical_key = vocab_cache.normalize_lexical_key(
             str(analysis.get("base_form") or lexeme.get("lemma") or "")
         )
         language = str(lexeme.get("language") or "en")
@@ -882,7 +882,7 @@ def _canonicalize_catalog(
             continue
         processing = raw.get("processing") or {}
         analysis = processing.get("analysis") or {}
-        key = vocab_cache.normalize_lemma(
+        key = vocab_cache.normalize_lexical_key(
             str(analysis.get("base_form") or raw.get("lemma") or raw.get("display_form") or "")
         )
         if not key:
