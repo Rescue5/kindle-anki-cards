@@ -5,7 +5,7 @@ import "./fox-lantern.css";
 
 const useFocusCleanup = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
-/** Mounted only during preparation. The SVG and hit target share the same 500 × 450 box. */
+/** The persistent Home companion and its hit target share the same 500 × 450 box. */
 export function FoxLantern({ motion = true }: { motion?: boolean } = {}) {
   const scene = React.useRef<HTMLDivElement>(null);
   const trigger = React.useRef<HTMLButtonElement>(null);

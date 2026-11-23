@@ -48,9 +48,18 @@ describe("Главная", () => {
     expect(markup).toContain("С прошлого раза: 2 новых слова");
   });
 
-  it("burns the lamp over a list and lets it out when there is nothing to do", () => {
-    expect(html()).toContain("is-lit");
-    expect(html({ mode: "empty", words: [] })).not.toContain("is-lit");
+  it("keeps the same interactive fox in every Home state", () => {
+    for (const mode of ["loading", "no-reader", "empty", "preparing", "list", "processing-stopped"] as const) {
+      const markup = html({ mode });
+      expect(markup.match(/aria-label="Поприветствовать лиса"/g)).toHaveLength(1);
+      expect(markup).not.toContain("desk-lamp-drawing");
+    }
+  });
+
+  it("preserves the explicit desk lamp override for the historical study", () => {
+    const markup = html({ deskLamp: <div data-testid="historical-lamp" /> });
+    expect(markup).toContain("historical-lamp");
+    expect(markup).not.toContain('aria-label="Поприветствовать лиса"');
   });
 
   it("has no lede over the list and names the list plainly", () => {
@@ -191,7 +200,7 @@ describe("Главная", () => {
       exportUi: { kind: "error", message: "диск полон" } });
     expect(markup).toContain("Открыть карточку «dread»");
     expect(markup).toContain("Обработано 8 из 25");
-    expect(markup).not.toContain('aria-label="Поприветствовать лиса"');
+    expect(markup).toContain('aria-label="Поприветствовать лиса"');
     expect(markup).toContain("Подборка ещё меняется");
     expect(markup).toContain('aria-describedby="home-processing-note"');
     expect(markup).toContain("Не получилось: диск полон.");

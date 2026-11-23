@@ -1,10 +1,10 @@
-.home-preparing:has(.fox-lantern) .home-desk {
+.home-page:has(.fox-lantern) .home-desk {
   --fox-width: clamp(260px, 42cqi, 440px);
   min-height: max(360px, calc(var(--fox-width) * .9));
   padding-bottom: 0;
 }
-.home-preparing:has(.fox-lantern) .home-desk > .home-desk-text { margin-right: calc(var(--fox-width) + 24px); }
-.home-preparing:has(.fox-lantern) .home-title { max-width: none; }
+.home-page:has(.fox-lantern) .home-desk > .home-desk-text { margin-right: calc(var(--fox-width) + 24px); }
+.home-page:has(.fox-lantern) .home-title { max-width: none; }
 .home-desk > .fox-lantern {
   position: absolute;
   z-index: 2;
@@ -107,10 +107,28 @@
   44% { transform: rotate(-.6deg); }
 }
 @keyframes fox-lantern-blink { 0%, 78%, 79.2%, 100% { transform: scaleY(1); } 78.5% { transform: scaleY(.12); } }
+@container (max-width: 680px) {
+  .home-page:has(.fox-lantern) .home-desk { --fox-width: clamp(150px, 29cqi, 190px); min-height: 180px; align-items: flex-start; }
+  .home-page:has(.fox-lantern) .home-desk > .home-desk-text { padding-top: 0; }
+  .home-page:has(.fox-lantern) .home-title { font-size: 28px; }
+  .home-page:has(.fox-lantern) .home-actions { gap: 10px 14px; margin-top: 16px; }
+  .home-page:has(.fox-lantern) .home-actions .kc-btn { min-height: 44px; font-size: 14px; }
+  .home-page:has(.fox-lantern) .home-list { margin-top: 18px; }
+  .home-page:has(.fox-lantern) .home-lede { font-size: 15px; }
+  .home-page:has(.fox-lantern) .fox-lantern-speech { width: 168px; right: 0; bottom: calc(100% + 12px); }
+  .home-page:has(.fox-lantern) .home-desk:has(.fox-lantern-speech) { padding-top: 104px; }
+}
 @container (max-width: 520px) {
-  .home-preparing:has(.fox-lantern) .home-desk { --fox-width: min(300px, 100%); display: flex; flex-direction: column; align-items: stretch; min-height: 0; padding-top: 0; }
-  .home-preparing:has(.fox-lantern) .home-desk > .home-desk-text { order: 1; flex: none; margin-right: 0; max-width: none; }
-  .home-preparing:has(.fox-lantern) .home-desk > .fox-lantern { position: relative; order: 2; align-self: flex-end; flex: none; margin-top: 22px; }
+  .home-page:has(.fox-lantern) .home-desk { --fox-width: 140px; display: block; min-height: 0; padding-top: 0; }
+  .home-page:has(.fox-lantern) .home-desk > .home-desk-text { margin-right: 0; max-width: none; }
+  .home-page:has(.fox-lantern) .home-title { max-width: calc(100% - 154px); min-height: 100px; }
+  .home-page:has(.fox-lantern) .home-lede, .home-page:has(.fox-lantern) .home-eyebrow { max-width: calc(100% - 154px); }
+  .home-page:has(.fox-lantern) .home-desk > .fox-lantern { top: 0; bottom: auto; }
+  .home-page:has(.fox-lantern) .home-desk:has(.fox-lantern-speech) { padding-top: 104px; }
+  .home-page:has(.fox-lantern) .home-desk:has(.fox-lantern-speech) > .fox-lantern { top: 104px; }
+}
+@media (max-height: 600px) {
+  .home-page.home-preparing:has(.fox-lantern) { min-height: 0; justify-content: flex-start; padding-top: 20px; padding-bottom: 24px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .fox-lantern :is(.fox-head, .fox-gaze, .fox-ear-near, .fox-ear-far, .fox-tail, .fox-pendant, .fox-eyes) { animation: none !important; }

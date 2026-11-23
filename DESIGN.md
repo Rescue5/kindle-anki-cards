@@ -5,39 +5,24 @@ follows this document; tokens live in `src/design/` and `src/index.css`.
 
 ## The idea
 
-A room at night, a book open under a lamp. The interface is drawn in soft
-pencil on paper that is mostly in shadow. **Light is the signature**: lamps and
-their rays decide what you look at, where attention goes, and how the app moves
-between states. The day theme is the same room by daylight — pencil on paper,
-the lamps unlit but still drawn.
+A room at night, a book open beside a fox carrying a lantern. The interface
+uses soft pencil on dark paper. The fox is the app's mascot. It stays visible
+in daylight, with an unlit lantern and the same black silhouette.
 
 The app is a daily tool (Impeccable "Operate" mode): drama lives in light and a
 few rare moments; everyday actions stay fast, quiet and precise.
 
 ## Light (the signature)
 
-- **Sources are always drawn.** An architect's desk lamp lights the main scene
-  of a screen, a clip lamp lights a card that needs you, a wall sconce rides
-  the navigation wall to the section you are in. Light never comes from
-  nowhere.
-- **A lamp burns only where there is something to do.** New words or a
-  connected Kindle light the desk; due cards light the review card. When the
-  work is done the lamp goes out and its corner falls into shadow, with a
-  handwritten note saying why. By day the beams are gone and a lit subject
-  keeps a faint warm wash.
-- **Ray anatomy:** shade → soft volumetric cone (CSS clip-path anchored to the
-  same corner as the drawing, blurred, `screen` blend at night) → warm pool
-  where it lands → shadow cast away from the lamp. A few slow dust motes drift
-  inside the cone. Components: `DeskLamp`, `ClipLamp`, `Sconce` in
-  `src/components/light/`; the host is `.lamp-host`.
+- The fox holds the source of the warm night light. The glass, flame and
+  airborne beam swing from the handle in its paw. The reflection travels
+  along the desk. Progress, errors and completed work have text labels.
 - **Light means focus.** The selected word, book or card sits in the pool; the
   rest of the room is in shadow (lower contrast, never unreadable).
 - **One warm light colour** (`--lamp`, ~2700K amber, with `--lamp-beam` and
   `--lamp-hot` as its lighter tints). Everything else is graphite, paper and
   ink.
-- **Transitions through light:** switching theme is a wall switch — the room
-  dims, then relights, and lamps warm up with a brief flicker. Navigation
-  between screens never blacks out.
+- Switching theme dims and relights the room. The lantern follows the theme.
 
 ## Pencil and paper
 
@@ -52,8 +37,8 @@ few rare moments; everyday actions stay fast, quiet and precise.
 - Flourishes (curls, small vines, corner ornaments) mark headings, section
   breaks and empty states. They are sparse: at most one per region.
 - Paper has a faint grain; at night it reads as dark paper under low light.
-- Illustrations (lamps, books, shelves) are line drawings in the same pencil,
-  never photos or glossy 3D.
+- The fox has a black silhouette, two pale eyes and a brass lantern. Books
+  and shelves use the same pencil as the surrounding interface.
 
 ## Colour
 
@@ -85,8 +70,9 @@ drawn as pencil marks (underline, circle, cross-out) rather than coloured pills.
   animation beyond an instant light change.
 - Occasional actions (theme switch, opening review, sync finished): one
   purposeful light transition, 200–600 ms.
-- Ambient motion (dust motes, a rare lamp flicker): slow, subtle, paused when
-  the window is hidden, removed under `prefers-reduced-motion`.
+- On Home the fox looks around, listens, swings its lantern and moves its
+  tail, with a rest between gestures. Opening its greeting pauses the motion.
+  Hidden windows pause the animation. Reduced motion keeps the full drawing.
 - Animate only `transform`, `opacity` and filters on small layers.
 
 ## Components
@@ -106,10 +92,12 @@ drawn as pencil marks (underline, circle, cross-out) rather than coloured pills.
 - **Tables / lists**: rows separated by faint hand-drawn rules; the selected
   row is lit by a pool. Words read as dictionary entries, ledgers use dot
   leaders.
-- **One lamp per screen**: home and Books — a desk lamp over the book on the
-  desk; Words — a clip lamp over the chosen word's card; Review — a desk lamp
-  over the index card, out when the session is done. Insights and Settings
-  stay unlit.
+- Each screen shows one full figure. Home uses the interactive `FoxLantern`
+  throughout loading, preparation, selection and export. Words and Settings
+  use a smaller, stationary `FoxVignette` in the visible heading. Opening a
+  word moves the illustration to its card. In Settings the lantern rests
+  unlit, with a soft grey light behind the black silhouette at night. The static brand mark repeats the
+  fox's profile. Navigation keeps its active underline and icon colour.
 
 ## Do not
 

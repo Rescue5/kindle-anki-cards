@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
-import { ClipLamp } from "@/components/light/light";
+import { FoxVignette } from "@/components/light/fox-vignette";
 import { PencilFrame } from "@/components/sketch/sketch";
 import { MEANING_MAX_LENGTH, type DecisionValue, type LexemeRecord } from "@/types";
 import { cardChanges, cardDraft, selectedExample, type CardChanges, type CardDraft } from "./card-editor-domain";
@@ -9,6 +9,7 @@ import { isCardEligible, obsidianSyncReason, partOfSpeechLabel, processingLabel,
 type Props = {
   entry: LexemeRecord;
   readOnly: boolean;
+  showFox?: boolean;
   busy: boolean;
   llmEnabled: boolean;
   onEnrich: (id: string, retryFailed: boolean) => void;
@@ -19,7 +20,7 @@ type Props = {
   onPendingChange: (pending: boolean) => void;
 };
 
-export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headingRef, onSave, onDecision, onDirtyChange, onPendingChange }: Props) {
+export function CardEditor({ entry, readOnly, showFox = true, busy, llmEnabled, onEnrich, headingRef, onSave, onDecision, onDirtyChange, onPendingChange }: Props) {
   const [original, setOriginal] = React.useState(() => cardDraft(entry));
   const [draft, setDraft] = React.useState<CardDraft>(original);
   const [pending, setPending] = React.useState(false);
@@ -81,10 +82,9 @@ export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headin
   }
 
   return <section className="app-scrollbar words-inspector-scroll">
-    <article className="word-card lamp-host">
-      <ClipLamp lit={!readOnly} />
+    <article className="word-card">
       <PencilFrame />
-      <div className="word-card-head"><h2 ref={headingRef} tabIndex={-1}>{entry.lemma}</h2></div>
+      <div className="word-card-head"><h2 ref={headingRef} tabIndex={-1}>{entry.lemma}</h2>{showFox && <FoxVignette />}</div>
       {readOnly ? <p className="words-meta">Пример · только просмотр</p> : null}
       {entry.ranking?.reasons[0] ? <p className="words-meta">{entry.ranking.reasons[0].text}</p> : null}
       <form onSubmit={(event) => void save(event)} className="card-edit-form" aria-busy={pending}>

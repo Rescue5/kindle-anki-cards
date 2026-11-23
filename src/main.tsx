@@ -16,7 +16,8 @@ import "@/design/night-reading.css";
 import "@/design/cabinet.css";
 import "@/features/reading/reading.css";
 import "@/features/home/home.css";
-import { Sconce, useLightSwitch } from "@/components/light/light";
+import { useLightSwitch } from "@/components/light/light";
+import { FoxMark, FoxVignette } from "@/components/light/fox-vignette";
 import { PencilDefs } from "@/components/sketch/sketch";
 import { ruCount } from "@/features/reading/reading-domain";
 
@@ -98,8 +99,6 @@ function App() {
   React.useEffect(() => {
     if (controller.operation.status === "running" && controller.operation.kind === "kindle") dismiss();
   }, [dismiss, controller.operation.kind, controller.operation.status]);
-  // The sconce rides to the entry that holds the current view (Спорные and Экспорт belong to Слова).
-  const activeIndex = navigation.findIndex((item) => item.view === navViewOf(view));
   const wordCount = controller.entries.length;
   const status = busy
     ? controller.operation.message || controller.operation.title
@@ -116,16 +115,10 @@ function App() {
       <PencilDefs />
       <aside className="reading-sidebar">
         <button type="button" className="reading-brand" disabled={cardSaving} onClick={() => navigate("home")} aria-label="Kindle Cards — главная">
-          <svg className="reading-brand-mark" viewBox="0 0 28 28" aria-hidden="true">
-            <path d="M5 24.5h12 M9 24.5 13 13l-4-4" />
-            <path className="reading-brand-shade" d="M6.5 11.5 12.5 5.5l4.5 4.5-6 6z" />
-            <circle className="reading-brand-bulb" cx="17.5" cy="17" r="3" />
-          </svg>
+          <FoxMark />
           <strong>Kindle Cards</strong>
         </button>
-        <nav className="reading-nav lamp-host" aria-label="Основная навигация" style={{ "--sconce-index": Math.max(0, activeIndex) } as React.CSSProperties}>
-          {/* The wall sconce rides to the section you are in. */}
-          <Sconce lit />
+        <nav className="reading-nav" aria-label="Основная навигация">
           <ul>
             {navigation.map((item) => {
               const Icon = item.icon;
@@ -144,7 +137,7 @@ function App() {
         <div className="reading-sidebar-bottom">
           <p>В библиотеке</p>
           <p className="reading-sidebar-count">{wordCount.toLocaleString("ru-RU")} <span>{ruCount(wordCount, "слово", "слова", "слов")}</span></p>
-          <button type="button" className="reading-light-switch" onClick={pullCord} aria-label={night ? "Включить дневной свет" : "Зажечь лампы — ночной режим"}>
+          <button type="button" className="reading-light-switch" onClick={pullCord} aria-label={night ? "Включить дневной свет" : "Включить ночной свет"}>
             <svg viewBox="0 0 36 52" aria-hidden="true">
               <path className="reading-light-switch-plate" d="M5.5 3.2 C14 2.6 23 3.4 31.2 2.9 C33 3 33.4 4.6 33.3 6.4 C33.6 20 32.9 34 33.4 46.2 C33.2 48.6 31.9 49.2 30.1 49.3 C21 49.6 13 48.9 5.4 49.4 C3.4 49.2 2.7 47.9 2.8 46 C2.5 32 3.3 18 2.7 5.8 C2.9 3.8 3.9 3.3 5.5 3.2 Z" />
               <rect x="12.5" y="13" width="11" height="26" rx="3.5" />
@@ -154,7 +147,7 @@ function App() {
             </svg>
             <span>
               <strong>{night ? "Ночной свет" : "Дневной свет"}</strong>
-              <small>{night ? "щёлкните, чтобы включить день" : "щёлкните, чтобы зажечь лампы"}</small>
+              <small>{night ? "щёлкните, чтобы включить день" : "щёлкните, чтобы включить ночь"}</small>
             </span>
           </button>
         </div>
@@ -168,7 +161,7 @@ function App() {
             <LibraryWorkspace controller={controller} batchLexemeId={batchLexemeId}
               onBackToBatch={batchLexemeId ? backToBatch : undefined} onDraftChange={reportDraft} />
           ) : null}
-          {view === "settings" && loading ? <main className="reading-page app-scrollbar"><p className="screen-page" role="status">Загружаю настройки…</p></main> : null}
+          {view === "settings" && loading ? <main className="reading-page app-scrollbar"><div className="screen-page settings-loading"><p role="status">Загружаю настройки…</p><FoxVignette /></div></main> : null}
           {view === "settings" && !loading ? (
             <SettingsView
               settings={controller.settings}

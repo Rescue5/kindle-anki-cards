@@ -112,7 +112,7 @@ function LampStudy() {
         <PencilLink onClick={() => { setProcessed(preparing ? total : 0); setExportUi({ kind: "idle" }); }}>
           {preparing ? "Показать подборку" : "Повторить подготовку"}
         </PencilLink>
-        <button className="study-motion" type="button" aria-pressed={motion} disabled={foxStudy && !preparing} onClick={() => setMotion((value) => !value)}>
+        <button className="study-motion" type="button" aria-pressed={motion} onClick={() => setMotion((value) => !value)}>
           <span aria-hidden="true" />{foxStudy ? "Движения лиса" : "Движения лампы"}
         </button>
         <button className="study-theme" type="button" aria-label={night ? "Включить дневной свет" : "Включить ночной свет"}

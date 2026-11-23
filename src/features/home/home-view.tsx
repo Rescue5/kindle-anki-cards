@@ -3,7 +3,6 @@ import { Check, ChevronRight, Loader2, RefreshCw, Upload } from "lucide-react";
 import type { AppSettings, ConnectorState, LexemeRecord } from "@/types";
 import type { ExportFolderState, OpenResultState } from "./use-home-export";
 import type { HomeProcessingProgress } from "./home-domain";
-import { DeskLamp } from "@/components/light/light";
 import { FoxLantern } from "@/components/light/fox-lantern";
 import { PencilRule } from "@/components/sketch/sketch";
 import { PencilButton, PencilLink } from "@/components/ui/pencil-controls";
@@ -67,16 +66,13 @@ export function HomeView(props: HomeViewProps) {
   const phaseAnnouncement = processingPhase === "waiting" ? "Подготовка к обработке…"
     : processingPhase === "processing" ? "Обрабатываю слова…"
       : processingPhase === "finishing" ? "Собираю подборку…" : "";
-  const readerConnected = props.reader?.state === "connected";
-  // A lamp burns only where there is something to do.
-  const lit = mode === "list" || mode === "preparing" || mode === "processing-stopped" || (mode === "no-reader" && readerConnected);
 
   return (
     <main className="reading-page app-scrollbar" aria-busy={mode === "loading" || undefined}>
       <p className="sr-only home-processing-announcement" role="status" aria-live="polite" aria-atomic="true">{phaseAnnouncement}</p>
       <div className={`home-page${mode === "preparing" ? " home-preparing" : ""}`}>
         <section className="home-desk lamp-host" aria-labelledby="home-title">
-          {props.deskLamp ?? (mode === "preparing" ? <FoxLantern motion={props.mascotMotion} /> : <DeskLamp lit={lit} />)}
+          {props.deskLamp ?? <FoxLantern motion={props.mascotMotion} />}
           <div className="home-desk-text">
             {mode === "loading" ? <DeskSkeleton /> : null}
             {mode === "no-reader" ? <NoReaderDesk {...props} /> : null}

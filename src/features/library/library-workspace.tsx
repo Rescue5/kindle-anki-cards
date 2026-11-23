@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ImportFileButton } from "@/components/import-file-button";
+import { FoxVignette } from "@/components/light/fox-vignette";
 import { cn } from "@/lib/utils";
 import { filterLexemes } from "./domain";
 import { cardDraft, selectedExample, worthLearning } from "./card-editor-domain";
@@ -85,7 +86,7 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
   return <div ref={rootRef} className={cn("library-workspace words-screen card-workspace", inspectorOpen && "is-editing")}>
     <main className="words-main">
       <header className="words-head">
-        <div className="words-head-top"><h1>Слова</h1></div>
+        <div className="words-head-top"><h1>Слова</h1>{!inspectorOpen && <FoxVignette />}</div>
         <div className="words-toolbar">
           <div className="screen-search"><Search size={16} aria-hidden="true" /><Input aria-label="Поиск слова, контекста или книги" placeholder="Слово, контекст, книга" value={controller.query} onChange={(event) => controller.setQuery(event.target.value)} /></div>
           <Select aria-label="Книга" value={controller.selectedBookKey} onChange={(event) => controller.setSelectedBookKey(event.target.value)}>
@@ -112,10 +113,10 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
     </main>
     <aside className="library-inspector words-inspector" aria-label="Карточка слова">
       {inspectorOpen ? <div className={cn("card-back", !batchLexemeId && "card-back-list")}><Button variant="ghost" disabled={pending} onClick={back}>{batchLexemeId ? "К подборке" : "К списку слов"}</Button></div> : null}
-      {selected ? <CardEditor key={selected.id} entry={selected} headingRef={headingRef} readOnly={controller.demo} busy={busy}
+      {selected ? <CardEditor key={selected.id} entry={selected} showFox={inspectorOpen} headingRef={headingRef} readOnly={controller.demo} busy={busy}
         llmEnabled={controller.settings.llm_enabled} onEnrich={(id, retryFailed) => void controller.enrichWords({ ids: [id], retryFailed })}
         onSave={controller.saveCardEdit} onDecision={controller.setWordDecision} onDirtyChange={setDirty} onPendingChange={setPending} />
-        : <p className="words-state">{batchLexemeId ? "Слово недоступно в библиотеке." : "Выберите слово, чтобы исправить карточку."}</p>}
+        : <div className="words-state">{inspectorOpen && <FoxVignette />}<p>{batchLexemeId ? "Слово недоступно в библиотеке." : "Выберите слово, чтобы исправить карточку."}</p></div>}
     </aside>
   </div>;
 });

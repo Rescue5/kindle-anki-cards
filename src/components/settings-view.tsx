@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { PageHead } from "@/components/page-head";
+import { FoxVignette } from "@/components/light/fox-vignette";
 import { PencilRule } from "@/components/sketch/sketch";
 import { obsidianConfig, type ObsidianCheck } from "@/features/library/load-library";
 import { EXPORT_BATCH_SIZE_DEFAULT, type AppSettings, type Operation } from "@/types";
@@ -108,7 +109,7 @@ export function SettingsView({ settings, onSave, saving, demo, busy, obsidianChe
   return (
     <main className="reading-page app-scrollbar">
       <div className="screen-page settings-page">
-        <PageHead title="Настройки" lede="Внешний вид, экспорт, перевод через ИИ и Obsidian.">
+        <PageHead title="Настройки" lede="Внешний вид, экспорт, перевод через ИИ и Obsidian." illustration={<FoxVignette />}>
           {saving ? <span className="home-note">сохраняем…</span> : saveError ? <span className="screen-error-note" role="alert">Ошибка сохранения: {saveError}</span> : <span className="reading-count">Настройки сохраняются автоматически</span>}
         </PageHead>
 
