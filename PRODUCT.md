@@ -90,10 +90,10 @@ reference for look and copy, but the scope above wins where they differ:
 - **Прогресс** and **Книга** concept screens are not built.
 
 Navigation: Главная, Слова, Настройки. The existing Review and Insights screens
-go away. Empty states are explained in words. The fox carrying a lantern is
-the permanent mascot across Home, Words, the card editor and Settings. Home
-offers a greeting, and the smaller fox rests while the reader works elsewhere.
-The implementation plan is `docs/plan/m1-m2.md`.
+go away. The fox carrying a lantern is the permanent mascot on the Home desk,
+including when the short list is ready. Empty states are said in words; a lamp may go out, but it never
+explains the state on its own. The Кабинет look stays; milestones do not spend
+time on new decoration. The implementation plan is `docs/plan/m1-m2.md`.
 
 ## Milestones
 

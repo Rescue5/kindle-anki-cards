@@ -2,7 +2,7 @@ import * as React from "react";
 import { PencilRule } from "@/components/sketch/sketch";
 
 /** The heading of a reading screen: a title, an italic lede and tools, underlined in pencil. */
-export function PageHead({ title, lede, children, illustration }: { title: string; lede?: string; children?: React.ReactNode; illustration?: React.ReactNode }) {
+export function PageHead({ title, lede, children }: { title: string; lede?: string; children?: React.ReactNode }) {
   return (
     <>
       <header className="page-head">
@@ -11,7 +11,6 @@ export function PageHead({ title, lede, children, illustration }: { title: strin
           {lede ? <p className="page-head-lede">{lede}</p> : null}
         </div>
         {children ? <div className="page-head-tools">{children}</div> : null}
-        {illustration}
       </header>
       <PencilRule variant={2} />
     </>

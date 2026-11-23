@@ -2,23 +2,22 @@
 
 .reading-app { position: relative; display: flex; width: 100%; height: 100%; min-height: 560px; background: hsl(var(--background)); color: hsl(var(--foreground)); }
 
-/* ---------- Shell and room lighting ---------- */
+/* ---------- Shell: a wall with a sconce and a light switch ---------- */
 .reading-sidebar { position: relative; z-index: 2; width: 232px; flex: none; display: flex; flex-direction: column; padding: 28px 16px 18px; background: hsl(var(--background)); }
 .reading-sidebar::after { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; content: ''; background: hsl(var(--pencil) / 0.32); -webkit-mask: var(--pencil-vline) center / 100% 100% no-repeat; mask: var(--pencil-vline) center / 100% 100% no-repeat; }
 .reading-brand { display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 10px; border-radius: 8px; text-align: left; transition: color 160ms var(--ease-out); }
 .reading-brand:hover { color: hsl(var(--primary)); }
 .reading-brand strong { font: 600 19px/1 var(--font-reading); letter-spacing: -.01em; white-space: nowrap; }
-.fox-mark { width: 34px; height: 34px; flex: none; color: hsl(var(--pencil)); }
-.fox-vignette { display: block; width: 88px; aspect-ratio: 500 / 450; flex: none; pointer-events: none; }
-.fox-vignette > svg { display: block; }
-.reading-nav { margin-top: 52px; }
+.reading-brand-mark { width: 26px; height: 26px; flex: none; overflow: visible; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; filter: url(#pencil-texture); }
+.reading-brand-shade { fill: hsl(var(--background)); }
+.reading-brand-bulb { fill: hsl(var(--lamp)); stroke: none; opacity: calc(0.35 + 0.65 * var(--lamp-glow)); }
+.reading-nav { --sconce-pitch: 48px; margin-top: 52px; }
 .reading-nav ul { display: grid; gap: 4px; }
 .reading-nav button { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; height: 44px; padding: 0 12px; border-radius: 10px; color: hsl(var(--muted-foreground)); font: 400 15.5px/1 var(--font-reading); text-align: left; transition: color 160ms var(--ease-out), background-color 200ms var(--ease-out); }
 .reading-nav button svg { flex: none; filter: url(#pencil-texture); }
 .reading-nav button:hover { color: hsl(var(--foreground)); background: hsl(var(--lamp) / calc(0.05 + 0.02 * var(--lamp-glow))); }
 .reading-nav button:active { transform: scale(0.985); }
 .reading-nav button.is-active { color: hsl(var(--foreground)); }
-.reading-nav button.is-active > svg { color: hsl(var(--primary)); }
 .reading-nav button.is-active::after { position: absolute; left: 42px; width: 66px; bottom: 7px; height: 6px; content: ''; background: hsl(var(--pencil) / 0.65); -webkit-mask: var(--pencil-line) center / 100% 100% no-repeat; mask: var(--pencil-line) center / 100% 100% no-repeat; }
 .reading-nav em { margin-left: auto; color: hsl(var(--foreground) / 0.82); font: 500 20px/1 var(--font-hand); font-style: normal; }
 .reading-sidebar-bottom { margin-top: auto; padding: 0 12px; }
@@ -109,14 +108,12 @@
 .screen-search-clear { position: absolute; right: 0; top: 50%; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: hsl(var(--muted-foreground)); transform: translateY(-50%); transition: color 160ms var(--ease-out), background-color 160ms var(--ease-out); }
 .screen-search-clear:hover { color: hsl(var(--foreground)); background: hsl(var(--lamp) / 0.08); }
 
-/* ---------- Words: catalogue and selected card ---------- */
+/* ---------- Words: the catalogue and the chosen word under a clip lamp ---------- */
 .words-screen { display: grid; flex: 1; grid-template-columns: minmax(520px, 1fr) 340px; min-height: 0; overflow: hidden; background: hsl(var(--background)); }
 .words-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .words-main::after { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; content: ''; background: hsl(var(--pencil) / 0.3); pointer-events: none; -webkit-mask: var(--pencil-vline) center / 100% 100% no-repeat; mask: var(--pencil-vline) center / 100% 100% no-repeat; }
 .words-head { flex: none; padding: 26px 28px 6px 32px; }
-.words-head-top { display: flex; min-height: 72px; align-items: center; gap: 32px; }
-.words-head-top h1, .word-card-head h2 { position: relative; z-index: 1; }
-.words-head-top .fox-vignette { width: 80px; }
+.words-head-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .words-head h1 { font: 500 34px/1.05 var(--font-reading); letter-spacing: -.02em; }
 .words-head-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; }
 .words-count { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
@@ -187,11 +184,6 @@
 
 /* ---------- Settings: a description column and the controls beside it ---------- */
 .settings-page { max-width: 1080px; }
-.settings-page .page-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: end; }
-.settings-page .page-head-tools { grid-column: 1; }
-.settings-page .fox-vignette { grid-column: 2; grid-row: 1 / 3; width: clamp(76px, 14cqi, 124px); }
-.settings-page .fox-vignette, .settings-loading .fox-vignette { --fox-lantern-glow: 0; }
-.settings-loading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .settings-section { margin-top: 30px; }
 .page-head + .pencil-rule + .settings-section { margin-top: 10px; }
 .page-head + .pencil-rule + .settings-section > .pencil-rule { display: none; }

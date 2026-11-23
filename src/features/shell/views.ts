@@ -4,7 +4,7 @@
 export type View = "home" | "words" | "triage" | "export" | "settings";
 export const VIEWS: readonly View[] = ["home", "words", "triage", "export", "settings"];
 
-/** The navigation entry highlighted for the current view. */
+/** The navigation entries. The wall sconce shows which one holds the current view. */
 export type NavView = "home" | "words" | "settings";
 export const NAV_VIEWS: readonly NavView[] = ["home", "words", "settings"];
 

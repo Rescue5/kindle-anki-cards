@@ -6,10 +6,7 @@
 .card-list-example { display: grid; gap: 4px; min-width: 0; }
 .card-workspace .words-row-lemma small { font-size: 12px; overflow: hidden; text-overflow: ellipsis; display: block; }
 .card-workspace .words-inspector { min-width: 0; }
-.card-workspace .word-card { position: relative; isolation: isolate; margin-top: 20px; }
-.card-workspace .word-card-head { display: flex; flex-wrap: nowrap; align-items: center; gap: 24px; }
-.word-card-head h2 { min-width: 0; }
-.word-card-head .fox-vignette { width: 88px; }
+.card-workspace .word-card { margin-top: 78px; }
 .card-back { flex: none; padding: 12px 22px 0; }
 .card-back-list { display: none; }
 .card-edit-form { display: grid; gap: 10px; margin-top: 20px; }
@@ -41,7 +38,7 @@
   .card-workspace.is-editing .words-inspector { display: flex; flex: 1; overflow: hidden; }
   .card-workspace .card-back-list { display: block; }
   .card-workspace .words-inspector-scroll { padding: 0 22px 28px; }
-  .card-workspace .word-card { margin-top: 12px; }
+  .card-workspace .word-card { margin-top: 66px; }
   .card-workspace .words-head { padding: 22px 22px 6px; }
   .card-workspace .words-toolbar { grid-template-columns: minmax(0, 1fr); }
   .card-workspace .words-row, .card-workspace .words-table-head { padding-left: 22px; padding-right: 22px; }
