@@ -29,8 +29,11 @@ const motes = [
  * its shade leaning over the content to the left. The host sets `--lamp-s`
  * to scale the lamp and its beam together.
  */
-export function DeskLamp({ lit, className }: LampProps) {
+export function DeskLamp({ lit, className, mascot = false }: LampProps & { mascot?: boolean }) {
   const state = cn("lamp", lit && "is-lit", className);
+  const shadePath = mascot
+    ? "M128.8 118.4 Q95 102 54 132 L111.6 208.8 Q151 170 145.6 140.8 Z"
+    : "M128.8 118.4 Q87.2 129.6 54 132 L111.6 208.8 Q123.2 177.6 145.6 140.8 Z";
   return (
     <>
       <div className={cn(state, "desk-lamp-beam")} aria-hidden="true">
@@ -49,7 +52,7 @@ export function DeskLamp({ lit, className }: LampProps) {
       ))}
       <svg className={cn(state, "desk-lamp-drawing")} viewBox="0 0 400 600" aria-hidden="true">
         <defs>
-          <clipPath id="desk-lamp-shade"><path d="M128.8 118.4 Q87.2 129.6 54 132 L111.6 208.8 Q123.2 177.6 145.6 140.8 Z" /></clipPath>
+          <clipPath id="desk-lamp-shade"><path d={shadePath} /></clipPath>
           <clipPath id="desk-lamp-base"><path d="M234 574 L234 584 A66 11 0 0 0 366 584 L366 574 A66 11 0 0 1 234 574 Z" /></clipPath>
         </defs>
         <ellipse className="lamp-cast" cx="290" cy="597" rx="96" ry="5" />
@@ -74,13 +77,33 @@ export function DeskLamp({ lit, className }: LampProps) {
           <path className="lamp-soft" d="M314.2 282.3 L312.5 276.6 L304.6 278.1 L305.1 270 L297.1 271.4 L297.6 263.3 L289.6 264.8 L290.2 256.7 L282.2 258.1 L282.7 250 L274.7 251.5 L275.2 243.4 L267.2 244.8 L267.8 236.7 L259.8 238.2 L260.3 230.1 L252.3 231.5 L252.8 223.4 L244.8 224.9 L245.4 216.8 L237.4 218.2 L237.9 210.1 L229.9 211.6 L230.4 203.5 L224.6 202.5 M341 300 L314.2 282.3 M224.6 202.5 L172 152" />
           <circle className="lamp-body" cx="150" cy="120" r="8.5" />
           <circle cx="150" cy="120" r="2.6" />
-          <path className="lamp-body" d="M128.8 118.4 Q87.2 129.6 54 132 L111.6 208.8 Q123.2 177.6 145.6 140.8 Z" />
+          <path className={cn("lamp-body", mascot && "mascot-shade")} d={shadePath} />
           <g clipPath="url(#desk-lamp-shade)" className="lamp-hatch"><path d="M40 110 L-10 215 M47 110 L-3 215 M54 110 L4 215 M61 110 L11 215 M68 110 L18 215 M75 110 L25 215 M82 110 L32 215 M89 110 L39 215 M96 110 L46 215 M103 110 L53 215 M110 110 L60 215 M117 110 L67 215 M124 110 L74 215 M131 110 L81 215 M138 110 L88 215 M145 110 L95 215 M152 110 L102 215 M159 110 L109 215 M166 110 L116 215" /></g>
           <path className="lamp-soft" d="M131 121 Q95 131 60 134" />
+          {mascot ? <g className="mascot-details">
+            <g className="mascot-ear mascot-ear-left">
+              <path className="lamp-body" d="M69 130 Q54 106 58 79 Q77 85 96 123 Z" />
+              <path className="mascot-ear-fold" d="M70 122 Q62 103 62 87 Q77 95 87 121 Z" />
+              <path className="lamp-soft" d="M70 124 Q61 103 62 87 Q77 95 87 121 M66 112 L73 105 M68 118 L78 109 M72 123 L82 115" />
+              <path className="lamp-soft" d="M67 129 Q52 105 57 80" />
+              <circle cx="72" cy="125" r="2.5" />
+            </g>
+            <g className="mascot-ear mascot-ear-right">
+              <path className="lamp-body" d="M105 122 Q111 95 135 87 Q140 108 130 128 Z" />
+              <path className="mascot-ear-fold" d="M113 120 Q120 102 131 96 L126 122 Z" />
+              <path className="lamp-soft" d="M113 119 Q120 102 131 96 L126 120 M115 115 L127 111 M117 109 L130 105 M111 122 L124 119" />
+              <path className="lamp-soft" d="M107 121 Q113 94 135 89" />
+              <circle cx="111" cy="123" r="2.3" />
+            </g>
+          </g> : null}
         </g>
         <ellipse className="lamp-halo" cx="82.8" cy="170.4" rx="54" ry="18" transform="rotate(-126.87 82.8 170.4)" />
         <ellipse className="lamp-mouth" cx="82.8" cy="170.4" rx="48" ry="11" transform="rotate(-126.87 82.8 170.4)" />
         <ellipse className="lamp-filament" cx="87" cy="166.5" rx="15" ry="8" transform="rotate(-126.87 87 166.5)" />
+        {mascot ? <g className="mascot-face">
+          <ellipse className="mascot-face-field" clipPath="url(#desk-lamp-shade)" cx="124" cy="140" rx="19" ry="13" />
+          <path className="mascot-squint" d="M110 145 Q122 126 137 139" />
+        </g> : null}
       </svg>
       <span className={cn(state, "lamp-bloom desk-lamp-bloom")} aria-hidden="true" />
     </>

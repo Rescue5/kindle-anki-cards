@@ -29,6 +29,7 @@ import {
 
 export type HomeViewProps = {
   mode: HomeMode;
+  deskLamp?: React.ReactNode;
   /** The short list, in ranking order. */
   words: LexemeRecord[];
   /** «С прошлого раза: N новых слов», or null. */
@@ -44,7 +45,7 @@ export type HomeViewProps = {
   /** The reader is being read or new words are being analysed: the list is about to change. */
   listChanging: boolean;
   processingProgress: HomeProcessingProgress | null;
-  reader: { state: ConnectorState; name: string };
+  reader?: { state: ConnectorState; name: string };
   onExport: () => void;
   onOpenWord: (id: string) => void;
   onOpenResult: (path: string) => void;
@@ -64,7 +65,7 @@ export function HomeView(props: HomeViewProps) {
   const phaseAnnouncement = processingPhase === "waiting" ? "Подготовка к обработке…"
     : processingPhase === "processing" ? "Обрабатываю слова…"
       : processingPhase === "finishing" ? "Собираю подборку…" : "";
-  const readerConnected = props.reader.state === "connected";
+  const readerConnected = props.reader?.state === "connected";
   // A lamp burns only where there is something to do.
   const lit = mode === "list" || mode === "preparing" || mode === "processing-stopped" || (mode === "no-reader" && readerConnected);
 
@@ -73,7 +74,7 @@ export function HomeView(props: HomeViewProps) {
       <p className="sr-only home-processing-announcement" role="status" aria-live="polite" aria-atomic="true">{phaseAnnouncement}</p>
       <div className={`home-page${mode === "preparing" ? " home-preparing" : ""}`}>
         <section className="home-desk lamp-host" aria-labelledby="home-title">
-          <DeskLamp lit={lit} />
+          {props.deskLamp ?? <DeskLamp lit={lit} />}
           <div className="home-desk-text">
             {mode === "loading" ? <DeskSkeleton /> : null}
             {mode === "no-reader" ? <NoReaderDesk {...props} /> : null}
@@ -251,8 +252,8 @@ function FolderAccess({ state, disabled, onOpen }: { state: ExportFolderState; d
 }
 
 function NoReaderDesk(props: HomeViewProps) {
-  const connected = props.reader.state === "connected";
-  const checking = props.reader.state === "unknown" || props.reader.state === "checking";
+  const connected = props.reader?.state === "connected";
+  const checking = props.reader?.state === "unknown" || props.reader?.state === "checking";
   return (
     <>
       <p className="home-eyebrow">Здесь пока нет слов</p>
@@ -368,6 +369,7 @@ function ReaderPlaces() {
 }
 
 function ReaderLine({ reader, listChanging, onSync, onImportFile }: HomeViewProps) {
+  if (!reader) return null;
   const connected = reader.state === "connected";
   const checking = reader.state === "unknown" || reader.state === "checking";
   return (
