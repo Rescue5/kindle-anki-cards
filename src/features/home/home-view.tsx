@@ -4,6 +4,7 @@ import type { AppSettings, ConnectorState, LexemeRecord } from "@/types";
 import type { ExportFolderState, OpenResultState } from "./use-home-export";
 import type { HomeProcessingProgress } from "./home-domain";
 import { DeskLamp } from "@/components/light/light";
+import { FoxLantern } from "@/components/light/fox-lantern";
 import { PencilRule } from "@/components/sketch/sketch";
 import { PencilButton, PencilLink } from "@/components/ui/pencil-controls";
 import { ImportFileButton } from "@/components/import-file-button";
@@ -30,6 +31,7 @@ import {
 export type HomeViewProps = {
   mode: HomeMode;
   deskLamp?: React.ReactNode;
+  mascotMotion?: boolean;
   /** The short list, in ranking order. */
   words: LexemeRecord[];
   /** «С прошлого раза: N новых слов», or null. */
@@ -74,7 +76,7 @@ export function HomeView(props: HomeViewProps) {
       <p className="sr-only home-processing-announcement" role="status" aria-live="polite" aria-atomic="true">{phaseAnnouncement}</p>
       <div className={`home-page${mode === "preparing" ? " home-preparing" : ""}`}>
         <section className="home-desk lamp-host" aria-labelledby="home-title">
-          {props.deskLamp ?? <DeskLamp lit={lit} />}
+          {props.deskLamp ?? (mode === "preparing" ? <FoxLantern motion={props.mascotMotion} /> : <DeskLamp lit={lit} />)}
           <div className="home-desk-text">
             {mode === "loading" ? <DeskSkeleton /> : null}
             {mode === "no-reader" ? <NoReaderDesk {...props} /> : null}

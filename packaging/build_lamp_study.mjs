@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const outDir = path.join(root, "build", "lamp-study");
+const fox = process.argv.includes("--fox");
+const outDir = path.join(root, "build", fox ? "fox-lantern" : "lamp-study");
 
 const result = await build({
   configFile: false,
@@ -23,7 +24,7 @@ const result = await build({
     modulePreload: false,
     sourcemap: false,
     rollupOptions: {
-      input: path.join(root, "docs", "concept", "lamp-study.html"),
+      input: path.join(root, "docs", "concept", fox ? "fox-study.html" : "lamp-study.html"),
       output: { inlineDynamicImports: true },
     },
   },

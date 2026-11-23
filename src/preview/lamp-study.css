@@ -1,4 +1,4 @@
-.lamp-study {
+.character-study {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -6,7 +6,7 @@
   color: hsl(var(--foreground));
   font-family: var(--font-reading);
 }
-.lamp-study > main { flex: 1; min-height: 0; }
+.character-study > main { flex: 1; min-height: 0; }
 .study-header {
   display: flex;
   align-items: center;
@@ -27,6 +27,7 @@
 .study-theme { width: 40px; }
 .study-controls button:hover, .study-controls button:focus-visible { color: hsl(var(--primary)); }
 .study-controls button:active { opacity: .72; }
+.study-controls button:disabled { opacity: .55; cursor: default; color: inherit; }
 .study-controls button:focus-visible, .study-card :is(button, select):focus-visible {
   outline: 2px dashed hsl(var(--primary)); outline-offset: 2px;
 }

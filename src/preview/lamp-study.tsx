@@ -22,6 +22,7 @@ import "./lamp-study.css";
 const library = sample as LibraryResultV4;
 const words = shortList(library.entries, library.newBatch.ids);
 const total = library.entries.length;
+const foxStudy = document.documentElement.dataset.character === "fox";
 const noop = () => {};
 
 function exampleFor(entry: LexemeRecord, chosenId?: string) {
@@ -102,17 +103,17 @@ function LampStudy() {
     setExportUi({ kind: "done", run: { destination: "csv", exported: words.length, path: download.download, pushed: 0, runId: "study", message: "" } });
   }
 
-  return <div className="lamp-study">
+  return <div className={foxStudy ? "character-study fox-study" : "character-study lamp-study"}>
     <PencilDefs />
     <header className="study-header">
       <div className="study-brand"><BookOpen size={23} aria-hidden="true" /><strong>Kindle Cards</strong></div>
-      <p>Проба маскота <span>·</span> пример слов</p>
+      <p>{foxStudy ? "Лис-фонарщик" : "Проба маскота"} <span>·</span> пример слов</p>
       <div className="study-controls" role="group" aria-label="Настройки сцены">
         <PencilLink onClick={() => { setProcessed(preparing ? total : 0); setExportUi({ kind: "idle" }); }}>
           {preparing ? "Показать подборку" : "Повторить подготовку"}
         </PencilLink>
-        <button className="study-motion" type="button" aria-pressed={motion} onClick={() => setMotion((value) => !value)}>
-          <span aria-hidden="true" />Движения лампы
+        <button className="study-motion" type="button" aria-pressed={motion} disabled={foxStudy && !preparing} onClick={() => setMotion((value) => !value)}>
+          <span aria-hidden="true" />{foxStudy ? "Движения лиса" : "Движения лампы"}
         </button>
         <button className="study-theme" type="button" aria-label={night ? "Включить дневной свет" : "Включить ночной свет"}
           title={night ? "Включить дневной свет" : "Включить ночной свет"} onClick={() => setNight((value) => !value)}>
@@ -120,7 +121,8 @@ function LampStudy() {
         </button>
       </div>
     </header>
-    <HomeView mode={preparing ? "preparing" : "list"} deskLamp={<MascotLamp phase={preparing ? "preparing" : "ready"} motion={motion} />}
+    <HomeView mode={preparing ? "preparing" : "list"} mascotMotion={motion}
+      deskLamp={foxStudy ? undefined : <MascotLamp phase={preparing ? "preparing" : "ready"} motion={motion} />}
       words={preparing ? [] : words} sinceLine={null} roughNote={null} demo={false} exportUi={exportUi} destination="csv"
       openState="idle" folderState="hidden" exportBlocked={preparing} listChanging={preparing}
       processingProgress={preparing ? { phase: "processing", current: processed, total } : null}

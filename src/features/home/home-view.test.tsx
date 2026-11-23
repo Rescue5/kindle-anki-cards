@@ -166,6 +166,8 @@ describe("Главная", () => {
     expect(markup).toMatch(/<h1[^>]*>Готовлю подборку<\/h1>/);
     expect(markup).toContain("Подборка появится здесь");
     expect(markup).toContain("Обработано 7 из 23");
+    expect(markup).toContain('aria-label="Поприветствовать лиса"');
+    expect(markup).not.toContain('aria-label="Реплика лиса"');
     expect(markup).toMatch(/<progress[^>]*aria-label="Обработка слов"[^>]*value="7"[^>]*max="23"/);
     expect(markup).toContain('aria-live="off"');
     expect(markup).not.toContain("Выбрать файл");
@@ -189,6 +191,7 @@ describe("Главная", () => {
       exportUi: { kind: "error", message: "диск полон" } });
     expect(markup).toContain("Открыть карточку «dread»");
     expect(markup).toContain("Обработано 8 из 25");
+    expect(markup).not.toContain('aria-label="Поприветствовать лиса"');
     expect(markup).toContain("Подборка ещё меняется");
     expect(markup).toContain('aria-describedby="home-processing-note"');
     expect(markup).toContain("Не получилось: диск полон.");
