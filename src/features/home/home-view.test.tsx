@@ -25,6 +25,7 @@ const base: HomeViewProps = {
   folderState: "hidden",
   exportBlocked: false,
   listChanging: false,
+  processingProgress: null,
   reader: { state: "connected", name: "Kindle" },
   onExport: noop,
   onOpenWord: noop,
@@ -121,7 +122,7 @@ describe("Главная", () => {
 
   it("distinguishes processing from the final empty list and keeps recovery available", () => {
     const preparing = html({ mode: "preparing", words: [], listChanging: true });
-    expect(preparing).toContain("Готовлю список слов");
+    expect(preparing).toContain("Готовлю подборку");
     expect(preparing).not.toContain("Новых слов для выгрузки нет.");
     const stopped = html({ mode: "processing-stopped", words: [] });
     expect(stopped).toContain("Продолжить обработку");
@@ -157,5 +158,52 @@ describe("Главная", () => {
     const markup = html({ listChanging: true });
     expect(markup).toContain("disabled");
     expect(markup).toContain("список может измениться");
+  });
+
+  it("prepares the first batch with a real accessible counter and no repeat import action", () => {
+    const markup = html({ mode: "preparing", words: [], listChanging: true, folderState: "ready",
+      processingProgress: { phase: "processing", current: 7, total: 23 } });
+    expect(markup).toMatch(/<h1[^>]*>Готовлю подборку<\/h1>/);
+    expect(markup).toContain("Подборка появится здесь");
+    expect(markup).toContain("Обработано 7 из 23");
+    expect(markup).toMatch(/<progress[^>]*aria-label="Обработка слов"[^>]*value="7"[^>]*max="23"/);
+    expect(markup).toContain('aria-live="off"');
+    expect(markup).not.toContain("Выбрать файл");
+    expect(markup).not.toContain("Загрузить слова с читалки");
+    expect(markup).not.toContain("Что выгрузить сейчас?");
+    expect(markup).not.toContain("home-skel");
+    expect(markup).toContain("Открыть папку выгрузок");
+  });
+
+  it("shows waiting and finishing without inventing a numeric progress", () => {
+    for (const phase of ["waiting", "finishing"] as const) {
+      const markup = html({ mode: "preparing", words: [], processingProgress: { phase } });
+      expect(markup).not.toContain("<progress");
+      expect(markup).not.toContain("Обработано");
+      expect(markup).toContain(phase === "waiting" ? "Подготовка к обработке…" : "Собираю подборку…");
+    }
+  });
+
+  it("keeps the available batch and export errors beside compact processing progress", () => {
+    const markup = html({ listChanging: true, processingProgress: { phase: "processing", current: 8, total: 25 },
+      exportUi: { kind: "error", message: "диск полон" } });
+    expect(markup).toContain("Открыть карточку «dread»");
+    expect(markup).toContain("Обработано 8 из 25");
+    expect(markup).toContain("Подборка ещё меняется");
+    expect(markup).toContain('aria-describedby="home-processing-note"');
+    expect(markup).toContain("Не получилось: диск полон.");
+    expect(markup).not.toContain("Разбираю новые слова");
+    expect(markup).toMatch(/<button[^>]*id="home-word-a"[^>]*disabled/);
+  });
+
+  it("announces only the phase while the numeric counter changes", () => {
+    const announcement = (current: number) => html({ processingProgress: { phase: "processing", current, total: 1000 } })
+      .match(/<p class="sr-only home-processing-announcement"[^>]*>[^<]*<\/p>/)?.[0];
+    expect(announcement(1)).toBe(announcement(2));
+    expect(announcement(1)).toContain("Обрабатываю слова…");
+    expect(html({ processingProgress: { phase: "finishing" } })).toMatch(/home-processing-announcement[^>]*>Собираю подборку…/);
+    const one = html({ processingProgress: { phase: "processing", current: 1, total: 1 } });
+    expect(one).toContain('aria-valuetext="Обработано слов 1 из 1"');
+    expect(one).not.toContain("из 1 слов");
   });
 });

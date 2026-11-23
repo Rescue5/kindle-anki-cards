@@ -12,6 +12,7 @@ import {
   exportErrorText,
   exportReducer,
   homeMode,
+  homeProcessingProgress,
   homeQueueState,
   idleExport,
   listMeaning,
@@ -26,6 +27,26 @@ import {
 
 const reason = (code: RankingReason["code"], text: string, weight: number): RankingReason => ({ code, text, weight });
 const run = (patch: Partial<ExportRun> = {}): ExportRun => ({ destination: "anki", runId: "run-1", exported: 5, path: null, pushed: 5, message: "", ...patch });
+
+describe("progress of the active word queue", () => {
+  const active = { kind: "processing", status: "running", stage: "processing", current: 649, total: 1820 } as const;
+
+  it("uses this run's counts and starts a retry at its own zero", () => {
+    expect(homeProcessingProgress(active)).toEqual({ phase: "processing", current: 649, total: 1820 });
+    expect(homeProcessingProgress({ ...active, stage: "preparing", current: 0, total: 3 })).toEqual({ phase: "processing", current: 0, total: 3 });
+  });
+
+  it("does not turn import steps, old jobs or unknown totals into word counts", () => {
+    for (const operation of [{ ...active, kind: "kindle" as const }, { ...active, status: "completed" as const },
+      { ...active, stage: "starting" }, { ...active, current: 0, total: 0 }, { ...active, current: 4, total: 3 }]) {
+      expect(homeProcessingProgress(operation)).toEqual({ phase: "waiting" });
+    }
+  });
+
+  it("distinguishes ranking refresh from a new zero-length run", () => {
+    expect(homeProcessingProgress({ ...active, stage: "completed" })).toEqual({ phase: "finishing" });
+  });
+});
 
 describe("words and counts", () => {
   it("declines «слово» by the number", () => {

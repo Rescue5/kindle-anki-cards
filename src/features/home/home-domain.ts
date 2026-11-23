@@ -91,6 +91,23 @@ export const READER_LOCATIONS: readonly { reader: string; where: string }[] = [
 /** Which body the screen shows. `loading` lasts until the first library answer, so no onboarding flashes by. */
 export type HomeMode = "loading" | "no-reader" | "list" | "preparing" | "processing-stopped" | "empty";
 export type HomeQueueState = "idle" | "working" | "stopped";
+export type HomeProcessingProgress =
+  | { phase: "waiting" }
+  | { phase: "processing"; current: number; total: number }
+  | { phase: "finishing" };
+
+/** The bridge counts this processing run, which can be smaller than the library after a retry. */
+export function homeProcessingProgress(operation: Pick<Operation, "kind" | "status" | "stage" | "current" | "total">): HomeProcessingProgress {
+  const { kind, status, stage, current, total } = operation;
+  if (kind === "processing" && status === "running") {
+    // The bridge has finished, but the refreshed ranking is still being read.
+    if (stage === "completed") return { phase: "finishing" };
+    if ((stage === "preparing" || stage === "processing") && total > 0 && current >= 0 && current <= total) {
+      return { phase: "processing", current, total };
+    }
+  }
+  return { phase: "waiting" };
+}
 
 export function homeQueueState(queue: QueueStatus, operation: Pick<Operation, "status" | "kind">): HomeQueueState {
   if (operation.kind === "processing") {

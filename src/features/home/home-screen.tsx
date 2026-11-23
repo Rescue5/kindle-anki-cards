@@ -2,7 +2,7 @@ import * as React from "react";
 import type { useLibraryController } from "@/features/library/use-library-controller";
 import { readerName } from "@/features/library/domain";
 import { HomeView } from "./home-view";
-import { homeMode, homeQueueState, rankingNote, shortList, sinceLastTimeLine } from "./home-domain";
+import { homeMode, homeProcessingProgress, homeQueueState, rankingNote, shortList, sinceLastTimeLine } from "./home-domain";
 import type { useHomeExport } from "./use-home-export";
 
 type Controller = ReturnType<typeof useLibraryController>;
@@ -15,6 +15,7 @@ export function HomeScreen({ controller, exporter, onOpenWord }: {
 }) {
   const { entries, ranking, loading, demo, operation, queueStatus, connectors, settings, settingsSaving } = controller;
   const words = React.useMemo(() => shortList(entries, ranking?.newBatch.ids ?? []), [entries, ranking]);
+  const sinceLine = React.useMemo(() => sinceLastTimeLine(entries, words.length), [entries, words.length]);
   const queue = homeQueueState(queueStatus, operation);
   const mode = homeMode({ loading, entryCount: entries.length, batchCount: words.length, demo, queue });
 
@@ -26,7 +27,8 @@ export function HomeScreen({ controller, exporter, onOpenWord }: {
     <HomeView
       mode={mode}
       words={words}
-      sinceLine={sinceLastTimeLine(entries, words.length)}
+      sinceLine={sinceLine}
+      processingProgress={!demo && queue === "working" ? homeProcessingProgress(operation) : null}
       roughNote={rankingNote(ranking)}
       demo={demo}
       exportUi={exporter.state}

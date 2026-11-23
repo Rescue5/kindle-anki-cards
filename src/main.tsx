@@ -92,6 +92,8 @@ function App() {
   });
   const homeHandlesProcessing = view === "home" && !controller.demo && controller.entries.length > 0
     && exportIds.length === 0 && homeQueue === "stopped" && controller.operation.kind === "processing";
+  const homeShowsProgress = view === "home" && !loading && !controller.demo && controller.entries.length > 0
+    && homeQueue === "working" && (busy ? controller.operation.kind === "processing" : controller.operation.status !== "error");
   const { dismiss } = exporter;
   React.useEffect(() => {
     if (controller.operation.status === "running" && controller.operation.kind === "kindle") dismiss();
@@ -183,7 +185,13 @@ function App() {
         </div>
         {curtain}
         <div className="paper-grain" aria-hidden="true" />
-        <div className="reading-status" role="status"><span className={busy ? "reading-status-dot is-busy" : "reading-status-dot"} />{status}{controller.operation.status === "error" && controller.operation.kind !== "obsidian" && !homeHandlesProcessing ? <button type="button" onClick={controller.retry}>Повторить</button> : null}</div>
+        {!homeShowsProgress ? (
+          <div className="reading-status" role="status">
+            <span className={busy ? "reading-status-dot is-busy" : "reading-status-dot"} />{status}
+            {controller.operation.status === "error" && controller.operation.kind !== "obsidian" && !homeHandlesProcessing
+              ? <button type="button" onClick={controller.retry}>Повторить</button> : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

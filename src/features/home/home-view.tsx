@@ -2,6 +2,7 @@ import * as React from "react";
 import { Check, ChevronRight, Loader2, RefreshCw, Upload } from "lucide-react";
 import type { AppSettings, ConnectorState, LexemeRecord } from "@/types";
 import type { ExportFolderState, OpenResultState } from "./use-home-export";
+import type { HomeProcessingProgress } from "./home-domain";
 import { DeskLamp } from "@/components/light/light";
 import { PencilRule } from "@/components/sketch/sketch";
 import { PencilButton, PencilLink } from "@/components/ui/pencil-controls";
@@ -42,6 +43,7 @@ export type HomeViewProps = {
   exportBlocked: boolean;
   /** The reader is being read or new words are being analysed: the list is about to change. */
   listChanging: boolean;
+  processingProgress: HomeProcessingProgress | null;
   reader: { state: ConnectorState; name: string };
   onExport: () => void;
   onOpenWord: (id: string) => void;
@@ -58,13 +60,18 @@ const QUESTION = "Что выгрузить сейчас?";
 
 export function HomeView(props: HomeViewProps) {
   const { mode, demo } = props;
+  const processingPhase = props.processingProgress?.phase ?? (mode === "preparing" ? "waiting" : null);
+  const phaseAnnouncement = processingPhase === "waiting" ? "Подготовка к обработке…"
+    : processingPhase === "processing" ? "Обрабатываю слова…"
+      : processingPhase === "finishing" ? "Собираю подборку…" : "";
   const readerConnected = props.reader.state === "connected";
   // A lamp burns only where there is something to do.
   const lit = mode === "list" || mode === "preparing" || mode === "processing-stopped" || (mode === "no-reader" && readerConnected);
 
   return (
     <main className="reading-page app-scrollbar" aria-busy={mode === "loading" || undefined}>
-      <div className="home-page">
+      <p className="sr-only home-processing-announcement" role="status" aria-live="polite" aria-atomic="true">{phaseAnnouncement}</p>
+      <div className={`home-page${mode === "preparing" ? " home-preparing" : ""}`}>
         <section className="home-desk lamp-host" aria-labelledby="home-title">
           <DeskLamp lit={lit} />
           <div className="home-desk-text">
@@ -79,7 +86,7 @@ export function HomeView(props: HomeViewProps) {
         {mode === "loading" ? <ListSkeleton /> : null}
         {mode === "list" ? <ShortList {...props} /> : null}
         {mode === "no-reader" ? <ReaderPlaces /> : null}
-        {mode !== "loading" && mode !== "no-reader" && !demo ? <ReaderLine {...props} /> : null}
+        {mode !== "loading" && mode !== "no-reader" && mode !== "preparing" && !demo ? <ReaderLine {...props} /> : null}
       </div>
     </main>
   );
@@ -87,8 +94,8 @@ export function HomeView(props: HomeViewProps) {
 
 // ---------- the desk ----------
 
-function Title() {
-  return <h1 id="home-title" className="home-title" tabIndex={-1}>{QUESTION}</h1>;
+function Title({ preparing = false }: { preparing?: boolean }) {
+  return <h1 id="home-title" className="home-title" tabIndex={-1}>{preparing ? "Готовлю подборку" : QUESTION}</h1>;
 }
 
 function DeskSkeleton() {
@@ -111,8 +118,8 @@ function ListDesk(props: HomeViewProps) {
   const actionLabel = exportUi.kind === "error" ? "Попробовать снова" : exportButtonLabel(words.length);
   return (
     <>
-      <p className="home-eyebrow">{demo ? null : sinceLine}</p>
-      <Title />
+      {mode !== "preparing" ? <p className="home-eyebrow">{demo ? null : sinceLine}</p> : null}
+      <Title preparing={mode === "preparing"} />
       {showEmpty ? (
         <>
           <p className="home-answer">{EMPTY_TITLE}</p>
@@ -120,9 +127,9 @@ function ListDesk(props: HomeViewProps) {
         </>
       ) : null}
       {mode === "preparing" ? (
-        <div role="status">
-          <p className="home-answer">Готовлю список слов</p>
-          <p className="home-export-hint">Слова загружены. Список появится сам, когда закончится обработка.</p>
+        <div className="home-preparation">
+          <p className="home-lede">Слова загружены. Подборка появится здесь, когда закончится обработка.</p>
+          <ProcessingProgress progress={props.processingProgress ?? { phase: "waiting" }} />
         </div>
       ) : null}
       {mode === "processing-stopped" ? (
@@ -138,7 +145,7 @@ function ListDesk(props: HomeViewProps) {
           {demo ? (
             <PencilButton look="lit" size="lg" onClick={props.onExitDemo}>Закрыть пример</PencilButton>
           ) : (
-            <PencilButton look="lit" size="lg" loading={running} disabled={listChanging || props.exportBlocked} onClick={props.onExport}>
+            <PencilButton look="lit" size="lg" loading={running} disabled={listChanging || props.exportBlocked} aria-describedby={props.processingProgress && listChanging ? "home-processing-note" : undefined} onClick={props.onExport}>
               {running ? "Выгружаю…" : <><Upload size={18} strokeWidth={1.8} aria-hidden="true" />{actionLabel}</>}
             </PencilButton>
           )}
@@ -164,8 +171,8 @@ function ListDesk(props: HomeViewProps) {
  * The one line under the button, by priority (see `deskStatus`). It stays in the page even when empty,
  * so screen readers announce a change; an empty line is only visually hidden.
  */
-function DeskStatusLine({ exportUi, openState, folderState, demo, listChanging, roughNote, mode, onOpenResult }: HomeViewProps) {
-  const status = deskStatus({ exportUi: demo ? { kind: "idle" } : exportUi, listChanging: mode === "list" && listChanging, demo, roughNote: mode === "list" ? roughNote : null });
+function DeskStatusLine({ exportUi, openState, folderState, demo, listChanging, processingProgress, roughNote, mode, onOpenResult }: HomeViewProps) {
+  const status = deskStatus({ exportUi: demo ? { kind: "idle" } : exportUi, listChanging: mode === "list" && listChanging && !processingProgress, demo, roughNote: mode === "list" && !processingProgress ? roughNote : null });
   const region = React.useRef<HTMLDivElement>(null);
   const outcome = status?.kind === "done" || status?.kind === "error" ? status.kind : null;
   // When the export button disappears with the list, keep keyboard focus on the result instead of <body>.
@@ -270,10 +277,14 @@ function NoReaderDesk(props: HomeViewProps) {
 
 // ---------- below the desk ----------
 
-function ShortList({ words, onOpenWord, listChanging, exportUi }: HomeViewProps) {
+function ShortList({ words, onOpenWord, listChanging, exportUi, processingProgress }: HomeViewProps) {
   return (
     <section className="home-list" aria-labelledby="home-list-title">
       <h2 id="home-list-title" tabIndex={-1}>{LIST_TITLE}</h2>
+      {processingProgress ? <div className="home-list-progress">
+        <ProcessingProgress progress={processingProgress} />
+        {listChanging ? <p id="home-processing-note" className="home-export-hint">Подборка ещё меняется. Открытие карточек и выгрузка станут доступны после обработки.</p> : null}
+      </div> : null}
       <ol className="home-rows">
         {words.map((entry, index) => {
           const pos = listPartOfSpeech(entry);
@@ -305,6 +316,21 @@ function ShortList({ words, onOpenWord, listChanging, exportUi }: HomeViewProps)
       </ol>
     </section>
   );
+}
+
+function ProcessingProgress({ progress }: { progress: HomeProcessingProgress }) {
+  if (progress.phase === "processing") {
+    const current = progress.current.toLocaleString("ru-RU");
+    const total = progress.total.toLocaleString("ru-RU");
+    return <div className="home-processing" aria-live="off">
+      <p className="home-processing-count">Обработано {current} из {total}</p>
+      <progress className="home-processing-bar" aria-label="Обработка слов" aria-valuetext={`Обработано слов ${current} из ${total}`} value={progress.current} max={progress.total} />
+    </div>;
+  }
+  return <div className="home-processing home-processing-waiting" aria-live="off">
+    <span className="home-processing-dot" aria-hidden="true" />
+    <p>{progress.phase === "finishing" ? "Собираю подборку…" : "Подготовка к обработке…"}</p>
+  </div>;
 }
 
 function ListSkeleton() {
