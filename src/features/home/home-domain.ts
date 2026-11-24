@@ -1,15 +1,16 @@
 // What the home screen says and when. Pure helpers, tested without a browser: the short list, its
 // one-line reasons, the "order is rough" line and the export state machine. The screen only draws them.
-import { ERROR_TEXTS, type ErrorCode, type ExportRun, type LexemeRecord, type LibraryRanking, type LibraryResult, type Operation, type QueueStatus, type RankingReason } from "@/types";
+import { ERROR_TEXTS, type ErrorCode, type ExportRun, type LexemeRecord, type LibraryRanking, type LibraryResult, type Operation, type QueueStatus, type RankingReason, type StudyPrioritySource } from "@/types";
 import { partOfSpeechShort, ruCount } from "@/features/reading/reading-domain";
 import { russianMeaning } from "@/features/library/domain";
-import { compareStudyPriority, studyPriority } from "@/features/library/study-priority";
+import { isRpV2Priority, studyPriorityComparator, studyPriority } from "@/features/library/study-priority";
 
 /** The short-list parts of a library answer, or null when the bridge does not send them (an older one). */
 export function rankingOf(result: LibraryResult): LibraryRanking | null {
   const { rankingVersion, rankingMode, historyDays, repeatSignal, shelves, newBatch, disputed, again } = result as Partial<LibraryRanking>;
   if (!newBatch || !Array.isArray(newBatch.ids)) return null;
   return {
+    studyPrioritySource: result.studyPrioritySource,
     rankingVersion: rankingVersion ?? "",
     rankingMode: rankingMode ?? "full",
     historyDays: historyDays ?? 0,
@@ -39,11 +40,10 @@ export function exportQuantity(limit: string, available: number): number {
   return /^\d+$/.test(limit) && Number.isSafeInteger(value) && value > 0 ? Math.min(value, available) : 0;
 }
 
-export function libraryGroups(entries: readonly LexemeRecord[]): string[][] {
-  const groups = PRIORITY_LEVELS.map(() => [] as string[]);
-  for (const entry of [...entries].sort(compareStudyPriority)) groups[studyPriority(entry).level - 1].push(entry.id);
-  return groups;
+export function libraryExportOrder(entries: readonly LexemeRecord[], source?: StudyPrioritySource) {
+  return [...entries].sort(studyPriorityComparator(source)).map((entry) => ({ id: entry.id, level: studyPriority(entry).level }));
 }
+
 
 /** «С прошлого раза: 3 новых слова»; null when nothing is new or the list already says that many. */
 export function sinceLastTimeLine(entries: readonly LexemeRecord[], listCount = -1): string | null {
@@ -88,8 +88,8 @@ const LEARNING_NOTE = "Порядок пока примерный: в библи
 const NO_REPEATS_NOTE = "Порядок примерный: читалка не сохраняет повторные поиски, поэтому слова идут в основном по частоте";
 
 /** One grey line when the order is still rough; null when the ranking has what it needs. */
-export function rankingNote(ranking: Pick<LibraryRanking, "rankingMode" | "repeatSignal"> | null): string | null {
-  if (!ranking) return null;
+export function rankingNote(ranking: Pick<LibraryRanking, "rankingMode" | "repeatSignal" | "studyPrioritySource"> | null): string | null {
+  if (!ranking || isRpV2Priority(ranking.studyPrioritySource)) return null;
   if (!ranking.repeatSignal) return NO_REPEATS_NOTE;
   return ranking.rankingMode === "learning" ? LEARNING_NOTE : null;
 }

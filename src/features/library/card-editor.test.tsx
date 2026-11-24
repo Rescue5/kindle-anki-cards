@@ -3,21 +3,29 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { CardEditor, WordTranslationDetails } from "./card-editor";
 import { mockBackend, resetMockBackend } from "@/lib/mock-backend";
-import type { DecisionValue, Enrichment, LibraryResult } from "@/types";
+import type { DecisionValue, Enrichment, LibraryResult, StudyPrioritySource } from "@/types";
 
-async function renderEditor(readOnly = false, edited = false, decision: DecisionValue | null = null) {
+async function renderEditor(readOnly = false, edited = false, decision: DecisionValue | null = null, prioritySource?: StudyPrioritySource) {
   resetMockBackend({ scenario: "mixed", instant: true });
   const library = await mockBackend<LibraryResult>("load_library", {});
   const entry = library.entries[0];
   entry.decision = decision ? { value: decision, decided_at: "" } : null;
   entry.study_priority = { level: 8, score: .07, provisional: true, reason: "Недостаточно истории для точной оценки" };
   if (edited && entry.card) entry.card = { ...entry.card, meaning_source: "edited", meaning_ru: "Мой перевод" };
-  return renderToStaticMarkup(<CardEditor entry={entry} readOnly={readOnly} busy={false} headingRef={React.createRef()}
+  return renderToStaticMarkup(<CardEditor entry={entry} prioritySource={prioritySource} readOnly={readOnly} busy={false} headingRef={React.createRef()}
     llmEnabled={true} onEnrich={() => {}}
     onSave={async () => {}} onDecision={async () => {}} onDirtyChange={() => {}} onPendingChange={() => {}} />);
 }
 
 describe("card editor states", () => {
+  it.each(["rp-v2-coverage", "rp-v2-personal"] as const)("keeps reader evidence but hides legacy scoring reasons in %s", async (source) => {
+    expect(await renderEditor()).toContain("Искали 2 раза");
+    const html = await renderEditor(false, false, null, source);
+    expect(html).toContain("Недостаточно истории для точной оценки");
+    expect(html).toContain("Записей поиска: 2");
+    expect(html).not.toContain("Искали 2 раза");
+    expect(html).not.toContain("Оценено локальными частотными и морфологическими правилами");
+  });
   it("offers reset only for an edited translation", async () => {
     expect(await renderEditor()).not.toContain("Вернуть исходный перевод");
     expect(await renderEditor(false, true)).toContain("Вернуть исходный перевод");

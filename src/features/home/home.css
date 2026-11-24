@@ -90,7 +90,7 @@
 .home-list { max-width: 860px; margin-top: 40px; }
 .home-list h2, .home-places h2 { font: 500 22px/1.15 var(--font-reading); }
 .home-rows { margin-top: 10px; }
-.home-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: baseline; gap: 4px 16px; width: 100%; min-height: 52px; padding: 13px 10px 11px; border-radius: 8px; background: transparent; text-align: left; }
+.home-row { display: grid; grid-template-columns: minmax(0, 1fr) fit-content(45%) auto; align-items: baseline; gap: 4px 16px; width: 100%; min-height: 52px; padding: 13px 10px 11px; border-radius: 8px; background: transparent; text-align: left; }
 .home-row-text { min-width: 0; overflow-wrap: anywhere; color: hsl(var(--foreground) / 0.8); font-size: 16px; line-height: 1.4; }
 .home-word-arrow { grid-column: 3; align-self: center; color: hsl(var(--muted-foreground)); }
 .home-row:hover:not(:disabled) { background: hsl(var(--pencil) / .06); }

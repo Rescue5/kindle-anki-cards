@@ -11,21 +11,38 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kindle_vocab_app import anki_connect, anki_export, book_covers, enrichment, export_cards, library_view, obsidian_sync, offline_dictionary, reader_sources, settings, vocab_cache
+from kindle_vocab_app import (
+    anki_connect,
+    anki_export,
+    book_coverage,
+    book_covers,
+    enrichment,
+    export_cards,
+    library_view,
+    obsidian_sync,
+    offline_dictionary,
+    reader_sources,
+    settings,
+    vocab_cache,
+)
 from kindle_vocab_app.coded_error import CodedError
 from kindle_vocab_app.contracts import ERROR_CODES, DecisionResult, SaveCardEditResult
-from kindle_vocab_app.llm import presets as llm_presets
 from kindle_vocab_app.kindle_db import fetch_entries, list_books, validate_vocab_db
-from kindle_vocab_app.kindle_device import find_kindle_presence, find_kindle_source, mounted_volume_roots
+from kindle_vocab_app.kindle_device import (
+    find_kindle_presence,
+    find_kindle_source,
+    mounted_volume_roots,
+)
 from kindle_vocab_app.library_repository import repository_for
+from kindle_vocab_app.llm import presets as llm_presets
 from kindle_vocab_app.logging_config import configure_logging, get_logger
 from kindle_vocab_app.tsv_schema import OPTIMIZED_TSV_HEADER
-from kindle_vocab_app.vocab_optimizer import analyze_entries_once, _candidate_from_entry
-
+from kindle_vocab_app.vocab_optimizer import _candidate_from_entry, analyze_entries_once
 
 logger = get_logger(__name__)
 PROGRESS_PREFIX = "KINDLE_PROGRESS "
@@ -769,20 +786,26 @@ def _catalog_response(
     return result
 
 
-def _ranked_library(entries: list[dict[str, Any]], workspace: Path, *, reader_state: bool = True) -> dict[str, Any]:
+def _ranked_library(
+    entries: list[dict[str, Any]], workspace: Path, *, reader_state: bool = True, decision_audit: bool = False
+) -> dict[str, Any]:
     """Rank the entries in place (see `library_view`) and return the library-level fields.
 
     The reader's decisions, card edits and exports come from the workspace's SQLite library; the demo
     library is not stored there, so it is ranked without them.
     """
     state = repository_for(workspace).load_reader_state() if reader_state else {}
-    return library_view.decorate(
-        entries,
-        decisions=state.get("decisions"),
-        card_edits=state.get("card_edits"),
-        exported_at=state.get("exported_at"),
-        batch_size=settings.load(workspace).export_batch_size,
-    )
+    # The audit only records the legacy shelf and score. Open the coverage snapshot once,
+    # for the response after the decision has been stored.
+    with (nullcontext() if decision_audit else book_coverage.open_model(workspace)) as model:
+        return library_view.decorate(
+            entries,
+            decisions=state.get("decisions"),
+            card_edits=state.get("card_edits"),
+            exported_at=state.get("exported_at"),
+            batch_size=settings.load(workspace).export_batch_size,
+            coverage_model=model,
+        )
 
 
 def _with_ranking(result: dict[str, Any], workspace: Path) -> dict[str, Any]:
@@ -830,8 +853,9 @@ def _set_decision(payload: dict[str, Any], workspace: Path) -> DecisionResult:
     repository = repository_for(workspace)
     ranking = {}
     if decision is not None:
-        before = _with_ranking({"entries": repository.load_catalog()["lexemes"]}, workspace)
-        ranking = _reader_action_entry(before["entries"], lexeme_id)["ranking"] or {}
+        entries = repository.load_catalog()["lexemes"]
+        _ranked_library(entries, workspace, decision_audit=True)
+        ranking = _reader_action_entry(entries, lexeme_id)["ranking"] or {}
     repository.set_decision(
         lexeme_id,
         decision,
@@ -842,6 +866,7 @@ def _set_decision(payload: dict[str, Any], workspace: Path) -> DecisionResult:
     after = _with_ranking({"entries": repository.load_catalog()["lexemes"]}, workspace)
     return {
         "entry": _reader_action_entry(after["entries"], lexeme_id),
+        "studyPrioritySource": after["studyPrioritySource"],
         "shelves": after["shelves"],
         "newBatch": after["newBatch"],
         "disputed": after["disputed"],

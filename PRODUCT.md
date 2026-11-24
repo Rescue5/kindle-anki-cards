@@ -29,15 +29,19 @@ Does:
 
 1. **Collects** looked-up words from the reader (USB or a picked file — the
    file path is shown on the first screen, not hidden in a tooltip).
-2. **Ranks every word** for this reader on a scale of 1 through 10. Start
-   with 1. Level 10 flags a possible recording error for inspection.
-   Each word stays searchable. Its library row shows the reason for its level.
-   Its card gives the full reason and the recorded lookup and book counts. Words awaiting
-   sufficient analysis show an explicitly provisional 6. A reader can choose
-   to learn a word at any level.
-   This is the core and a statistics/ML problem; it is measured with
-   `kindle_vocab_app/ranking_eval.py`. The book being read now is detected
-   from recent lookups — the reader never sets a book status.
+2. **Ranks every word** for reading the next contemporary English novel. A single
+   lookup uses the share of novels containing the lemma, giving each author the
+   same total weight. Returning to a word on another day in the same book or
+   looking it up in another book can raise its priority by up to one level.
+   The library and card explain the observed share and any personal adjustment.
+   The card also shows the reader's recorded lookup and book counts.
+   Measured words receive levels 1–9. Words awaiting processing, unmatched
+   spellings and unmeasured expressions have a provisional 6. Repeated searches
+   for the same unmeasured expression affect its order within that group. Level 10 flags
+   possible recording errors. Readers can search and choose words at any level.
+   Installations without the local model use the previous ranking. The choice,
+   evidence and offline setup are in the [original integration note](docs/plan/openresearch-integration.md)
+   and the [corpus and personalization results](docs/plan/personalized-book-priority.md).
 3. **Lets readers choose what to take.** Home starts with the whole library
    and all ten priority levels selected, including previously exported and
    skipped words. Readers can exclude individual levels, choose every new
@@ -87,7 +91,8 @@ reference for look and copy, but the scope above wins where they differ:
 
 - **Главная** — choose the export scope, see a five-word preview, check the
   reader connection or open the complete library.
-- **Слова** opens the complete library ordered from priority 1 through 10,
+- **Слова** opens the complete library with measured words in priority order,
+  followed by provisional assessments and possible recording errors,
   with search, book and priority filters. Each card explains the recommendation
   and lets the reader choose to study a word, edit its translation and pick an example.
 - **Спорные** — one by one, at most 5–7, from the counter link.

@@ -5,7 +5,7 @@ import { SettingsView } from "@/components/settings-view";
 import { LibraryWorkspace } from "@/features/library/library-workspace";
 import { useLibraryController } from "@/features/library/use-library-controller";
 import { HomeScreen } from "@/features/home/home-screen";
-import { homeQueueState, libraryGroups, shortList } from "@/features/home/home-domain";
+import { homeQueueState, libraryExportOrder, shortList } from "@/features/home/home-domain";
 import { useHomeExport } from "@/features/home/use-home-export";
 import { navViewOf, parseView, type NavView, type View } from "@/features/shell/views";
 import "@fontsource-variable/literata/opsz.css";
@@ -86,10 +86,11 @@ function App() {
   const exportIds = React.useMemo(() => shortList(controller.entries, rankedIds ?? noExportIds).map((entry) => entry.id),
     [controller.entries, rankedIds]);
   const homeQueue = homeQueueState(controller.queueStatus, controller.operation);
-  const groups = React.useMemo(() => libraryGroups(controller.entries), [controller.entries]);
+  const prioritySource = controller.ranking?.studyPrioritySource;
+  const libraryWords = React.useMemo(() => libraryExportOrder(controller.entries, prioritySource), [controller.entries, prioritySource]);
   const exporter = useHomeExport({
     ids: exportIds,
-    libraryGroups: groups,
+    libraryWords,
     defaultCount: controller.settings.export_batch_size ?? 20,
     blocked: controller.settingsSaving || busy || homeQueue === "working",
     reload: controller.loadLibrary,

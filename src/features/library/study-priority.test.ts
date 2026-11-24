@@ -41,6 +41,21 @@ describe("study priority catalogue", () => {
     expect(priorityEntries(records, "missing", { key: "one", label: "Book" }, 4)).toEqual([]);
   });
 
+  it("puts every measured level before provisional words and structural records last in coverage mode", async () => {
+    const base = (await libraryEntries())[0];
+    const make = (id: string, level: number, provisional: boolean, score: number): LexemeRecord => ({
+      ...base, id, study_priority: { level, provisional, score, reason: "Причина" },
+    });
+    const records = [
+      make("structural", 10, false, 0), make("unknown", 6, true, 0), make("rare", 9, false, .001),
+      make("b", 6, false, .06), make("a", 6, false, .06), make("higher", 6, false, .09),
+    ];
+    const ids = priorityEntries(records, "", undefined, "all", "rp-v2-coverage").map(({ id }) => id);
+    expect(ids).toEqual(["higher", "a", "b", "rare", "unknown", "structural"]);
+    expect(priorityEntries(records, "", undefined, 6, "rp-v2-coverage").map(({ id }) => id))
+      .toEqual(["higher", "a", "b", "unknown"]);
+  });
+
   it("keeps an older payload visible as provisional level 6", async () => {
     const entry = (await libraryEntries())[0];
     delete entry.study_priority;

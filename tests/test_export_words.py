@@ -25,8 +25,10 @@ from short_list_fixture import build_library, letters, lid, word, worth_words
 from kindle_vocab_app import (
     anki_connect,
     anki_export,
+    book_coverage,
     contracts,
     export_cards,
+    library_view,
     reader_sources,
     settings,
     vocab_cache,
@@ -539,6 +541,153 @@ class SelectionTests(_Workspace):
         self.assertEqual(self.failure(scope="again").code, "bad_scope")
         self.assertEqual(self.failure(ids=["no-such-word"]).code, "unknown_lexeme")
         self.assertEqual(_runs(self.workspace), [])
+
+
+class BookCoverageExportTests(_Workspace):
+    def test_bridge_uses_one_coverage_order_for_library_decisions_and_new_exports(self) -> None:
+        phrase = word("take")
+        phrase["display_form"] = "take off"
+        phrase["forms"] = ["take off"]
+        inflected = word("choose")
+        inflected["display_form"] = "chose"
+        inflected["forms"] = ["chose"]
+        inflected["occurrences"] = []
+        inflected["processing"]["analysis"] = {"base_form": "choose"}
+        words = [
+            word("recent"), word("walked", state="rejected"), word("?!", state="rejected"),
+            word("pending", state="pending"), phrase, inflected,
+        ]
+        repository = self.library(words)
+        _use(self.workspace, "csv", batch=5)
+        for item in words[1:]:
+            repository.set_decision(item["id"], "learn")
+        legacy = _bridge(self.workspace, "load_library")["result"]
+        self.assertEqual(legacy["studyPrioritySource"], "legacy")
+
+        path = book_coverage.model_path(self.workspace)
+        path.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.executescript(
+                f"""
+                PRAGMA user_version = {book_coverage.SCHEMA_VERSION};
+                CREATE TABLE provenance (source_sha256 TEXT);
+                CREATE TABLE coverage (headword TEXT PRIMARY KEY, share REAL);
+                CREATE TABLE aliases (spelling TEXT PRIMARY KEY, headword TEXT);
+                INSERT INTO coverage VALUES ('recent', .02), ('walk', .55), ('take', .95),
+                    ('choose', .20), ('chose', .90), ('pending', .95);
+                INSERT INTO aliases VALUES ('walked', 'walk');
+                """
+            )
+            connection.execute("INSERT INTO provenance VALUES (?)", (book_coverage.SOURCE_SHA256,))
+
+        snapshot = _bridge(self.workspace, "load_library")["result"]
+        self.assertEqual(snapshot["studyPrioritySource"], "rp-v2-personal")
+        self.assertEqual(snapshot["rankingVersion"], legacy["rankingVersion"])
+        self.assertEqual(snapshot["shelves"], legacy["shelves"])
+        priorities = {entry["lemma"]: entry["study_priority"] for entry in snapshot["entries"]}
+        self.assertEqual(
+            {key: (value["level"], value["provisional"]) for key, value in priorities.items()},
+            {"recent": (7, False), "walked": (2, False), "?!": (10, False),
+             "pending": (6, True), "take": (6, True), "choose": (4, False)},
+        )
+        self.assertIn("выражения", priorities["take"]["reason"])
+        self.assertEqual(priorities["walked"]["coverage_score"], 0.55)
+        expected = ["walked", "choose", "recent", "take", "?!"]
+        self.assertEqual(snapshot["newBatch"]["availableIds"], [lid(item) for item in expected])
+        self.assertNotEqual(snapshot["newBatch"]["availableIds"], legacy["newBatch"]["availableIds"])
+        changed = _bridge(self.workspace, "set_decision", lexeme_id=lid("walked"), decision="skip")["result"]
+        self.assertEqual(changed["studyPrioritySource"], "rp-v2-personal")
+        self.assertEqual(changed["entry"]["study_priority"], priorities["walked"])
+        self.assertEqual(changed["newBatch"]["availableIds"], [lid(item) for item in expected[1:]])
+        missing = _bridge(self.workspace, "export_words", scope="library")
+        self.assertEqual(missing["code"], "nothing_to_export")
+        explicit = _bridge(
+            self.workspace, "export_words", scope="new",
+            ids=[lid(item) for item in ["?!", "recent", "walked"]],
+        )["result"]
+        with Path(explicit["path"]).open(encoding="utf-8", newline="") as file:
+            self.assertEqual([row["Base form"] for row in csv.DictReader(file, delimiter="\t")], ["recent", "?!"])
+        run = _bridge(self.workspace, "export_words", scope="new")["result"]
+        with Path(run["path"]).open(encoding="utf-8", newline="") as file:
+            self.assertEqual([row["Base form"] for row in csv.DictReader(file, delimiter="\t")], ["choose", "take"])
+        full = _bridge(
+            self.workspace, "export_words", scope="library", levels=[2, 4, 10],
+            ids=[lid(item) for item in ["?!", "recent", "walked", "choose"]],
+        )["result"]
+        with Path(full["path"]).open(encoding="utf-8", newline="") as file:
+            self.assertEqual(
+                [row["Base form"] for row in csv.DictReader(file, delimiter="\t")],
+                ["?!", "walked", "choose"],
+            )
+
+    def test_personal_lookup_filter_keeps_old_forms_and_requires_the_whole_expression(self) -> None:
+        lookup = word("choose")["occurrences"][0]
+        self.assertTrue(library_view.is_personal_lookup({**lookup, "word": "chose"}, "choose"))
+        self.assertTrue(library_view.is_personal_lookup({**lookup, "word": " Take  Off "}, "take off"))
+        for invalid in (
+            {"source": "legacy"}, {"source": "obsidian"}, {"source": "kobo"},
+            {"book_key": ""}, {"book_key": "kobo:other"}, {"book_key": "KOReader:other"},
+            {"id": "koreader:choose:1"}, {"id": "kobo:choose:1", "book_key": "unmarked"},
+            {"lookup_id": "kobo:choose:1"}, {"looked_up_at": "invalid"}, {"word": "choose from"},
+        ):
+            with self.subTest(invalid=invalid):
+                self.assertFalse(library_view.is_personal_lookup({**lookup, **invalid}, "choose"))
+        for component in ("take", "off", "take in"):
+            self.assertFalse(library_view.is_personal_lookup({**lookup, "word": component}, "take off"))
+
+    def test_personal_priority_ignores_unmarked_koreader_reimports(self) -> None:
+        lexeme = word("choose", days=(0, 1, 3))
+        for occurrence in lexeme["occurrences"]:
+            occurrence["word"] = "chose"
+        self.library([lexeme, word("unmeasured", days=(0, 2))])
+        model_path = book_coverage.model_path(self.workspace)
+        model_path.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(model_path)) as connection, connection:
+            connection.executescript(f"""
+                PRAGMA user_version = {book_coverage.SCHEMA_VERSION};
+                CREATE TABLE provenance (source_sha256 TEXT);
+                CREATE TABLE coverage (headword TEXT PRIMARY KEY, share REAL);
+                CREATE TABLE aliases (spelling TEXT PRIMARY KEY, headword TEXT);
+                INSERT INTO coverage VALUES ('choose', .20);
+            """)
+            connection.execute("INSERT INTO provenance VALUES (?)", (book_coverage.SOURCE_SHA256,))
+        before = dispatch("load_library", {}, self.workspace)
+        entries = {item["lemma"]: item for item in before["entries"]}
+        self.assertEqual(before["studyPrioritySource"], "rp-v2-personal")
+        priority = entries["choose"]["study_priority"]
+        self.assertEqual(priority["coverage_score"], 0.20)
+        self.assertGreater(priority["score"], 0.20)
+        provisional = entries["unmeasured"]["study_priority"]
+        self.assertEqual((provisional["level"], provisional["provisional"], provisional["coverage_score"]), (6, True, None))
+        self.assertGreater(provisional["score"], 0)
+        self.assertEqual(contracts.validate_library(before), [])
+        compact_reason = priority["personal_reason"]
+        self.assertTrue(compact_reason.strip())
+        try:
+            priority["personal_reason"] = "Поиски в разные дни."
+            self.assertEqual(contracts.validate_library(before), [])
+            for invalid_reason in ("", "   ", None, 1):
+                with self.subTest(invalid_reason=invalid_reason):
+                    priority["personal_reason"] = invalid_reason
+                    self.assertIn(
+                        f"entry {entries['choose']['id']}.study_priority.personal_reason: expected a non-empty string",
+                        contracts.validate_library(before),
+                    )
+        finally:
+            priority["personal_reason"] = compact_reason
+
+        reader_path = self.workspace / "reader.sqlite"
+        with closing(_koreader_db(reader_path)) as connection, connection:
+            connection.execute("UPDATE vocabulary SET word = 'choose', title_id = NULL")
+        payload = {"file_name": reader_path.name, "data_base64": base64.b64encode(reader_path.read_bytes()).decode()}
+        imported = dispatch("import_reader_file", payload, self.workspace)
+        repeated = dispatch("import_reader_file", payload, self.workspace)
+        imported_choose = next(item for item in imported["entries"] if item["lemma"] == "choose")
+        repeated_choose = next(item for item in repeated["entries"] if item["lemma"] == "choose")
+        self.assertEqual(len(imported_choose["occurrences"]), 4)
+        self.assertEqual(repeated["imported"]["new_words"], 0)
+        self.assertEqual(repeated_choose["occurrences"], imported_choose["occurrences"])
+        self.assertEqual(repeated_choose["study_priority"], priority)
 
 
 class LibraryScopeTests(_Workspace):

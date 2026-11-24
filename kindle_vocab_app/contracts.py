@@ -167,9 +167,11 @@ class RankingInfo(TypedDict):
 
 class StudyPriority(TypedDict):
     level: int  # 1 best, 10 possible recording error
-    score: float  # 0..1, before display bands; 0 if provisional
+    score: float  # 0..1; hybrid or within-provisional-group ordering score
     provisional: bool
     reason: str
+    coverage_score: NotRequired[float | None]  # original RP-V2 share, null when unavailable
+    personal_reason: NotRequired[str]  # compact explanation of the personal adjustment
 
 
 class DecisionRecord(TypedDict):
@@ -251,6 +253,7 @@ class LibraryPayloadV4(TypedDict):
     rankingMode: RankingMode
     historyDays: int  # days between the first and the last lookup, 0 for an empty library
     repeatSignal: bool  # the source keeps repeat lookups (Kindle does; KOReader and Kobo do not)
+    studyPrioritySource: NotRequired[Literal["rp-v2-personal", "rp-v2-coverage", "legacy"]]
     shelves: ShelfCounts  # every ranked word of the library
     newBatch: NewBatch
     disputed: DisputedSummary
@@ -277,6 +280,7 @@ class LibraryPayloadV4(TypedDict):
 
 class DecisionResult(TypedDict):
     entry: dict[str, Any]  # the updated library entry (ranking, decision, card, export, is_new)
+    studyPrioritySource: NotRequired[Literal["rp-v2-personal", "rp-v2-coverage", "legacy"]]
     shelves: ShelfCounts
     newBatch: NewBatch
     disputed: DisputedSummary
@@ -373,20 +377,42 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def study_priority_order(priority: StudyPriority, lexeme_id: str) -> tuple[int, int, float, str]:
+    level = priority["level"]
+    group = 2 if level == 10 else int(priority["provisional"])
+    return group, level, -priority["score"], lexeme_id
+
+
 def _validate_study_priority(problems: list[str], where: str, priority: Any) -> None:
-    if not _keys(problems, where, priority, _STUDY_PRIORITY_KEYS):
+    expected_keys = _STUDY_PRIORITY_KEYS
+    if isinstance(priority, dict):
+        expected_keys = expected_keys | ({"coverage_score", "personal_reason"} & priority.keys())
+    if not _keys(problems, where, priority, expected_keys):
         return
     level, score = priority["level"], priority["score"]
     if not _is_int(level) or not 1 <= level <= 10:
         problems.append(f"{where}.level: must be an integer in 1..10")
     if isinstance(score, bool) or not isinstance(score, int | float) or not 0.0 <= score <= 1.0:
         problems.append(f"{where}.score: not in 0..1")
+    if "coverage_score" in priority:
+        coverage_score = priority["coverage_score"]
+        if coverage_score is not None and (
+            isinstance(coverage_score, bool) or not isinstance(coverage_score, int | float)
+            or not 0.0 <= coverage_score <= 1.0
+        ):
+            problems.append(f"{where}.coverage_score: not in 0..1")
     if not isinstance(priority["provisional"], bool):
         problems.append(f"{where}.provisional: must be a boolean")
-    elif priority["provisional"] and (level != 6 or score != 0):
-        problems.append(f"{where}: provisional priority must have level 6 and score 0")
+    elif priority["provisional"]:
+        personal_order = "coverage_score" in priority and priority["coverage_score"] is None
+        if level != 6 or (score != 0 and not personal_order):
+            problems.append(f"{where}: provisional priority must have level 6 and score 0 unless ordered by personal evidence")
     if not isinstance(priority["reason"], str) or not priority["reason"].strip():
         problems.append(f"{where}.reason: empty")
+    if "personal_reason" in priority:
+        personal_reason = priority["personal_reason"]
+        if not isinstance(personal_reason, str) or not personal_reason.strip():
+            problems.append(f"{where}.personal_reason: expected a non-empty string")
 
 
 def _validate_ranking(problems: list[str], where: str, ranking: Any) -> None:
@@ -466,6 +492,8 @@ def validate_library(payload: dict[str, Any]) -> list[str]:
 
     entries = payload.get("entries") or []
     by_id: dict[str, dict[str, Any]] = {}
+    by_study_priority = payload.get("studyPrioritySource") in ("rp-v2-personal", "rp-v2-coverage")
+    study_order: dict[str, tuple[int, int, float, str]] = {}
     ranks: dict[str, list[int]] = {shelf: [] for shelf in SHELVES}
     shelf_totals = dict.fromkeys(SHELVES, 0)
     for entry in entries:
@@ -476,7 +504,10 @@ def validate_library(payload: dict[str, Any]) -> list[str]:
             if key not in entry:
                 problems.append(f"{where}: missing {key}")
         if "study_priority" in entry:
+            previous_problem_count = len(problems)
             _validate_study_priority(problems, f"{where}.study_priority", entry["study_priority"])
+            if by_study_priority and len(problems) == previous_problem_count:
+                study_order[lexeme_id] = study_priority_order(entry["study_priority"], lexeme_id)
         if "ranking" not in entry or "export" not in entry or "card" not in entry:
             continue
         ranking = entry["ranking"]
@@ -543,6 +574,7 @@ def validate_library(payload: dict[str, Any]) -> list[str]:
             problems.append("newBatch.availableIds: duplicate ids")
         for key, candidates in (("ids", ids), ("availableIds", available_ids)):
             previous = 0
+            previous_study = None
             for lexeme_id in candidates:
                 item = by_id.get(lexeme_id)
                 if item is None:
@@ -552,9 +584,16 @@ def validate_library(payload: dict[str, Any]) -> list[str]:
                 if ranking is None or ranking["shelf"] != "worth":
                     problems.append(f"newBatch.{key}: {item['id']} is not on the worth shelf")
                     continue
-                if ranking["rank"] < previous:
-                    problems.append(f"newBatch.{key}: not in rank order")
-                previous = ranking["rank"]
+                if by_study_priority:
+                    order = study_order.get(lexeme_id)
+                    if order is not None:
+                        if previous_study is not None and order < previous_study:
+                            problems.append(f"newBatch.{key}: not in study priority order")
+                        previous_study = order
+                else:
+                    if ranking["rank"] < previous:
+                        problems.append(f"newBatch.{key}: not in rank order")
+                    previous = ranking["rank"]
                 if item["export"]["state"] == "exported":
                     problems.append(f"newBatch.{key}: {item['id']} is already exported")
 

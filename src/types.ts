@@ -143,7 +143,14 @@ export type DecisionValue = "known" | "learn" | "skip" | "junk";
 export type LeanValue = "learn" | "skip" | "junk";
 export type RankingMode = "learning" | "full";
 /** Personal study order. Level 1 comes first. A provisional 6 awaits sufficient analysis. */
-export type StudyPriority = { level: number; score: number; provisional: boolean; reason: string };
+export type StudyPriority = {
+  level: number;
+  score: number;
+  provisional: boolean;
+  reason: string;
+  coverage_score?: number | null;
+  personal_reason?: string;
+};
 export type MeaningSource = "edited" | "llm" | "dictionary" | "none";
 export type ExportDestination = "anki" | "csv" | "obsidian";
 export type ExportScope = "new" | "again" | "library";
@@ -214,7 +221,10 @@ export type AgainSummary = {
   unavailable: boolean;
 };
 
+export type StudyPrioritySource = "rp-v2-coverage" | "rp-v2-personal" | "legacy";
+
 export type LibraryRanking = {
+  studyPrioritySource?: StudyPrioritySource;
   rankingVersion: string;
   rankingMode: RankingMode;
   historyDays: number;
@@ -259,6 +269,7 @@ export const ERROR_TEXTS: Record<ErrorCode, string> = {
 
 // set_decision {lexeme_id, decision: DecisionValue | null}
 export type SetDecisionResult = {
+  studyPrioritySource?: StudyPrioritySource;
   entry: LexemeRecordV4;
   shelves: ShelfCounts;
   newBatch: NewBatch;
@@ -317,6 +328,7 @@ export type ConnectorStatus = {
 };
 
 export type LibraryResult = {
+  studyPrioritySource?: StudyPrioritySource;
   sourceName: string;
   sourceStatus: string;
   books: BookOption[];

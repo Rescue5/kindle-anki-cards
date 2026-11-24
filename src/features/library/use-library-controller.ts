@@ -164,7 +164,11 @@ export function useLibraryController() {
     (result) => {
       setEntries((previous) => previous.map((entry) => entry.id === result.entry.id ? result.entry : entry));
       if ("newBatch" in result) {
-        setRanking((previous) => previous ? { ...previous, shelves: result.shelves, newBatch: result.newBatch, disputed: result.disputed, again: result.again } : previous);
+        setRanking((previous) => previous ? {
+          ...previous,
+          studyPrioritySource: result.studyPrioritySource ?? previous.studyPrioritySource,
+          shelves: result.shelves, newBatch: result.newBatch, disputed: result.disputed, again: result.again,
+        } : previous);
       }
     },
   ), [applyLibrary]);

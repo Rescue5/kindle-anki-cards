@@ -117,6 +117,19 @@ class ExampleTests(unittest.TestCase):
         examples = {item.lexeme_id: item for item in ranking_eval.build_examples(library, CUTOFF, WINDOW)}
         self.assertEqual(examples["a"].reading_books, frozenset({"recent", "edge"}))
 
+    def test_personal_bonus_uses_only_eligible_history_before_the_cutoff(self) -> None:
+        library = Library(
+            lookups=[
+                Lookup("a", "first", _at(-4)),
+                Lookup("a", "other-source", _at(-2), personal_evidence=False),
+                Lookup("a", "future", CUTOFF),
+            ],
+            lexical={"a": _lexical("a")},
+        )
+        [example] = ranking_eval.build_examples(library, CUTOFF, WINDOW)
+        self.assertTrue(example.needed_again)
+        self.assertEqual(example.personal_history, ((_at(-4), "first"),))
+
     def test_ranking_v2_scores_with_the_facts_known_at_the_cutoff(self) -> None:
         examples = {item.lexeme_id: item for item in ranking_eval.build_examples(self.library, CUTOFF, WINDOW)}
         facts = ranking_eval.word_facts(examples["a"])

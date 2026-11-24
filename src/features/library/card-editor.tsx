@@ -2,13 +2,14 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { ClipLamp } from "@/components/light/light";
 import { PencilFrame } from "@/components/sketch/sketch";
-import { MEANING_MAX_LENGTH, type DecisionValue, type LexemeRecord } from "@/types";
+import { MEANING_MAX_LENGTH, type DecisionValue, type LexemeRecord, type StudyPrioritySource } from "@/types";
 import { cardChanges, cardDraft, selectedExample, type CardChanges, type CardDraft } from "./card-editor-domain";
 import { isCardEligible, obsidianSyncReason, partOfSpeechLabel, processingLabel, russianMeaning } from "./domain";
-import { decisionLabel, recordedSearchEvidence, studyPriority } from "./study-priority";
+import { decisionLabel, isRpV2Priority, recordedSearchEvidence, studyPriority } from "./study-priority";
 
 type Props = {
   entry: LexemeRecord;
+  prioritySource?: StudyPrioritySource;
   readOnly: boolean;
   busy: boolean;
   llmEnabled: boolean;
@@ -20,7 +21,7 @@ type Props = {
   onPendingChange: (pending: boolean) => void;
 };
 
-export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headingRef, onSave, onDecision, onDirtyChange, onPendingChange }: Props) {
+export function CardEditor({ entry, prioritySource, readOnly, busy, llmEnabled, onEnrich, headingRef, onSave, onDecision, onDirtyChange, onPendingChange }: Props) {
   const [original, setOriginal] = React.useState(() => cardDraft(entry));
   const [draft, setDraft] = React.useState<CardDraft>(original);
   const [pending, setPending] = React.useState(false);
@@ -137,11 +138,13 @@ export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headin
     <details className="card-details"><summary>Подробнее о слове</summary>
       <p className="words-meta">Формы · {entry.forms.join(" · ")}</p>
       <p className="words-meta">{processingLabel(entry.processing.state)} · {partOfSpeechLabel(entry.processing.analysis?.pos)}</p>
-      {entry.processing.analysis?.frequency_note ? <p className="words-meta">{entry.processing.analysis.frequency_note}</p> : null}
-      {entry.ranking?.reasons.map((reason) => <p className="words-meta" key={reason.code}>{reason.text}</p>)}
+      {!isRpV2Priority(prioritySource) ? <>
+        {entry.processing.analysis?.frequency_note ? <p className="words-meta">{entry.processing.analysis.frequency_note}</p> : null}
+        {entry.ranking?.reasons.map((reason) => <p className="words-meta" key={reason.code}>{reason.text}</p>)}
+        {entry.processing.analysis?.importance_note ? <p className="words-meta">{entry.processing.analysis.importance_note}</p> : null}
+      </> : null}
       {entry.processing.error ? <p className="words-error">{entry.processing.error}</p> : null}
       {entry.enrichment?.error ? <p className="words-error">{entry.enrichment.error}</p> : null}
-      {entry.processing.analysis?.importance_note ? <p className="words-meta">{entry.processing.analysis.importance_note}</p> : null}
       <WordTranslationDetails entry={entry} llmEnabled={llmEnabled} disabled={disabled || dirty} onEnrich={onEnrich} />
       <p className="words-meta">Obsidian · {obsidianSyncReason(entry)}</p>
       <h3>Все контексты</h3>

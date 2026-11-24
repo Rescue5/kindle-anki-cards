@@ -7,7 +7,7 @@ import { Select } from "@/components/ui/select";
 import { ImportFileButton } from "@/components/import-file-button";
 import { cn } from "@/lib/utils";
 import { cardDraft, selectedExample } from "./card-editor-domain";
-import { priorityEntries, studyPriority, type PriorityFilter } from "./study-priority";
+import { previewPriorityReason, priorityEntries, studyPriority, type PriorityFilter } from "./study-priority";
 import { CardEditor } from "./card-editor";
 import type { useLibraryController } from "./use-library-controller";
 import type { LexemeRecord } from "@/types";
@@ -62,8 +62,9 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
   const focusEditor = React.useRef(Boolean(batchLexemeId));
   const busy = controller.operation.status === "running";
   const selectedBook = controller.books.find((book) => book.key === controller.selectedBookKey);
-  const entries = React.useMemo(() => priorityEntries(controller.entries, controller.query, selectedBook, priorityFilter),
-    [controller.entries, controller.query, selectedBook, priorityFilter]);
+  const prioritySource = controller.ranking?.studyPrioritySource;
+  const entries = React.useMemo(() => priorityEntries(controller.entries, controller.query, selectedBook, priorityFilter, prioritySource),
+    [controller.entries, controller.query, selectedBook, priorityFilter, prioritySource]);
   // The direct entry is independent of all saved filters. Keep a removed word open to undo its decision.
   const selected = controller.entries.find((entry) => entry.id === selectedId) ?? null;
   React.useEffect(() => { onDraftChange?.(dirty, pending); }, [dirty, pending, onDraftChange]);
@@ -127,7 +128,11 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
         </div>
         <div className="words-filters words-priority-filter">
           <PriorityMenu value={priorityFilter} onChange={setPriorityFilter} />
-          <p className="words-priority-direction">1 — учить в первую очередь · 10 — возможная ошибка записи</p>
+          <p className="words-priority-direction">{prioritySource === "rp-v2-personal"
+            ? "Приоритет учитывает, в скольких романах встречается слово, и ваши повторные поиски. Предварительные оценки идут следом. Уровень 10 — проверить запись."
+            : prioritySource === "rp-v2-coverage"
+            ? "Сначала слова с известным книжным охватом, затем предварительные оценки. Уровень 10 — проверить запись."
+            : "1 — учить в первую очередь · 10 — возможная ошибка записи"}</p>
         </div>
         <details className="card-library-tools"><summary>Загрузка и обработка</summary>
           <div className="card-edit-actions">
@@ -147,7 +152,7 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
     </main>
     <aside className="library-inspector words-inspector" aria-label="Карточка слова">
       {inspectorOpen ? <div className={cn("card-back", !batchLexemeId && "card-back-list")}><Button variant="ghost" disabled={pending} onClick={back}>{batchLexemeId ? "К подборке" : "К списку слов"}</Button></div> : null}
-      {selected ? <CardEditor key={selected.id} entry={selected} headingRef={headingRef} readOnly={controller.demo} busy={busy}
+      {selected ? <CardEditor key={selected.id} entry={selected} prioritySource={prioritySource} headingRef={headingRef} readOnly={controller.demo} busy={busy}
         llmEnabled={controller.settings.llm_enabled} onEnrich={(id, retryFailed) => void controller.enrichWords({ ids: [id], retryFailed })}
         onSave={controller.saveCardEdit} onDecision={controller.setWordDecision} onDirtyChange={setDirty} onPendingChange={setPending} />
         : <p className="words-state">{batchLexemeId ? "Слово недоступно в библиотеке." : "Выберите слово, чтобы исправить карточку."}</p>}
@@ -198,7 +203,7 @@ function WordList({ entries, selectedId, onSelect, loading, disabled, restoreFoc
   const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const end = Math.min(entries.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN);
   return <div className="words-table" style={{ "--catalog-row-height": `${ROW_HEIGHT}px` } as React.CSSProperties}>
-    <div className="words-table-head card-list-head"><span>Слово</span><span>Предложение из книги</span><span>Приоритет ↑</span></div>
+    <div className="words-table-head card-list-head"><span>Слово</span><span>Предложение из книги</span><span>Приоритет</span></div>
     <div ref={setContainer} className="app-scrollbar words-table-body" onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
       <div style={{ height: start * ROW_HEIGHT }} />
       {entries.slice(start, end).map((entry) => {
@@ -209,7 +214,7 @@ function WordList({ entries, selectedId, onSelect, loading, disabled, restoreFoc
           <span className="words-row-lemma"><strong>{entry.lemma}</strong><small>{entry.card?.meaning_ru || ""}</small></span>
           <span className="card-list-example"><span className="words-row-context">{occurrence?.context || "Предложения пока нет"}</span><span className="words-row-book">{occurrence?.book_title || ""}</span></span>
           <span className="words-row-priority"><strong>Приоритет {priority.level}</strong>{priority.provisional ? <small>предварительно</small> : null}</span>
-          <span className="words-row-reason">{priority.reason}</span>
+          <span className="words-row-reason">{previewPriorityReason(priority)}</span>
         </button>;
       })}
       <div style={{ height: Math.max(0, entries.length - end) * ROW_HEIGHT }} />

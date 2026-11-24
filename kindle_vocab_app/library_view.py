@@ -21,10 +21,16 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from kindle_vocab_app import card_fields, export_policy
-from kindle_vocab_app.contracts import BATCH_SIZE_DEFAULT, DISPUTED_CAP, NewBatch, StudyPriority
+from kindle_vocab_app import book_coverage, card_fields, export_policy, vocab_cache
+from kindle_vocab_app.contracts import (
+    BATCH_SIZE_DEFAULT,
+    DISPUTED_CAP,
+    NewBatch,
+    StudyPriority,
+    study_priority_order,
+)
 from kindle_vocab_app.library_state import parse_moment
 from kindle_vocab_app.ranking import (
     RANKING_VERSION,
@@ -36,10 +42,14 @@ from kindle_vocab_app.ranking import (
     study_priority,
 )
 
+if TYPE_CHECKING:
+    from kindle_vocab_app.book_coverage import BookCoverage
+
 # Books with a lookup in this many days before `now` count as being read (see `WordFacts`).
 READING_DAYS = 14
 # Book keys of readers that keep one row per word: they carry no repeat lookups.
 NO_REPEAT_PREFIXES = ("koreader:", "kobo:")
+_NON_PERSONAL_PREFIXES = (*NO_REPEAT_PREFIXES, "legacy:", "obsidian:")
 _SCORE_DIGITS = 4
 _WEIGHT_DIGITS = 3
 _PRIORITY_PENDING_REASONS = {
@@ -56,11 +66,12 @@ def decorate(
     card_edits: Mapping[str, Mapping[str, Any]] | None = None,
     exported_at: Mapping[str, str] | None = None,
     batch_size: int = BATCH_SIZE_DEFAULT,
+    coverage_model: BookCoverage | None = None,
 ) -> dict[str, Any]:
     """Add `ranking`, `study_priority`, `decision`, `card`, `export` and `is_new` in place.
 
     Returns the library-level fields: `rankingVersion`, `rankingMode`, `historyDays`,
-    `repeatSignal`, `shelves`, `newBatch`, `disputed` and `again`.
+    `repeatSignal`, `studyPrioritySource`, `shelves`, `newBatch`, `disputed` and `again`.
     """
     decisions = decisions or {}
     card_edits = card_edits or {}
@@ -102,9 +113,18 @@ def decorate(
         outcome = rank(facts, now, mode=mode)
         ranked[lexeme_id] = outcome
         token = str(entry.get("lemma") or entry.get("display_form") or "")
-        structural = structural_study_priority(token)
+        spelling = str(entry.get("display_form") or token)
+        structural = structural_study_priority(spelling if coverage_model is not None else token)
         if structural is not None:
             entry["study_priority"] = structural
+        elif coverage_model is not None:
+            # The optimizer's base form can be a component of a saved multiword lookup.
+            # Preserve the reader's expression in coverage matching.
+            different_form = vocab_cache.normalize_lemma(spelling) != vocab_cache.normalize_lemma(token)
+            lemma = token if len(spelling.split()) == 1 and different_form else None
+            base = coverage_model.priority(spelling, lemma=lemma)
+            personal_spelling = token if " " in vocab_cache.normalize_lemma(token) else spelling
+            entry["study_priority"] = book_coverage.personalized_priority(base, _personal_lookups(entry, personal_spelling))
         elif not _has_lexical_analysis(entry):
             entry["study_priority"] = _provisional_priority("Недостаточно данных анализа")
         elif not word_lookups:
@@ -142,28 +162,32 @@ def decorate(
         "rankingMode": mode,
         "historyDays": history_days,
         "repeatSignal": repeat_signal,
+        "studyPrioritySource": "rp-v2-personal" if coverage_model is not None else "legacy",
         "shelves": shelves,
-        "newBatch": new_batch(entries, batch_size),
+        "newBatch": new_batch(entries, batch_size, by_coverage=coverage_model is not None),
         "disputed": disputed(entries),
         # Words looked up again after an export come back in a later stage (M4).
         "again": {"count": 0, "ids": [], "unavailable": not repeat_signal},
     }
 
 
-def exportable_ids(entries: Iterable[Mapping[str, Any]]) -> list[str]:
+def exportable_ids(entries: Iterable[Mapping[str, Any]], *, by_coverage: bool = False) -> list[str]:
     """Ids of every exportable word not yet exported, best rank first (before the batch cut)."""
     candidates = [
         entry
         for entry in entries
         if export_policy.is_exportable(entry) and entry["export"]["state"] != "exported"
     ]
-    candidates.sort(key=lambda entry: (entry["ranking"]["rank"], str(entry.get("id") or "")))
+    if by_coverage:
+        candidates.sort(key=lambda entry: study_priority_order(entry["study_priority"], str(entry["id"])))
+    else:
+        candidates.sort(key=lambda entry: (entry["ranking"]["rank"], str(entry.get("id") or "")))
     return [str(entry["id"]) for entry in candidates]
 
 
-def new_batch(entries: Iterable[Mapping[str, Any]], batch_size: int) -> NewBatch:
+def new_batch(entries: Iterable[Mapping[str, Any]], batch_size: int, *, by_coverage: bool = False) -> NewBatch:
     """The short list: exportable, not yet exported words by rank, cut at the batch size."""
-    available_ids = exportable_ids(entries)
+    available_ids = exportable_ids(entries, by_coverage=by_coverage)
     ids = available_ids[: max(0, int(batch_size))]
     return {"count": len(ids), "ids": ids, "availableIds": available_ids}
 
@@ -194,6 +218,37 @@ def _lookups(entry: Mapping[str, Any]) -> list[tuple[datetime, str]]:
             found.append((moment, str(occurrence.get("book_key") or "")))
     found.sort(key=lambda item: item[0])
     return found
+
+
+def is_personal_lookup(occurrence: Mapping[str, Any], spelling: str) -> bool:
+    """Check Kindle provenance and whether this lookup belongs to the scored unit."""
+    if occurrence.get("source") != "kindle":
+        return False
+    book = str(occurrence.get("book_key") or "").strip()
+    # The catalog also uses source=kindle for KOReader and Kobo. Their stored SHA-1
+    # ids conceal the original prefix, so an empty book key cannot establish provenance.
+    if not book or any(
+        str(occurrence.get(field) or "").strip().casefold().startswith(_NON_PERSONAL_PREFIXES)
+        for field in ("book_key", "id", "lookup_id")
+    ):
+        return False
+    if parse_moment(str(occurrence.get("looked_up_at") or "")) is None:
+        return False
+    lookup = vocab_cache.normalize_lemma(str(occurrence.get("word") or ""))
+    unit = vocab_cache.normalize_lemma(spelling)
+    # Forms are already grouped by canonical lexeme. Retain single-word variants
+    # from older lemmatization, but require an exact full lookup for expressions.
+    return bool(lookup and unit and (lookup == unit if " " in unit else " " not in lookup))
+
+
+def _personal_lookups(entry: Mapping[str, Any], spelling: str) -> list[tuple[datetime, str]]:
+    lookups = []
+    for occurrence in entry.get("occurrences") or []:
+        if is_personal_lookup(occurrence, spelling):
+            moment = parse_moment(str(occurrence["looked_up_at"]))
+            if moment is not None:
+                lookups.append((moment, str(occurrence["book_key"]).strip()))
+    return lookups
 
 
 def _fallback_moment(entry: Mapping[str, Any], now: datetime) -> datetime:

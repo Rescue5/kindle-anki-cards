@@ -6,7 +6,7 @@ import { exportQuantity, exportReducer, idleExport, PRIORITY_LEVELS, type Export
 type Options = {
   /** New words eligible for study, in recommendation order. */
   ids: readonly string[];
-  libraryGroups: string[][];
+  libraryWords: readonly { id: string; level: number }[];
   defaultCount: number;
   blocked: boolean;
   /** Refresh the short list after the export or when the bridge finds it stale. */
@@ -22,7 +22,7 @@ function jobId() {
 }
 
 /** Captures the selected words and sends one export request per activation. */
-export function useHomeExport({ ids, libraryGroups, defaultCount, blocked, reload, active }: Options) {
+export function useHomeExport({ ids, libraryWords, defaultCount, blocked, reload, active }: Options) {
   const [state, dispatch] = React.useReducer(exportReducer, idleExport);
   const [openState, setOpenState] = React.useState<OpenResultState>("idle");
   const [folderState, setFolderState] = React.useState<ExportFolderState>("hidden");
@@ -33,10 +33,15 @@ export function useHomeExport({ ids, libraryGroups, defaultCount, blocked, reloa
   const [mode, setMode] = React.useState<ExportSelection>("library");
   const [levels, setLevels] = React.useState(PRIORITY_LEVELS);
   const limit = customLimit ?? String(defaultCount);
+  const levelCounts = React.useMemo(() => {
+    const counts = PRIORITY_LEVELS.map(() => 0);
+    for (const { level } of libraryWords) counts[level - 1] += 1;
+    return counts;
+  }, [libraryWords]);
   const selectedIds = React.useMemo(() => {
-    if (mode === "library") return libraryGroups.flatMap((group, index) => levels.includes(index + 1) ? group : []);
+    if (mode === "library") return libraryWords.filter(({ level }) => levels.includes(level)).map(({ id }) => id);
     return mode === "new" ? ids : ids.slice(0, exportQuantity(limit, ids.length));
-  }, [mode, libraryGroups, levels, ids, limit]);
+  }, [mode, libraryWords, levels, ids, limit]);
 
   const refreshFolder = React.useCallback(async () => {
     if (openingFolder.current) return;
@@ -120,7 +125,7 @@ export function useHomeExport({ ids, libraryGroups, defaultCount, blocked, reloa
   }, []);
 
   const quantity = {
-    mode, limit, levels, count: selectedIds.length, available: ids.length, levelCounts: libraryGroups.map((group) => group.length),
+    mode, limit, levels, count: selectedIds.length, available: ids.length, levelCounts,
     setMode: (next: ExportSelection) => { dismiss(); setMode(next); },
     setLimit: (next: string) => { dismiss(); setCustomLimit(next); },
     setLevels: (next: number[]) => { dismiss(); setLevels(next); },

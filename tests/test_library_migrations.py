@@ -385,7 +385,7 @@ def _scrub(value: Any) -> Any:
 
 _V4_LIBRARY_KEYS = (
     "rankingVersion", "rankingMode", "historyDays", "repeatSignal", "shelves", "newBatch",
-    "disputed", "again",
+    "disputed", "again", "studyPrioritySource",
 )
 _V4_ENTRY_KEYS = ("ranking", "study_priority", "decision", "card", "export", "is_new")
 
@@ -420,6 +420,7 @@ class BulkCatalogGoldenTests(unittest.TestCase):
             json.loads(json.dumps(_scrub(_without_v4(library)))), golden["load_library"]
         )
         # The same migrated library also carries a valid short-list payload.
+        self.assertEqual(library["studyPrioritySource"], "legacy")
         self.assertEqual(contracts.validate_library(library), [])
 
     def test_load_catalog_uses_a_fixed_number_of_queries(self) -> None:

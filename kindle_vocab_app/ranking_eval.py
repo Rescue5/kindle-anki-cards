@@ -32,7 +32,9 @@ from typing import Any
 
 from wordfreq import zipf_frequency
 
+from kindle_vocab_app import book_coverage, vocab_cache
 from kindle_vocab_app.library_repository import DATABASE_FILENAME
+from kindle_vocab_app.library_view import is_personal_lookup
 from kindle_vocab_app.logging_config import configure_logging, get_logger
 from kindle_vocab_app.ranking import DEFAULT_WEIGHTS, SHELVES, Weights, WordFacts, rank
 from kindle_vocab_app.vocab_optimizer import (
@@ -61,6 +63,7 @@ class Lookup:
     at: datetime
     # Capitalised away from the start of its sentence and unknown to WordNet (see `WordFacts.proper_noun`).
     proper: bool = False
+    personal_evidence: bool = True
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,7 @@ class Lexical:
     specialized: bool = False
     # When the word was last put into a destination (the library's `destinations` rows); None when never.
     exported_at: datetime | None = None
+    canonical_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,7 @@ class Example:
     # Every lookup before the cutoff looks like a name; export time only if it was before the cutoff.
     proper_noun: bool = False
     exported_at: datetime | None = None
+    personal_history: tuple[tuple[datetime, str], ...] = ()
 
 
 Ranker = Callable[[Example], float]
@@ -145,7 +150,10 @@ def load_library(db_path: Path) -> Library:
         connection.row_factory = sqlite3.Row
         have = {str(row["name"]) for row in connection.execute("PRAGMA table_info(occurrences)")}
         # `word` and `context` only feed the proper-noun check; a library without them still evaluates.
-        text = ", ".join(column if column in have else f"'' AS {column}" for column in ("word", "context"))
+        text = ", ".join(
+            column if column in have else f"'' AS {column}"
+            for column in ("word", "context", "source", "id")
+        )
         occurrences = connection.execute(
             f"SELECT lexeme_id, book_key, looked_up_at, {text} FROM occurrences"
         ).fetchall()
@@ -157,12 +165,15 @@ def load_library(db_path: Path) -> Library:
             )
         }
         exported = _exported_at(connection)
+        lexeme_columns = {row["name"] for row in connection.execute("PRAGMA table_info(lexemes)")}
+        key_column = "canonical_key" if "canonical_key" in lexeme_columns else "'' AS canonical_key"
         lexical = {
             str(row["id"]): replace(
                 _lexical(str(row["display_form"] or ""), payloads.get(str(row["id"]))),
                 exported_at=exported.get(str(row["id"])),
+                canonical_key=str(row["canonical_key"] or ""),
             )
-            for row in connection.execute("SELECT id, display_form FROM lexemes")
+            for row in connection.execute(f"SELECT id, display_form, {key_column} FROM lexemes")
         }
     lookups = []
     for row in occurrences:
@@ -174,7 +185,11 @@ def load_library(db_path: Path) -> Library:
         proper = known is not None and is_probable_proper_noun(
             str(row["word"] or ""), str(row["context"] or ""), {"synset_count": known.synset_count}
         )
-        lookups.append(Lookup(lexeme_id, str(row["book_key"] or ""), at, proper))
+        spelling = known.display_form if known else ""
+        if known and " " in vocab_cache.normalize_lemma(known.canonical_key):
+            spelling = known.canonical_key
+        eligible = known is not None and is_personal_lookup(dict(row), spelling)
+        lookups.append(Lookup(lexeme_id, str(row["book_key"] or ""), at, proper, eligible))
     logger.info("Loaded ranking evaluation data lookups=%d lexemes=%d", len(lookups), len(lexical))
     return Library(lookups=lookups, lexical=lexical)
 
@@ -274,6 +289,7 @@ def build_examples(
             days_since_first=(cutoff - min(times)).total_seconds() / 86400,
             needed_again=lexeme_id in needed,
             history=tuple(sorted((item.at, item.book_key) for item in items)),
+            personal_history=tuple((item.at, item.book_key) for item in items if item.personal_evidence),
             reading_books=reading_books,
             cutoff=cutoff,
             proper_noun=all(item.proper for item in items),
@@ -571,7 +587,9 @@ def library_from_entries(
             facts[lexeme_id] = _lexical(word, None)
         names = {"synset_count": facts[lexeme_id].synset_count}
         proper = is_probable_proper_noun(word, str(entry.get("context") or ""), names)
-        lookups.append(Lookup(lexeme_id, str(entry.get("book_key") or ""), at, proper))
+        occurrence = {"source": "kindle", **entry}
+        eligible = is_personal_lookup(occurrence, facts[lexeme_id].display_form)
+        lookups.append(Lookup(lexeme_id, str(entry.get("book_key") or ""), at, proper, eligible))
     return Library(lookups=lookups, lexical=facts)
 
 
@@ -932,12 +950,35 @@ def evaluate(
     cutoffs: Sequence[datetime],
     horizon: timedelta = timedelta(days=DEFAULT_HORIZON_DAYS),
     top_k: Sequence[int] = DEFAULT_TOP_K,
+    *,
+    coverage: book_coverage.BookCoverage | None = None,
 ) -> dict[str, Any]:
     """Score every ranker at every cutoff.
 
     The learned ranker at a cutoff is trained on the examples one window
     earlier, whose outcome was already known on the cutoff date.
     """
+    rankers_for_run: dict[str, Ranker] = dict(BASELINES)
+    if coverage is not None:
+        priors = {}
+        for lexeme_id, lexical in library.lexical.items():
+            canonical = lexical.canonical_key or lexical.base_form
+            different = vocab_cache.normalize_lemma(canonical) != vocab_cache.normalize_lemma(lexical.display_form)
+            lemma = canonical if different and len(lexical.display_form.split()) == 1 else None
+            priority = coverage.priority(lexical.display_form, lemma)
+            priors[lexeme_id] = priority
+
+        def corpus_score(example: Example) -> float:
+            prior = priors[example.lexeme_id]
+            return -1.0 if prior["provisional"] else prior["score"]
+
+        def personal_score(example: Example) -> float:
+            priority = book_coverage.personalized_priority(priors[example.lexeme_id], example.personal_history)
+            # Reserve a disjoint range below every measured score for missing coverage.
+            return priority["score"] - 2.0 if priority["provisional"] else priority["score"]
+
+        rankers_for_run["rp_v2_coverage"] = corpus_score
+        rankers_for_run["rp_v2_personal"] = personal_score
     rounds = []
     for cutoff in cutoffs:
         examples = build_examples(library, cutoff, horizon)
@@ -945,7 +986,7 @@ def evaluate(
         if positives < MIN_POSITIVES:
             logger.info("Skipping cutoff %s: %d positives", cutoff.date(), positives)
             continue
-        rankers: dict[str, Ranker] = dict(BASELINES)
+        rankers: dict[str, Ranker] = dict(rankers_for_run)
         model = None
         training = build_examples(library, cutoff - horizon, horizon)
         if sum(1 for example in training if example.needed_again) >= MIN_POSITIVES:
@@ -1139,6 +1180,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--horizon", type=_positive, default=DEFAULT_HORIZON_DAYS, help="days after a cutoff")
     parser.add_argument("--top", type=_positive, nargs="+", default=list(DEFAULT_TOP_K))
     parser.add_argument("--out", type=Path, default=Path(".app-data") / "ranking_eval")
+    parser.add_argument("--coverage-workspace", type=Path,
+                        help="also compare the installed RP-V2 model on the same repeat-lookup windows")
     parser.add_argument("--newcomer", action="store_true", help="evaluate with only the first books / days of history")
     parser.add_argument("--first-books", type=_positive, help="with --newcomer: keep the first N books")
     parser.add_argument("--first-days", type=_positive, help="with --newcomer: keep the first N days of lookups")
@@ -1188,7 +1231,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not cutoffs:
         print("Not enough history yet: no cutoff has a full window of later lookups.", file=sys.stderr)
         return 1
-    report = evaluate(library, cutoffs, horizon, args.top)
+    if args.coverage_workspace:
+        with book_coverage.open_model(args.coverage_workspace) as model:
+            if model is None:
+                print("RP-V2 coverage model not found for the requested workspace.", file=sys.stderr)
+                return 2
+            report = evaluate(library, cutoffs, horizon, args.top, coverage=model)
+    else:
+        report = evaluate(library, cutoffs, horizon, args.top)
     if not report["rounds"]:
         print(
             f"Every cutoff had fewer than {MIN_POSITIVES} words looked up again; read more and try later.",

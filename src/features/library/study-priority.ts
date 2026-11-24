@@ -1,4 +1,4 @@
-import type { BookOption, LexemeRecord } from "@/types";
+import type { BookOption, LexemeRecord, StudyPriority, StudyPrioritySource } from "@/types";
 import { filterLexemes } from "./domain";
 
 export type PriorityFilter = "all" | number;
@@ -17,13 +17,41 @@ export function compareStudyPriority(left: LexemeRecord, right: LexemeRecord): n
   const a = studyPriority(left);
   const b = studyPriority(right);
   const priorityOrder = a.level - b.level || Number(a.provisional) - Number(b.provisional) || b.score - a.score;
-  if (priorityOrder) return priorityOrder;
+  return priorityOrder || compareIds(left, right);
+}
+
+function compareIds(left: LexemeRecord, right: LexemeRecord): number {
   if (left.id === right.id) return 0;
   return left.id < right.id ? -1 : 1;
 }
 
-export function priorityEntries(entries: LexemeRecord[], query: string, book: BookOption | undefined, level: PriorityFilter): LexemeRecord[] {
-  return filterLexemes(entries, query, book, "all", compareStudyPriority)
+function coverageClass(priority: StudyPriority): number {
+  if (priority.level === 10) return 2;
+  return priority.provisional ? 1 : 0;
+}
+
+export function compareCoveragePriority(left: LexemeRecord, right: LexemeRecord): number {
+  const a = studyPriority(left);
+  const b = studyPriority(right);
+  const aClass = coverageClass(a);
+  const bClass = coverageClass(b);
+  return aClass - bClass || a.level - b.level || b.score - a.score || compareIds(left, right);
+}
+
+export function studyPriorityComparator(source?: StudyPrioritySource) {
+  return isRpV2Priority(source) ? compareCoveragePriority : compareStudyPriority;
+}
+
+export function isRpV2Priority(source?: StudyPrioritySource): boolean {
+  return source === "rp-v2-coverage" || source === "rp-v2-personal";
+}
+
+export function previewPriorityReason(priority: StudyPriority): string {
+  return priority.personal_reason || priority.reason;
+}
+
+export function priorityEntries(entries: LexemeRecord[], query: string, book: BookOption | undefined, level: PriorityFilter, source?: StudyPrioritySource): LexemeRecord[] {
+  return filterLexemes(entries, query, book, "all", studyPriorityComparator(source))
     .filter((entry) => level === "all" || studyPriority(entry).level === level);
 }
 

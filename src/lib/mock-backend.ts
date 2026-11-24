@@ -6,6 +6,8 @@
 //   export-error      the same as mixed, but `export_words` fails
 //   learning          the same as mixed, ranking still rough (little history; repeat lookups are kept)
 //   no-repeats        a reader that keeps no repeat lookups: learning mode, no repeat reasons
+//   coverage          RP-V2 example with measured, provisional and structural priorities
+//   personal          RP-V2 example with fixed server-side personal priority fixtures
 //   empty             a fresh install: no words, no reader; `load_demo` shows the example library
 //   slow              also the first library load takes a few seconds (Главная shows its skeleton)
 //   disconnected, slow, operation-error, lexeme-failure, showcase, anki-connected, obsidian-error,
@@ -47,8 +49,10 @@ import {
   type Shelf,
   type ShelfCounts,
   type StudyPriority,
+  type StudyPrioritySource,
   type WordAnalysis,
 } from "@/types";
+import { isRpV2Priority, studyPriorityComparator } from "@/features/library/study-priority";
 import { BridgeError, defaultSettings } from "./backend";
 
 const SHELVES: Shelf[] = ["worth", "disputed", "not_worth", "junk", "known"];
@@ -66,6 +70,13 @@ const isEmptyScenario = () => previewScenario() === "empty";
 const REPEAT_REASONS = new Set(["repeat_lookups", "after_export", "several_books"]);
 const keepsRepeats = () => previewScenario() !== "no-repeats";
 const rankingMode = (): "learning" | "full" => (["learning", "no-repeats"].includes(previewScenario()) ? "learning" : "full");
+function studyPrioritySource(): StudyPrioritySource {
+  switch (previewScenario()) {
+    case "coverage": return "rp-v2-coverage";
+    case "personal": return "rp-v2-personal";
+    default: return "legacy";
+  }
+}
 
 // ---- the invented library ----
 
@@ -288,6 +299,16 @@ export function resetMockBackend(options: { scenario?: string; instant?: boolean
   const quiet = scenario === "no-new" || savedFolder;
   const source = scenario.startsWith("cold-start") ? specs.filter((spec) => spec.state === "pending") : specs;
   activeSpecs = source.map((spec) => (quiet ? { ...spec, fresh: false, state: spec.state === "pending" ? ("ready" as const) : spec.state } : spec));
+  if (scenario === "personal") {
+    activeSpecs = activeSpecs.map((spec) => spec.lemma === "dread" ? {
+      ...spec,
+      lookups: [
+        ...spec.lookups,
+        ["The thought filled him with dread.", ...NIGHT, 12],
+        ["She tried to hide her dread.", ...MIRROR, 17],
+      ],
+    } : spec);
+  }
   if (scenario === "large") {
     const sample = specs.find((spec) => spec.lemma === "ephemeral")!;
     for (let number = 1; number <= 120; number++) {
@@ -409,10 +430,47 @@ function withV4(entry: LexemeRecord, rankings: Map<string, LexemeRanking>): Lexe
   };
 }
 
+// Fixed illustrative shares and levels, independent of the reader's history and choices.
+const COVERAGE_EXAMPLES = new Map<string, readonly [number, number]>([
+  ["dread", [2, .60]],
+  ["glimpse", [2, .55]],
+  ["admit", [3, .4]],
+  ["cheerful", [5, .15]],
+  ["wistful", [6, .08]],
+  ["submerge", [7, .026]],
+  ["resilient", [8, .006]],
+  ["vigilant", [9, .004]],
+]);
+
+// Synthetic bridge responses. The browser never computes the personal boost.
+const PERSONAL_EXAMPLES = new Map<string, StudyPriority>([
+  ["dread", { level: 1, score: .75, coverage_score: .60, provisional: false,
+    personal_reason: "Вы искали это слово в разных книгах.",
+    reason: "Слово встречается в 60% современных романов выборки при равном весе авторов. В оценке также учитываются поиски в разных книгах." }],
+  ["admit", { level: 3, score: .4545, coverage_score: .4, provisional: false,
+    personal_reason: "Вы искали это слово в разные дни в одной книге.",
+    reason: "Слово встречается в 40% современных романов выборки при равном весе авторов. В оценке также учитываются поиски в разные дни в одной книге." }],
+  ["ephemeral", { level: 6, score: .25, coverage_score: null, provisional: true,
+    personal_reason: "Вы искали это слово в разные дни в одной книге.",
+    reason: "Слова нет в таблице книжного охвата. Порядок среди предварительных оценок учитывает поиски в разные дни в одной книге." }],
+]);
+
 function mockStudyPriority(entry: LexemeRecord): StudyPriority {
   const spec = specOf(entry);
   const state = entry.processing.state;
+  const source = studyPrioritySource();
+  const personal = source === "rp-v2-personal";
   if (spec && (state === "ready" || state === "rejected")) {
+    if (isRpV2Priority(source)) {
+      if (spec.studyLevel === 10) return { level: 10, score: 0, provisional: false, reason: "В записи нет букв", ...(personal ? { coverage_score: null } : {}) };
+      const personalExample = personal ? PERSONAL_EXAMPLES.get(entry.lemma) : undefined;
+      if (personalExample) return personalExample;
+      const example = COVERAGE_EXAMPLES.get(entry.lemma);
+      if (!example) return { level: 6, score: 0, provisional: true, reason: "Слова нет в таблице книжного охвата.", ...(personal ? { coverage_score: null } : {}) };
+      const [level, score] = example;
+      const percent = (score * 100).toLocaleString("ru-RU", { maximumFractionDigits: 2 });
+      return { level, score, provisional: false, reason: `Слово встречается в ${percent}% современных романов выборки при равном весе авторов.`, ...(personal ? { coverage_score: score } : {}) };
+    }
     const reason = spec.reasons.find((item) => keepsRepeats() || !REPEAT_REASONS.has(item.code));
     return {
       level: spec.studyLevel, score: spec.rankScore, provisional: false,
@@ -423,7 +481,7 @@ function mockStudyPriority(entry: LexemeRecord): StudyPriority {
     pending: "Слово ожидает обработки.", processing: "Слово обрабатывается.",
     failed: "Обработку не удалось завершить.",
   };
-  return { level: 6, score: 0, provisional: true, reason: pendingReasons[state] ?? "Для оценки пока недостаточно данных." };
+  return { level: 6, score: 0, provisional: true, reason: pendingReasons[state] ?? "Для оценки пока недостаточно данных.", ...(personal ? { coverage_score: null } : {}) };
 }
 
 function v4Entries(): LexemeRecordV4[] {
@@ -438,13 +496,16 @@ function summaries(entries: LexemeRecordV4[]): Omit<LibraryRanking, "rankingVers
     entries
       .filter((entry) => entry.ranking?.shelf === shelf && entry.export.state === "not_exported")
       .sort((a, b) => (a.ranking?.rank ?? 0) - (b.ranking?.rank ?? 0));
-  const availableIds = byRank("worth").map((entry) => entry.id);
+  const available = byRank("worth");
+  const source = studyPrioritySource();
+  if (isRpV2Priority(source)) available.sort(studyPriorityComparator(source));
+  const availableIds = available.map((entry) => entry.id);
   const batchIds = availableIds.slice(0, batchSize());
   const newBatch: NewBatch = { count: batchIds.length, ids: batchIds, availableIds };
   const disputed: DisputedSummary = { ids: byRank("disputed").slice(0, DISPUTED_CAP).map((entry) => entry.id) };
   const againIds = entries.filter((entry) => entry.export.again).map((entry) => entry.id);
   const again: AgainSummary = { count: againIds.length, ids: againIds, unavailable: !keepsRepeats() };
-  return { shelves, newBatch, disputed, again };
+  return { shelves, newBatch, disputed, again, studyPrioritySource: source };
 }
 
 function historyDays(entries: LexemeRecord[]): number {

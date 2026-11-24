@@ -29,6 +29,7 @@ export function HomeScreen({ controller, exporter, onOpenWord, onOpenLibrary }: 
     <HomeView
       mode={mode}
       words={words}
+      prioritySource={ranking?.studyPrioritySource}
       quantity={exporter.quantity}
       onOpenLibrary={onOpenLibrary}
       onFindReader={() => void controller.findReader()}

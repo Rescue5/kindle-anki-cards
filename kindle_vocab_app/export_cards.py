@@ -32,6 +32,7 @@ from typing import Any
 from kindle_vocab_app import (
     anki_connect,
     anki_export,
+    book_coverage,
     card_fields,
     library_view,
     offline_dictionary,
@@ -126,13 +127,15 @@ def _export_selected_words(
     entries = repository.load_catalog()["lexemes"]
     offline_dictionary.attach(entries)
     state = repository.load_reader_state()
-    library = library_view.decorate(
-        entries,
-        decisions=state["decisions"],
-        card_edits=state["card_edits"],
-        exported_at=state["exported_at"],
-        batch_size=app_settings.export_batch_size,
-    )
+    with book_coverage.open_model(workspace) as model:
+        library = library_view.decorate(
+            entries,
+            decisions=state["decisions"],
+            card_edits=state["card_edits"],
+            exported_at=state["exported_at"],
+            batch_size=app_settings.export_batch_size,
+            coverage_model=model,
+        )
     by_id = {str(entry["id"]): entry for entry in entries}
     ids = _choose_ids(requested, scope, levels, library["newBatch"], by_id)
     if not ids:

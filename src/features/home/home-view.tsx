@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Check, ChevronRight, Loader2, RefreshCw, Upload } from "lucide-react";
-import type { AppSettings, ConnectorState, LexemeRecord } from "@/types";
+import type { AppSettings, ConnectorState, LexemeRecord, StudyPrioritySource } from "@/types";
+import { isRpV2Priority, previewPriorityReason, studyPriority } from "@/features/library/study-priority";
 import type { ExportFolderState, OpenResultState } from "./use-home-export";
 import type { HomeProcessingProgress } from "./home-domain";
 import { FoxLantern } from "@/components/light/fox-lantern";
@@ -42,6 +43,7 @@ export type HomeViewProps = {
   mascotMotion?: boolean;
   /** The short list, in ranking order. */
   words: LexemeRecord[];
+  prioritySource?: StudyPrioritySource;
   quantity?: Quantity;
   onOpenLibrary?: () => void;
   onFindReader?: () => void;
@@ -325,7 +327,7 @@ function NoReaderDesk(props: HomeViewProps) {
 
 // ---------- below the desk ----------
 
-function ShortList({ words, quantity, onOpenWord, onOpenLibrary, listChanging, exportUi, processingProgress }: HomeViewProps) {
+function ShortList({ words, prioritySource, quantity, onOpenWord, onOpenLibrary, listChanging, exportUi, processingProgress }: HomeViewProps) {
   return (
     <section className="home-list" aria-labelledby="home-list-title">
       <div className="home-preview-heading">
@@ -341,7 +343,9 @@ function ShortList({ words, quantity, onOpenWord, onOpenLibrary, listChanging, e
         {words.map((entry, index) => {
           const pos = listPartOfSpeech(entry);
           const meaning = listMeaning(entry);
-          const why = entry.study_priority?.reason ?? pickReason(entry.ranking?.reasons);
+          const why = isRpV2Priority(prioritySource)
+            ? previewPriorityReason(studyPriority(entry))
+            : entry.study_priority?.reason ?? pickReason(entry.ranking?.reasons);
           return (
             <li key={entry.id}>
               <PencilRule variant={index} />

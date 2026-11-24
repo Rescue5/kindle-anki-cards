@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { callBackend } from "@/lib/backend";
 import { resetMockBackend } from "@/lib/mock-backend";
+import { previewPriorityReason, studyPriority } from "@/features/library/study-priority";
 import type { ExportRun, LexemeRecord, LibraryResult, LibraryResultV4, RankingReason } from "@/types";
 import {
   BUSY_NOTE,
@@ -16,6 +17,7 @@ import {
   homeProcessingProgress,
   homeQueueState,
   idleExport,
+  libraryExportOrder,
   listMeaning,
   pickReason,
   rankingNote,
@@ -27,6 +29,53 @@ import {
 } from "./home-domain";
 
 const reason = (code: RankingReason["code"], text: string, weight: number): RankingReason => ({ code, text, weight });
+
+it("keeps full export order global in coverage mode and batches only eligible new words", async () => {
+  resetMockBackend({ scenario: "coverage", instant: true });
+  const initial = await callBackend<LibraryResultV4>("load_library", {});
+  expect(rankingOf(initial)?.studyPrioritySource).toBe("rp-v2-coverage");
+  const initialOrder = libraryExportOrder(initial.entries, initial.studyPrioritySource).map(({ id }) => id);
+  expect(initialOrder.indexOf("lexeme-vigilant")).toBeLessThan(initialOrder.indexOf("lexeme-ephemeral"));
+  expect(initialOrder.at(-1)).toBe("lexeme-00:17");
+  const legacyOrder = libraryExportOrder(initial.entries, "legacy").map(({ id }) => id);
+  expect(legacyOrder.indexOf("lexeme-ephemeral")).toBeLessThan(legacyOrder.indexOf("lexeme-vigilant"));
+  expect(rankingNote({ rankingMode: "learning", repeatSignal: false, studyPrioritySource: initial.studyPrioritySource })).toBeNull();
+
+  await callBackend("process_queue", {});
+  const ready = await callBackend<LibraryResultV4>("load_library", {});
+  expect(ready.newBatch.availableIds).toEqual(["lexeme-dread", "lexeme-glimpse", "lexeme-submerge", "lexeme-resilient", "lexeme-ephemeral"]);
+});
+
+it("uses the personal bridge scores for export order and keeps the adjustment in the preview", async () => {
+  resetMockBackend({ scenario: "personal", instant: true });
+  const result = await callBackend<LibraryResultV4>("load_library", {});
+  expect(rankingOf(result)?.studyPrioritySource).toBe("rp-v2-personal");
+  const order = libraryExportOrder(result.entries, result.studyPrioritySource).map(({ id }) => id);
+  expect(order.indexOf("lexeme-vigilant")).toBeLessThan(order.indexOf("lexeme-ephemeral"));
+  expect(order.indexOf("lexeme-ephemeral")).toBeLessThan(order.indexOf("lexeme-glimpse"));
+  expect(order.at(-1)).toBe("lexeme-00:17");
+  const admit = result.entries.find(({ lemma }) => lemma === "admit")!;
+  expect(admit.study_priority).toMatchObject({ score: .4545, coverage_score: .4 });
+  expect(previewPriorityReason(studyPriority(admit)))
+    .toBe("Вы искали это слово в разные дни в одной книге.");
+  expect(rankingNote({ rankingMode: "learning", repeatSignal: false, studyPrioritySource: result.studyPrioritySource })).toBeNull();
+
+  await callBackend("process_queue", {});
+  const ready = await callBackend<LibraryResultV4>("load_library", {});
+  const dread = ready.entries.find(({ lemma }) => lemma === "dread")!;
+  expect(new Set(dread.occurrences.map(({ book_key }) => book_key)).size).toBe(3);
+  expect(dread.study_priority).toMatchObject({ level: 1, score: .75, coverage_score: .60, provisional: false });
+  expect(previewPriorityReason(studyPriority(dread))).toBe("Вы искали это слово в разных книгах.");
+  expect(ready.newBatch.availableIds?.[0]).toBe(dread.id);
+
+  resetMockBackend({ scenario: "coverage", instant: true });
+  await callBackend("process_queue", {});
+  const coverage = await callBackend<LibraryResultV4>("load_library", {});
+  const coveragePriority = studyPriority(coverage.entries.find(({ id }) => id === dread.id)!);
+  expect(coveragePriority)
+    .toMatchObject({ level: 2, score: dread.study_priority?.coverage_score, provisional: false });
+  expect(previewPriorityReason(coveragePriority)).toBe(coveragePriority.reason);
+});
 
 it("allows a custom portion above 100 and clamps it to the available words", () => {
   expect(exportQuantity("101", 123)).toBe(101);
