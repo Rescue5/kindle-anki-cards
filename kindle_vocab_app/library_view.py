@@ -24,7 +24,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from kindle_vocab_app import card_fields, export_policy
-from kindle_vocab_app.contracts import BATCH_SIZE_DEFAULT, DISPUTED_CAP, StudyPriority
+from kindle_vocab_app.contracts import BATCH_SIZE_DEFAULT, DISPUTED_CAP, NewBatch, StudyPriority
 from kindle_vocab_app.library_state import parse_moment
 from kindle_vocab_app.ranking import (
     RANKING_VERSION,
@@ -161,10 +161,11 @@ def exportable_ids(entries: Iterable[Mapping[str, Any]]) -> list[str]:
     return [str(entry["id"]) for entry in candidates]
 
 
-def new_batch(entries: Iterable[Mapping[str, Any]], batch_size: int) -> dict[str, Any]:
+def new_batch(entries: Iterable[Mapping[str, Any]], batch_size: int) -> NewBatch:
     """The short list: exportable, not yet exported words by rank, cut at the batch size."""
-    ids = exportable_ids(entries)[: max(0, int(batch_size))]
-    return {"count": len(ids), "ids": ids}
+    available_ids = exportable_ids(entries)
+    ids = available_ids[: max(0, int(batch_size))]
+    return {"count": len(ids), "ids": ids, "availableIds": available_ids}
 
 
 def disputed(entries: Iterable[Mapping[str, Any]]) -> dict[str, Any]:

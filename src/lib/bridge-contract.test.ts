@@ -26,7 +26,7 @@ const shelves: Shelf[] = ["worth", "disputed", "not_worth", "junk", "known"];
 const errorCodes: ErrorCode[] = [
   "no_destination", "too_long", "example_not_found", "nothing_to_export", "export_failed",
   "anki_import_unconfirmed", "anki_import_rejected", "export_busy",
-  "unknown_lexeme", "bad_decision", "bad_scope",
+  "unknown_lexeme", "bad_decision", "bad_scope", "bad_levels",
 ];
 
 describe("bridge contract fixture", () => {

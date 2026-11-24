@@ -98,6 +98,7 @@ ERROR_CODES = (
     "unknown_lexeme",
     "bad_decision",
     "bad_scope",
+    "bad_levels",
 )
 
 # `{"ok": false, "error": <text>, "code": <code>}`: `error` is always shown to the reader as is.
@@ -118,6 +119,7 @@ ERROR_TEXTS: dict[str, str] = {
     "unknown_lexeme": "Слово не найдено в библиотеке",
     "bad_decision": "Неизвестное решение. Допустимо: знаю, учить, не учить, не слово",
     "bad_scope": "Неизвестный набор слов для экспорта",
+    "bad_levels": "Выберите хотя бы один уровень от 1 до 10",
 }
 
 # --- literals ---------------------------------------------------------------------------------
@@ -128,7 +130,7 @@ LeanValue = Literal["learn", "skip", "junk"]
 RankingMode = Literal["learning", "full"]
 MeaningSource = Literal["edited", "llm", "dictionary", "none"]
 ExportDestination = Literal["anki", "csv", "obsidian"]
-ExportScope = Literal["new", "again"]
+ExportScope = Literal["new", "again", "library"]
 ExportStateValue = Literal["exported", "not_exported"]
 ErrorCode = Literal[
     "no_destination",
@@ -142,6 +144,7 @@ ErrorCode = Literal[
     "unknown_lexeme",
     "bad_decision",
     "bad_scope",
+    "bad_levels",
 ]
 
 # --- per-lexeme parts -------------------------------------------------------------------------
@@ -216,6 +219,7 @@ class NewBatch(TypedDict):
 
     count: int
     ids: list[str]
+    availableIds: list[str]  # all currently exportable new words, in rank order before the batch cut
 
 
 class DisputedSummary(TypedDict):
@@ -259,7 +263,9 @@ class LibraryPayloadV4(TypedDict):
 #                     meaning_ru "" removes the edit (the card falls back to llm/dictionary);
 #                     errors: too_long, example_not_found, unknown_lexeme
 # export_preview      {}                                           -> ExportPreview
-# export_words        {job_id, scope: ExportScope, ids?}           -> ExportRun
+# export_words        {job_id, scope: "new", ids?}              -> ExportRun
+# export_words        {job_id, scope: "library", ids, levels?}  -> ExportRun
+#                     library uses only supplied ids; omitted levels mean all (1..10).
 #                     ids defaults to the library's new batch. Reload the library after success.
 #                     Import errors preserve the saved package and leave its words in the batch.
 # export_folder_status {}                                          -> {available: bool}
@@ -524,27 +530,33 @@ def validate_library(payload: dict[str, Any]) -> list[str]:
         problems.append(f"shelves: {payload['shelves']} != counted {shelf_totals}")
 
     batch = payload["newBatch"]
-    if _keys(problems, "newBatch", batch, {"count", "ids"}):
+    if _keys(problems, "newBatch", batch, {"count", "ids", "availableIds"}):
         ids = batch["ids"]
+        available_ids = batch["availableIds"]
         if batch["count"] != len(ids) or len(set(ids)) != len(ids):
             problems.append("newBatch: count must equal the number of distinct ids")
         if batch["count"] > BATCH_SIZE_MAX:
             problems.append(f"newBatch: more than {BATCH_SIZE_MAX} words")
-        batch_entries = [by_id.get(i) for i in ids]
-        if any(item is None for item in batch_entries):
-            problems.append("newBatch.ids: an id that is not in entries")
-        else:
+        if ids != available_ids[:len(ids)]:
+            problems.append("newBatch.ids: must be a prefix of availableIds")
+        if len(available_ids) != len(set(available_ids)):
+            problems.append("newBatch.availableIds: duplicate ids")
+        for key, candidates in (("ids", ids), ("availableIds", available_ids)):
             previous = 0
-            for item in batch_entries:
+            for lexeme_id in candidates:
+                item = by_id.get(lexeme_id)
+                if item is None:
+                    problems.append(f"newBatch.{key}: an id that is not in entries")
+                    continue
                 ranking = item["ranking"]
                 if ranking is None or ranking["shelf"] != "worth":
-                    problems.append(f"newBatch.ids: {item['id']} is not on the worth shelf")
+                    problems.append(f"newBatch.{key}: {item['id']} is not on the worth shelf")
                     continue
                 if ranking["rank"] < previous:
-                    problems.append("newBatch.ids: not in rank order")
+                    problems.append(f"newBatch.{key}: not in rank order")
                 previous = ranking["rank"]
                 if item["export"]["state"] == "exported":
-                    problems.append(f"newBatch.ids: {item['id']} is already exported")
+                    problems.append(f"newBatch.{key}: {item['id']} is already exported")
 
     disputed = payload["disputed"]
     if _keys(problems, "disputed", disputed, {"ids"}):

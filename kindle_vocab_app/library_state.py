@@ -20,8 +20,10 @@ Logs carry counts only, never words.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
+import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -40,6 +42,8 @@ _UNSET: Any = object()
 # table -> the timestamp that decides which of two rows on one word is newer
 _KEYED_TABLES = {"word_decisions": "decided_at", "card_edits": "updated_at"}
 _HINTED_TABLES = ("word_decisions", "card_edits", "export_items")
+_ANKI_NOTE_KEYS = "anki_note_keys_v1"
+AnkiIdentity = tuple[str, str, str]  # lexeme id, language, canonical key
 
 
 class LibraryStateError(ValueError):
@@ -304,6 +308,7 @@ def record_export_run(
     """
     ids = list(dict.fromkeys(str(item) for item in lexeme_ids))
     _begin_immediate(connection)
+    previously_exported = read_last_exports(connection) if scope == "again" else {}
     identities = []
     for lexeme_id in ids:
         language, canonical_key = _lexeme_identity(connection, lexeme_id)
@@ -314,8 +319,8 @@ def record_export_run(
     )
     run_id = int(cursor.lastrowid or 0)
     connection.executemany(
-        "INSERT INTO export_items(run_id, lexeme_id, language, canonical_key, is_repeat) VALUES (?, ?, ?, ?, 0)",
-        [(run_id, *identity) for identity in identities],
+        "INSERT INTO export_items(run_id, lexeme_id, language, canonical_key, is_repeat) VALUES (?, ?, ?, ?, ?)",
+        [(run_id, *identity, int(identity[0] in previously_exported)) for identity in identities],
     )
     return run_id
 
@@ -327,6 +332,74 @@ def parse_moment(text: str) -> datetime | None:
     except ValueError:
         return None
     return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _read_anki_note_keys(connection: sqlite3.Connection) -> dict[str, AnkiIdentity | None]:
+    row = connection.execute("SELECT value FROM metadata WHERE key = ?", (_ANKI_NOTE_KEYS,)).fetchone()
+    if row is None:
+        return {}
+    return {seed: tuple(value) if value is not None else None for seed, value in json.loads(row["value"]).items()}
+
+
+def _write_anki_note_keys(connection: sqlite3.Connection, notes: Mapping[str, AnkiIdentity | None]) -> None:
+    connection.execute(
+        "INSERT OR REPLACE INTO metadata(key, value) VALUES (?, ?)",
+        (_ANKI_NOTE_KEYS, json.dumps(notes, ensure_ascii=False, sort_keys=True)),
+    )
+
+
+def remember_legacy_anki_note_keys(connection: sqlite3.Connection) -> None:
+    """Preserve the former id-derived GUID while its historical identity is still available."""
+    notes = _read_anki_note_keys(connection)
+    targets = set(notes.values())
+    added = False
+    for row in connection.execute(
+        """
+        SELECT i.lexeme_id, i.language, i.canonical_key
+        FROM export_items AS i JOIN export_runs AS r ON r.id = i.run_id
+        JOIN lexemes AS l ON l.id = i.lexeme_id AND l.language = i.language AND l.canonical_key = i.canonical_key
+        WHERE r.destination = 'anki'
+        UNION
+        SELECT l.id, l.language, l.canonical_key
+        FROM destinations AS d JOIN lexemes AS l ON l.id = d.lexeme_id
+        WHERE d.destination = 'anki' AND d.state = 'exported'
+        """
+    ):
+        identity = (str(row[0]), str(row[1]), str(row[2]))
+        seed = identity[0]
+        if identity not in targets and seed not in notes:
+            notes[seed] = identity
+            targets.add(identity)
+            added = True
+    if added:
+        _write_anki_note_keys(connection, notes)
+
+
+def reserve_anki_note_keys(
+    connection: sqlite3.Connection, identities: Sequence[AnkiIdentity],
+) -> dict[str, str]:
+    """Reserve a stable GUID seed before a package can reach Anki or the export folder."""
+    _begin_immediate(connection)
+    notes = _read_anki_note_keys(connection)
+    by_identity = {identity: seed for seed, identity in notes.items() if identity is not None}
+    added = False
+    result = {}
+    for identity in identities:
+        lexeme_id, language, key = identity
+        if _lexeme_identity(connection, lexeme_id) != (language, key):
+            raise LibraryStateError("unknown_lexeme")
+        seed = by_identity.get(identity)
+        if seed is None:
+            seed = lexeme_id
+            while seed in notes:
+                seed = uuid.uuid4().hex
+            notes[seed] = identity
+            by_identity[identity] = seed
+            added = True
+        result[lexeme_id] = seed
+    if added:
+        _write_anki_note_keys(connection, notes)
+    return result
 
 
 # --- re-link ----------------------------------------------------------------------------------
@@ -345,6 +418,12 @@ def follow_key_change(
     """
     if old == new:
         return
+    notes = _read_anki_note_keys(connection)
+    for seed, identity in notes.items():
+        if identity == (lexeme_id, *old):
+            notes[seed] = (lexeme_id, *new)
+            _write_anki_note_keys(connection, notes)
+            break
     for table in _HINTED_TABLES:
         connection.execute(
             f"""
@@ -374,7 +453,6 @@ def relink(
     by the hint (language, canonical_key), then by a form of exactly one word of that language.
     Runs inside the caller's write transaction. Returns counts; logs them when any is non-zero.
     """
-    id_map = id_map or {}
     counts = {
         "decisions": 0,
         "edits": 0,
@@ -383,7 +461,9 @@ def relink(
         "export_conflicts": 0,
         "unresolved": 0,
     }
-    resolver = _TargetResolver(connection, id_map)
+    resolver = _TargetResolver(connection, id_map or {})
+    if id_map is not None:
+        _relink_anki_note_keys(connection, resolver)
     for table, stamp in _KEYED_TABLES.items():
         orphaned = _ORPHANED.format(table=table)
         # Rows sitting on an id that now belongs to another word are parked first, so the
@@ -488,7 +568,7 @@ class _TargetResolver:
         self._connection = connection
         self._id_map = id_map
 
-    def find(self, orphan: sqlite3.Row, original_id: str) -> tuple[str, str, str] | None:
+    def find(self, orphan: sqlite3.Row | Mapping[str, str], original_id: str) -> AnkiIdentity | None:
         mapped = self._id_map.get(original_id)
         if mapped:
             row = self._connection.execute(
@@ -514,6 +594,27 @@ class _TargetResolver:
         if len(rows) == 1:
             return str(rows[0]["id"]), str(rows[0]["language"]), str(rows[0]["canonical_key"])
         return None
+
+
+def _relink_anki_note_keys(connection: sqlite3.Connection, resolver: _TargetResolver) -> None:
+    notes = _read_anki_note_keys(connection)
+    if not notes:
+        return
+    live = {tuple(row) for row in connection.execute("SELECT id, language, canonical_key FROM lexemes")}
+    taken = set(notes.values()) & live
+    changed = False
+    for seed, identity in notes.items():
+        if identity is None or identity in live:
+            continue
+        lexeme_id, language, key = identity
+        target = resolver.find({"language": language, "canonical_key": key}, lexeme_id)
+        if target is not None:
+            # Keep the surviving word's existing note. A retired seed is never reused.
+            notes[seed] = None if target in taken else target
+            taken.add(target)
+            changed = True
+    if changed:
+        _write_anki_note_keys(connection, notes)
 
 
 def _detach(

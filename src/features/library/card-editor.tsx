@@ -5,7 +5,7 @@ import { PencilFrame } from "@/components/sketch/sketch";
 import { MEANING_MAX_LENGTH, type DecisionValue, type LexemeRecord } from "@/types";
 import { cardChanges, cardDraft, selectedExample, type CardChanges, type CardDraft } from "./card-editor-domain";
 import { isCardEligible, obsidianSyncReason, partOfSpeechLabel, processingLabel, russianMeaning } from "./domain";
-import { decisionLabel, studyPriority } from "./study-priority";
+import { decisionLabel, recordedSearchEvidence, studyPriority } from "./study-priority";
 
 type Props = {
   entry: LexemeRecord;
@@ -35,6 +35,7 @@ export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headin
   const fallbackMeaning = russianMeaning(entry)?.text || "";
   const tooLong = changes.meaning_ru !== undefined && [...draft.meaning].length > MEANING_MAX_LENGTH;
   const priority = studyPriority(entry);
+  const searchEvidence = recordedSearchEvidence(entry.occurrences);
 
   // Background library refreshes may update the effective card. Keep an active draft intact.
   React.useEffect(() => {
@@ -91,6 +92,7 @@ export function CardEditor({ entry, readOnly, busy, llmEnabled, onEnrich, headin
       <div className="card-priority">
         <p>Приоритет {priority.level} из 10{priority.provisional ? " · предварительно" : ""}</p>
         <p className="words-meta">{priority.reason}</p>
+        {searchEvidence ? <p className="words-meta">{searchEvidence}</p> : null}
       </div>
       <form onSubmit={(event) => void save(event)} className="card-edit-form" aria-busy={pending}>
         <label htmlFor="card-meaning">Перевод</label>

@@ -3,6 +3,7 @@
 import { ERROR_TEXTS, type ErrorCode, type ExportRun, type LexemeRecord, type LibraryRanking, type LibraryResult, type Operation, type QueueStatus, type RankingReason } from "@/types";
 import { partOfSpeechShort, ruCount } from "@/features/reading/reading-domain";
 import { russianMeaning } from "@/features/library/domain";
+import { compareStudyPriority, studyPriority } from "@/features/library/study-priority";
 
 /** The short-list parts of a library answer, or null when the bridge does not send them (an older one). */
 export function rankingOf(result: LibraryResult): LibraryRanking | null {
@@ -25,9 +26,23 @@ export function wordsLabel(count: number): string {
   return `${count} ${ruCount(count, "слово", "слова", "слов")}`;
 }
 
-/** The one primary action; N is the size of the short list. */
+/** Number of selected words, including those beyond the preview. */
 export function exportButtonLabel(count: number): string {
-  return `Экспортировать ${count}`;
+  return `Выгрузить ${wordsLabel(count)}`;
+}
+
+export const PRIORITY_LEVELS = Array.from({ length: 10 }, (_, index) => index + 1);
+export type ExportSelection = "library" | "new" | "portion";
+
+export function exportQuantity(limit: string, available: number): number {
+  const value = Number(limit);
+  return /^\d+$/.test(limit) && Number.isSafeInteger(value) && value > 0 ? Math.min(value, available) : 0;
+}
+
+export function libraryGroups(entries: readonly LexemeRecord[]): string[][] {
+  const groups = PRIORITY_LEVELS.map(() => [] as string[]);
+  for (const entry of [...entries].sort(compareStudyPriority)) groups[studyPriority(entry).level - 1].push(entry.id);
+  return groups;
 }
 
 /** «С прошлого раза: 3 новых слова»; null when nothing is new or the list already says that many. */
@@ -193,7 +208,7 @@ export const EMPTY_NOTE = "Подключите читалку, когда пр�
 export const LOAD_FROM_READER = "Загрузить слова с читалки";
 export const SEARCHING_READER = "Ищу читалку…";
 export const READER_NOT_FOUND = "Читалка не найдена";
-export const LIST_TITLE = "Слова на этот раз";
+export const LIST_TITLE = "Слова в выгрузке";
 export const BUSY_NOTE = "Разбираю новые слова — список может измениться";
 
 // ---- the one line under the button ----

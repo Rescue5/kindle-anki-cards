@@ -1,8 +1,10 @@
-"""`export_words`: send the short list to the reader's chosen destination, once, and remember it.
+"""`export_words`: send selected words to the reader's chosen destination and remember it.
 
 Which words: the library's `newBatch` (exportable, not yet exported, best rank first, cut at the
 `export_batch_size` setting), or the given `ids` narrowed to the words that are exportable and not
-yet exported. Where: the `export_destination` setting.
+yet exported. Scope `library` deliberately includes previously exported and unprocessed words,
+but only from the exact ids supplied and the selected current study levels. Where: the
+`export_destination` setting.
 
 - `anki`: the deck is written as an .apkg and pushed when AnkiConnect is available. If it is
   unavailable before sending, the file is the result. Notes carry a GUID made from the lexeme id,
@@ -21,7 +23,7 @@ import csv
 import errno
 import os
 import stat
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +39,7 @@ from kindle_vocab_app import (
 )
 from kindle_vocab_app.coded_error import CodedError
 from kindle_vocab_app.library_repository import repository_for
+from kindle_vocab_app.library_state import parse_moment
 from kindle_vocab_app.logging_config import get_logger
 from kindle_vocab_app.tsv_schema import OPTIMIZED_TSV_HEADER
 
@@ -102,15 +105,17 @@ def export_words(
     workspace: Path, payload: Mapping[str, Any], *, progress: Progress | None = None
 ) -> dict[str, Any]:
     """Run one export; returns `contracts.ExportRun` or raises `CodedError`."""
-    if str(payload.get("scope") or "new") != "new":
+    scope = payload.get("scope", "new")
+    if scope not in ("new", "library"):
         raise CodedError("bad_scope")
+    levels = _selected_levels(payload, scope)
     tell = progress or (lambda stage, message, current, total: None)
     with _workspace_export_lock(workspace):
-        return _export_new_words(workspace, payload, tell)
+        return _export_selected_words(workspace, payload.get("ids"), scope, levels, tell)
 
 
-def _export_new_words(
-    workspace: Path, payload: Mapping[str, Any], tell: Progress
+def _export_selected_words(
+    workspace: Path, requested: Any, scope: str, levels: frozenset[int], tell: Progress,
 ) -> dict[str, Any]:
     app_settings = settings.load(workspace)
     destination = app_settings.export_destination
@@ -129,7 +134,7 @@ def _export_new_words(
         batch_size=app_settings.export_batch_size,
     )
     by_id = {str(entry["id"]): entry for entry in entries}
-    ids = _choose_ids(payload.get("ids"), library, entries, by_id)
+    ids = _choose_ids(requested, scope, levels, library["newBatch"], by_id)
     if not ids:
         raise CodedError("nothing_to_export")
     lexemes = [by_id[lexeme_id] for lexeme_id in ids]
@@ -139,7 +144,11 @@ def _export_new_words(
     pushed = 0
     try:
         if destination == "anki":
-            path, pushed = _send_to_anki(workspace, lexemes, edits, tell)
+            prior_exports = (state["exported_at"].get(lexeme_id, "") for lexeme_id in ids)
+            path, pushed = _send_to_anki(
+                workspace, lexemes, edits, tell, prior_exports=prior_exports,
+                note_keys=repository.reserve_anki_note_keys(lexemes),
+            )
         else:
             path = _write_tsv(workspace, lexemes, edits)
     except CodedError:
@@ -152,7 +161,8 @@ def _export_new_words(
         raise CodedError("export_failed", "подробности в журнале") from exc
 
     try:
-        run_id = repository.record_export_run(destination, ids, path=str(path))
+        # Existing storage calls any explicit repeat-capable export `again`.
+        run_id = repository.record_export_run(destination, ids, path=str(path), scope="again" if scope == "library" else "new")
     except Exception as exc:
         logger.exception("Export succeeded but the run was not recorded destination=%s", destination)
         if destination == "csv":
@@ -176,22 +186,38 @@ def _export_new_words(
     }
 
 
+def _selected_levels(payload: Mapping[str, Any], scope: str) -> frozenset[int]:
+    if "levels" not in payload:
+        return frozenset(range(1, 11))
+    levels = payload["levels"]
+    if (
+        scope != "library" or not isinstance(levels, list) or not levels
+        or any(type(level) is not int or not 1 <= level <= 10 for level in levels)
+        or len(set(levels)) != len(levels)
+    ):
+        raise CodedError("bad_levels")
+    return frozenset(levels)
+
+
 def _choose_ids(
     requested: Any,
-    library: Mapping[str, Any],
-    entries: list[dict[str, Any]],
+    scope: str,
+    levels: frozenset[int],
+    batch: Mapping[str, Any],
     by_id: Mapping[str, Any],
 ) -> list[str]:
     if requested is None:
-        return list(library["newBatch"]["ids"])
-    if not isinstance(requested, list) or not all(isinstance(item, str) for item in requested):
+        return list(batch["ids"]) if scope == "new" else []
+    if not isinstance(requested, list) or not all(isinstance(item, str) and item.strip() for item in requested):
         raise CodedError("unknown_lexeme")
     unknown = [item for item in requested if item not in by_id]
     if unknown:
         raise CodedError("unknown_lexeme")
+    if scope == "library":
+        return [lexeme_id for lexeme_id in dict.fromkeys(requested) if by_id[lexeme_id]["study_priority"]["level"] in levels]
     wanted = set(requested)
     # Only words that may leave and have not left yet; the order stays the ranking's.
-    return [lexeme_id for lexeme_id in library_view.exportable_ids(entries) if lexeme_id in wanted]
+    return [lexeme_id for lexeme_id in batch["availableIds"] if lexeme_id in wanted]
 
 
 def _send_to_anki(
@@ -199,6 +225,9 @@ def _send_to_anki(
     lexemes: list[dict[str, Any]],
     edits: Mapping[str, Mapping[str, Any]],
     tell: Progress,
+    *,
+    prior_exports: Iterable[str],
+    note_keys: Mapping[str, str],
 ) -> tuple[Path, int]:
     """Write the deck; push it when AnkiConnect answers. Returns (file, cards pushed)."""
     total = len(lexemes)
@@ -211,13 +240,17 @@ def _send_to_anki(
             tell("building", f"Собрано карточек: {built} из {total}", built, total)
         return anki_export.wordnet_definition(lemma, pos, context)
 
-    with _reserve_path(exports_dir(workspace), ".apkg") as output:
+    folder = exports_dir(workspace)
+    previous_seconds = _previous_anki_seconds(folder, prior_exports)
+    with _reserve_path(folder, ".apkg") as output:
         result = anki_export.write_apkg(
             lexemes,
             output,
             definition_lookup=definition,
             edits=edits,
             require_eligible=False,
+            previous_mod_seconds=previous_seconds,
+            note_keys=note_keys,
         )
     if anki_connect.status()["state"] != "connected":
         return result.path, 0
@@ -229,6 +262,19 @@ def _send_to_anki(
     except anki_connect.AnkiConnectError as exc:
         raise CodedError("anki_import_unconfirmed") from exc
     return result.path, len(result.exported_ids)
+
+
+def _previous_anki_seconds(folder: Path, prior_exports: Iterable[str]) -> set[int]:
+    seconds = {int(moment.timestamp()) for value in prior_exports if (moment := parse_moment(value)) is not None}
+    # A package may have reached Anki even if AnkiConnect's response was lost.
+    for package in folder.glob("*.apkg"):
+        try:
+            info = package.lstat()
+        except OSError:
+            continue
+        if stat.S_ISREG(info.st_mode) and info.st_size > 0:
+            seconds.add(int(info.st_mtime))
+    return seconds
 
 
 def _write_tsv(

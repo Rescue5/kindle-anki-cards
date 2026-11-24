@@ -114,7 +114,9 @@ export function useLibraryController() {
   const prevConnectorsRef = React.useRef<ConnectorStatus>(unknownConnectors);
   const lastAutoSyncSignatureRef = React.useRef<string | null>(null);
   const lastAutoSyncAttemptAtRef = React.useRef(0);
-  const probeInFlightRef = React.useRef(false);
+  const probeInFlightRef = React.useRef<Promise<void> | null>(null);
+  const manualProbe = React.useRef(false);
+  const [findingReader, setFindingReader] = React.useState(false);
   const autoSyncInFlightRef = React.useRef(false);
   const processingInFlightRef = React.useRef(false);
   const syncKindleRef = React.useRef(syncKindlePlaceholder);
@@ -287,14 +289,12 @@ export function useLibraryController() {
   const lastProbedAt = React.useRef(0);
   const probeConnectors = React.useCallback(async (force = false) => {
     if (document.visibilityState !== "visible") return;
+    if (probeInFlightRef.current) return probeInFlightRef.current;
     const now = Date.now();
     if (!force && now - lastProbedAt.current < KINDLE_PROBE_INTERVAL_MS) return;
-    if (probeInFlightRef.current) return;
-    probeInFlightRef.current = true;
     lastProbedAt.current = now;
     const previous = prevConnectorsRef.current;
-    try {
-      const status = await callBackend<ConnectorStatus>("connector_status", {});
+    const probe = callBackend<ConnectorStatus>("connector_status", {}).then((status) => {
       prevConnectorsRef.current = status;
       setConnectors(status);
       const kindle = status.kindle;
@@ -305,19 +305,31 @@ export function useLibraryController() {
         lastAttemptAt: lastAutoSyncAttemptAtRef.current,
         now,
       });
-      if (shouldSync && operationRef.current.status !== "running" && !autoSyncInFlightRef.current) {
+      if (shouldSync && !manualProbe.current && !demoRef.current && operationRef.current.status !== "running" && !autoSyncInFlightRef.current) {
         lastAutoSyncAttemptAtRef.current = now;
         autoSyncInFlightRef.current = true;
         void syncKindleRef.current().finally(() => {
           autoSyncInFlightRef.current = false;
         });
       }
-    } catch {
+    }).catch(() => {
       setConnectors((current) => ({ ...current, kindle: { ...current.kindle, state: "error", checked_at: new Date().toISOString() } }));
-    } finally {
-      probeInFlightRef.current = false;
-    }
+    }).finally(() => { probeInFlightRef.current = null; });
+    probeInFlightRef.current = probe;
+    return probe;
   }, []);
+
+  const findReader = React.useCallback(async () => {
+    if (manualProbe.current || demoRef.current) return;
+    manualProbe.current = true;
+    setFindingReader(true);
+    try {
+      await probeConnectors(true);
+    } finally {
+      manualProbe.current = false;
+      setFindingReader(false);
+    }
+  }, [probeConnectors]);
 
   React.useEffect(() => {
     void probeConnectors();
@@ -664,6 +676,8 @@ export function useLibraryController() {
       loadDemo,
       exitDemo,
       syncKindle,
+      findReader,
+      findingReader,
       importReaderFile,
       syncObsidian,
       cancel,
@@ -708,6 +722,8 @@ export function useLibraryController() {
       loadDemo,
       exitDemo,
       syncKindle,
+      findReader,
+      findingReader,
       importReaderFile,
       syncObsidian,
       cancel,

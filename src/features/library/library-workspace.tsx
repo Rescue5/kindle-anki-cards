@@ -1,5 +1,6 @@
 import * as React from "react";
-import { Loader2, Search } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { Check, ChevronDown, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -22,6 +23,32 @@ const PRIORITY_GROUPS = [
   { label: "7–9 · Можно отложить", levels: [7, 8, 9] },
   { label: "10 · Проверить запись", levels: [10] },
 ];
+
+function PriorityMenu({ value, onChange }: { value: PriorityFilter; onChange: (value: PriorityFilter) => void }) {
+  const item = (choice: PriorityFilter) => <DropdownMenu.RadioItem key={choice} value={String(choice)} className="words-priority-option">
+    <DropdownMenu.ItemIndicator className="words-priority-check"><Check size={14} aria-hidden="true" /></DropdownMenu.ItemIndicator>
+    {choice === "all" ? "Все приоритеты" : `Приоритет ${choice}`}
+  </DropdownMenu.RadioItem>;
+  return <DropdownMenu.Root>
+    <DropdownMenu.Trigger asChild>
+      <Button variant="secondary" size="sm" className="words-priority-trigger">
+        {value === "all" ? "Все приоритеты" : `Приоритет ${value}`}
+        <ChevronDown size={15} aria-hidden="true" />
+      </Button>
+    </DropdownMenu.Trigger>
+    <DropdownMenu.Portal>
+      <DropdownMenu.Content className="app-scrollbar words-priority-menu" align="start" sideOffset={4} collisionPadding={12}>
+        <DropdownMenu.RadioGroup value={String(value)} onValueChange={(next) => onChange(next === "all" ? "all" : Number(next))}>
+          {item("all")}
+          {PRIORITY_GROUPS.map((group) => <DropdownMenu.Group key={group.label} aria-label={group.label}>
+            <DropdownMenu.Label className="words-priority-label">{group.label}</DropdownMenu.Label>
+            {group.levels.map(item)}
+          </DropdownMenu.Group>)}
+        </DropdownMenu.RadioGroup>
+      </DropdownMenu.Content>
+    </DropdownMenu.Portal>
+  </DropdownMenu.Root>;
+}
 
 export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controller, batchLexemeId, onBackToBatch, onDraftChange }: Props) {
   const [priorityFilter, setPriorityFilter] = React.useState<PriorityFilter>("all");
@@ -99,12 +126,7 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
           </Select>
         </div>
         <div className="words-filters words-priority-filter">
-          <Select aria-label="Приоритет" value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value === "all" ? "all" : Number(event.target.value))}>
-            <option value="all">Все приоритеты</option>
-            {PRIORITY_GROUPS.map((group) => <optgroup key={group.label} label={group.label}>
-              {group.levels.map((level) => <option value={level} key={level}>Приоритет {level}</option>)}
-            </optgroup>)}
-          </Select>
+          <PriorityMenu value={priorityFilter} onChange={setPriorityFilter} />
           <p className="words-priority-direction">1 — учить в первую очередь · 10 — возможная ошибка записи</p>
         </div>
         <details className="card-library-tools"><summary>Загрузка и обработка</summary>
@@ -133,7 +155,7 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
   </div>;
 });
 
-const ROW_HEIGHT = 64;
+const ROW_HEIGHT = 92;
 const OVERSCAN = 5;
 
 function WordList({ entries, selectedId, onSelect, loading, disabled, restoreFocus, onFocusRestored }: { entries: LexemeRecord[]; selectedId: string; onSelect: (id: string) => void; loading: boolean; disabled: boolean; restoreFocus: boolean; onFocusRestored: () => void }) {
@@ -155,23 +177,27 @@ function WordList({ entries, selectedId, onSelect, loading, disabled, restoreFoc
   }, [entries, selectedId, container]);
   React.useEffect(() => {
     if (!restoreFocus || !container || height === 0) return;
-    const row = container.querySelector<HTMLButtonElement>('[data-selected-word="true"]');
-    if (row) {
-      row.focus({ preventScroll: true });
-      onFocusRestored();
-      return;
-    }
-    const index = entries.findIndex((entry) => entry.id === selectedId);
-    if (index >= 0) {
-      container.scrollTop = index * ROW_HEIGHT;
-      setScrollTop(container.scrollTop);
-    }
-  }, [restoreFocus, container, height, selectedId, entries, onFocusRestored]);
+    const frame = window.requestAnimationFrame(() => {
+      // The narrow layout has just unhidden the list. Wait until its rows can receive focus.
+      const row = container.querySelector<HTMLButtonElement>('[data-selected-word="true"]');
+      if (row && row.getClientRects().length) {
+        row.focus({ preventScroll: true });
+        if (document.activeElement === row) onFocusRestored();
+        return;
+      }
+      const index = entries.findIndex((entry) => entry.id === selectedId);
+      if (index >= 0) {
+        container.scrollTop = index * ROW_HEIGHT;
+        setScrollTop(container.scrollTop);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [restoreFocus, container, height, scrollTop, selectedId, entries, onFocusRestored]);
   if (loading) return <div className="words-state" role="status"><Loader2 className="animate-spin" />Загружаем библиотеку</div>;
   if (!entries.length) return <div className="words-state"><h2>В этой выборке нет слов</h2><p>Измените отбор, книгу или поисковый запрос.</p></div>;
   const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const end = Math.min(entries.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN);
-  return <div className="words-table">
+  return <div className="words-table" style={{ "--catalog-row-height": `${ROW_HEIGHT}px` } as React.CSSProperties}>
     <div className="words-table-head card-list-head"><span>Слово</span><span>Предложение из книги</span><span>Приоритет ↑</span></div>
     <div ref={setContainer} className="app-scrollbar words-table-body" onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
       <div style={{ height: start * ROW_HEIGHT }} />
@@ -183,6 +209,7 @@ function WordList({ entries, selectedId, onSelect, loading, disabled, restoreFoc
           <span className="words-row-lemma"><strong>{entry.lemma}</strong><small>{entry.card?.meaning_ru || ""}</small></span>
           <span className="card-list-example"><span className="words-row-context">{occurrence?.context || "Предложения пока нет"}</span><span className="words-row-book">{occurrence?.book_title || ""}</span></span>
           <span className="words-row-priority"><strong>Приоритет {priority.level}</strong>{priority.provisional ? <small>предварительно</small> : null}</span>
+          <span className="words-row-reason">{priority.reason}</span>
         </button>;
       })}
       <div style={{ height: Math.max(0, entries.length - end) * ROW_HEIGHT }} />

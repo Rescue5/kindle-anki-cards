@@ -42,8 +42,8 @@ const html = (patch: Partial<HomeViewProps> = {}) => renderToStaticMarkup(<HomeV
 describe("Главная", () => {
   it("asks one question and offers one primary action with the size of the list", () => {
     const markup = html();
-    expect(markup).toContain("Что выгрузить сейчас?");
-    expect(markup).toContain("Экспортировать 2");
+    expect(markup).toContain("Выгрузка слов");
+    expect(markup).toContain("Выгрузить 2 слова");
     expect(markup.match(/ui-button-lit/g)).toHaveLength(1);
     expect(markup).toContain("С прошлого раза: 2 новых слова");
   });
@@ -51,21 +51,35 @@ describe("Главная", () => {
   it("keeps the same interactive fox in every Home state", () => {
     for (const mode of ["loading", "no-reader", "empty", "preparing", "list", "processing-stopped"] as const) {
       const markup = html({ mode });
-      expect(markup.match(/aria-label="Поприветствовать лиса"/g)).toHaveLength(1);
+      expect(markup.match(/aria-label="Реплики лиса"/g)).toHaveLength(1);
       expect(markup).not.toContain("desk-lamp-drawing");
     }
+  });
+
+  it("labels the export with its full size while the preview shows only the supplied examples", () => {
+    const quantity: NonNullable<HomeViewProps["quantity"]> = {
+      mode: "library", limit: "20", levels: Array.from({ length: 10 }, (_, i) => i + 1),
+      count: 123, available: 8, levelCounts: [123, 0, 0, 0, 0, 0, 0, 0, 0, 0], setMode: noop, setLimit: noop, setLevels: noop,
+    };
+    const words = Array.from({ length: 5 }, (_, i) => word(String(i), `example-${i}`));
+    const markup = html({ words, quantity, onFindReader: noop });
+    expect(markup).toContain("Выгрузить 123 слова");
+    expect(markup).toContain("Первые 5 из 123");
+    expect(markup.match(/class="home-row"/g)).toHaveLength(5);
+    expect(markup).toContain("Найти Kindle");
+    expect(html({ words: [], quantity: { ...quantity, levels: [], count: 0 } })).toContain("Выберите хотя бы один приоритет");
   });
 
   it("preserves the explicit desk lamp override for the historical study", () => {
     const markup = html({ deskLamp: <div data-testid="historical-lamp" /> });
     expect(markup).toContain("historical-lamp");
-    expect(markup).not.toContain('aria-label="Поприветствовать лиса"');
+    expect(markup).not.toContain('aria-label="Реплики лиса"');
   });
 
   it("has no lede over the list and names the list plainly", () => {
     const markup = html();
     expect(markup).not.toContain("home-lede");
-    expect(markup).toContain("Слова на этот раз");
+    expect(markup).toContain("Слова в выгрузке");
   });
 
   it("shows one reason per word and never one against it", () => {
@@ -84,7 +98,7 @@ describe("Главная", () => {
 
   it("keeps the file places, the file picker and the example in view without a reader", () => {
     const markup = html({ mode: "no-reader", words: [], reader: { state: "disconnected", name: "Kindle" } });
-    for (const text of ["system/vocabulary/vocab.db", "vocabulary_builder.sqlite3", ".kobo/KoboReader.sqlite", "Выбрать файл", "Посмотреть на примере", "Загрузить слова с читалки", "Читалка не найдена", "передачу файлов"]) expect(markup).toContain(text);
+    for (const text of ["system/vocabulary/vocab.db", "vocabulary_builder.sqlite3", ".kobo/KoboReader.sqlite", "Выбрать файл", "Посмотреть на примере", "Найти Kindle", "Читалка не найдена", "передачу файлов"]) expect(markup).toContain(text);
   });
 
   it("says the export is running on a blocked button", () => {
@@ -175,13 +189,13 @@ describe("Главная", () => {
     expect(markup).toMatch(/<h1[^>]*>Готовлю подборку<\/h1>/);
     expect(markup).toContain("Подборка появится здесь");
     expect(markup).toContain("Обработано 7 из 23");
-    expect(markup).toContain('aria-label="Поприветствовать лиса"');
+    expect(markup).toContain('aria-label="Реплики лиса"');
     expect(markup).not.toContain('aria-label="Реплика лиса"');
     expect(markup).toMatch(/<progress[^>]*aria-label="Обработка слов"[^>]*value="7"[^>]*max="23"/);
     expect(markup).toContain('aria-live="off"');
     expect(markup).not.toContain("Выбрать файл");
     expect(markup).not.toContain("Загрузить слова с читалки");
-    expect(markup).not.toContain("Что выгрузить сейчас?");
+    expect(markup).not.toContain("Выгрузка слов");
     expect(markup).not.toContain("home-skel");
     expect(markup).toContain("Открыть папку выгрузок");
   });
@@ -200,7 +214,7 @@ describe("Главная", () => {
       exportUi: { kind: "error", message: "диск полон" } });
     expect(markup).toContain("Открыть карточку «dread»");
     expect(markup).toContain("Обработано 8 из 25");
-    expect(markup).toContain('aria-label="Поприветствовать лиса"');
+    expect(markup).toContain('aria-label="Реплики лиса"');
     expect(markup).toContain("Подборка ещё меняется");
     expect(markup).toContain('aria-describedby="home-processing-note"');
     expect(markup).toContain("Не получилось: диск полон.");

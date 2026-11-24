@@ -5,7 +5,7 @@ import { SettingsView } from "@/components/settings-view";
 import { LibraryWorkspace } from "@/features/library/library-workspace";
 import { useLibraryController } from "@/features/library/use-library-controller";
 import { HomeScreen } from "@/features/home/home-screen";
-import { homeQueueState, shortList } from "@/features/home/home-domain";
+import { homeQueueState, libraryGroups, shortList } from "@/features/home/home-domain";
 import { useHomeExport } from "@/features/home/use-home-export";
 import { navViewOf, parseView, type NavView, type View } from "@/features/shell/views";
 import "@fontsource-variable/literata/opsz.css";
@@ -81,12 +81,17 @@ function App() {
   const { toggle: pullCord, curtain } = useLightSwitch(flipLight);
 
   const busy = controller.operation.status === "running";
-  const rankedIds = controller.ranking?.newBatch.ids;
+  const batch = controller.ranking?.newBatch;
+  const rankedIds = batch?.availableIds ?? batch?.ids;
   const exportIds = React.useMemo(() => shortList(controller.entries, rankedIds ?? noExportIds).map((entry) => entry.id),
     [controller.entries, rankedIds]);
   const homeQueue = homeQueueState(controller.queueStatus, controller.operation);
+  const groups = React.useMemo(() => libraryGroups(controller.entries), [controller.entries]);
   const exporter = useHomeExport({
-    ids: controller.demo || controller.settingsSaving || busy || homeQueue === "working" ? noExportIds : exportIds,
+    ids: exportIds,
+    libraryGroups: groups,
+    defaultCount: controller.settings.export_batch_size ?? 20,
+    blocked: controller.settingsSaving || busy || homeQueue === "working",
     reload: controller.loadLibrary,
     active: view === "home" && !controller.demo,
   });
@@ -162,7 +167,7 @@ function App() {
 
       <div className="reading-app-main">
         <div className="reading-view-frame">
-          {view === "home" ? <HomeScreen controller={controller} exporter={exporter} onOpenWord={openBatchWord} /> : null}
+          {view === "home" ? <HomeScreen controller={controller} exporter={exporter} onOpenWord={openBatchWord} onOpenLibrary={() => navigate("words")} /> : null}
           {/* Until Спорные and Экспорт ship, their views open the library workspace. */}
           {view === "words" || view === "triage" || view === "export" ? (
             <LibraryWorkspace controller={controller} batchLexemeId={batchLexemeId}

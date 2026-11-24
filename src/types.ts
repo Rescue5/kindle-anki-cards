@@ -146,7 +146,7 @@ export type RankingMode = "learning" | "full";
 export type StudyPriority = { level: number; score: number; provisional: boolean; reason: string };
 export type MeaningSource = "edited" | "llm" | "dictionary" | "none";
 export type ExportDestination = "anki" | "csv" | "obsidian";
-export type ExportScope = "new" | "again";
+export type ExportScope = "new" | "again" | "library";
 
 export type ReasonCode =
   | "decision_learn" | "decision_skip" | "decision_junk" | "decision_known" | "known_again"
@@ -198,6 +198,8 @@ export type ShelfCounts = Record<Shelf, number>;
 
 export type NewBatch = {
   count: number;
+  /** All eligible unexported IDs in rank order. Older bridges supply only the configured portion. */
+  availableIds?: string[];
   /** The short list: `worth` words not yet exported, by rank, cut at `export_batch_size`. No disputed words. */
   ids: string[];
 };
@@ -235,7 +237,7 @@ export const EXPORT_BATCH_SIZE_MAX = 100;
 export type ErrorCode =
   | "no_destination" | "too_long" | "example_not_found" | "nothing_to_export" | "export_failed"
   | "anki_import_unconfirmed" | "anki_import_rejected" | "export_busy"
-  | "unknown_lexeme" | "bad_decision" | "bad_scope";
+  | "unknown_lexeme" | "bad_decision" | "bad_scope" | "bad_levels";
 
 /** Failure envelope: `error` is Russian text for the UI, `code` is absent on older errors. */
 export type ActionError = { ok: false; error: string; code?: ErrorCode };
@@ -252,6 +254,7 @@ export const ERROR_TEXTS: Record<ErrorCode, string> = {
   unknown_lexeme: "Слово не найдено в библиотеке",
   bad_decision: "Неизвестное решение. Допустимо: знаю, учить, не учить, не слово",
   bad_scope: "Неизвестный набор слов для экспорта",
+  bad_levels: "Выберите хотя бы один уровень от 1 до 10",
 };
 
 // set_decision {lexeme_id, decision: DecisionValue | null}

@@ -6,6 +6,7 @@ import type { HomeProcessingProgress } from "./home-domain";
 import { FoxLantern } from "@/components/light/fox-lantern";
 import { PencilRule } from "@/components/sketch/sketch";
 import { PencilButton, PencilLink } from "@/components/ui/pencil-controls";
+import { Select } from "@/components/ui/select";
 import { ImportFileButton } from "@/components/import-file-button";
 import {
   EMPTY_NOTE,
@@ -23,9 +24,17 @@ import {
   listMeaning,
   listPartOfSpeech,
   pickReason,
+  PRIORITY_LEVELS,
+  wordsLabel,
+  type ExportSelection,
   type ExportUi,
   type HomeMode,
 } from "./home-domain";
+
+type Quantity = {
+  mode: ExportSelection; limit: string; levels: number[]; count: number; available: number; levelCounts: number[];
+  setMode: (mode: ExportSelection) => void; setLimit: (value: string) => void; setLevels: (levels: number[]) => void;
+};
 
 export type HomeViewProps = {
   mode: HomeMode;
@@ -33,6 +42,11 @@ export type HomeViewProps = {
   mascotMotion?: boolean;
   /** The short list, in ranking order. */
   words: LexemeRecord[];
+  quantity?: Quantity;
+  onOpenLibrary?: () => void;
+  onFindReader?: () => void;
+  findingReader?: boolean;
+  quiet?: boolean;
   /** «С прошлого раза: N новых слов», or null. */
   sinceLine: string | null;
   /** The grey «order is rough» line, or null. */
@@ -58,7 +72,7 @@ export type HomeViewProps = {
   onRetryProcessing: () => void;
 };
 
-const QUESTION = "Что выгрузить сейчас?";
+const QUESTION = "Выгрузка слов";
 
 export function HomeView(props: HomeViewProps) {
   const { mode, demo } = props;
@@ -72,7 +86,7 @@ export function HomeView(props: HomeViewProps) {
       <p className="sr-only home-processing-announcement" role="status" aria-live="polite" aria-atomic="true">{phaseAnnouncement}</p>
       <div className={`home-page${mode === "preparing" ? " home-preparing" : ""}`}>
         <section className="home-desk lamp-host" aria-labelledby="home-title">
-          {props.deskLamp ?? <FoxLantern motion={props.mascotMotion} />}
+          {props.deskLamp ?? <FoxLantern motion={props.mascotMotion} quiet={props.quiet || props.findingReader || props.exportUi.kind === "running" || props.exportUi.kind === "error"} />}
           <div className="home-desk-text">
             {mode === "loading" ? <DeskSkeleton /> : null}
             {mode === "no-reader" ? <NoReaderDesk {...props} /> : null}
@@ -83,9 +97,9 @@ export function HomeView(props: HomeViewProps) {
         </section>
 
         {mode === "loading" ? <ListSkeleton /> : null}
-        {mode === "list" ? <ShortList {...props} /> : null}
-        {mode === "no-reader" ? <ReaderPlaces /> : null}
         {mode !== "loading" && mode !== "no-reader" && mode !== "preparing" && !demo ? <ReaderLine {...props} /> : null}
+        {mode === "list" || mode === "processing-stopped" && props.quantity?.count ? <ShortList {...props} /> : null}
+        {mode === "no-reader" ? <ReaderPlaces /> : null}
       </div>
     </main>
   );
@@ -114,7 +128,9 @@ function ListDesk(props: HomeViewProps) {
   const savedFileMissing = exportUi.kind === "done" && Boolean(exportUi.run.path) && props.folderState === "missing";
   const showEmpty = mode === "empty" && !demo && (exportUi.kind !== "done" || savedFileMissing) && exportUi.kind !== "error" && !running;
   const unconfirmed = !demo && exportUi.kind === "error" && exportUi.code === "anki_import_unconfirmed";
-  const actionLabel = exportUi.kind === "error" ? "Попробовать снова" : exportButtonLabel(words.length);
+  const count = props.quantity?.count ?? words.length;
+  const actionLabel = exportUi.kind === "error" ? "Попробовать снова" : exportButtonLabel(count);
+  const showControls = mode === "list" || mode === "processing-stopped" && Boolean(props.quantity);
   return (
     <>
       {mode !== "preparing" ? <p className="home-eyebrow">{demo ? null : sinceLine}</p> : null}
@@ -139,12 +155,14 @@ function ListDesk(props: HomeViewProps) {
           </div>
         </>
       ) : null}
-      {(mode === "list" && !unconfirmed) || demo ? (
+      {showControls && props.quantity && !demo ? <ExportControls quantity={props.quantity} disabled={running || props.exportBlocked} /> : null}
+      {(showControls && !unconfirmed) || demo ? (
         <div className="home-actions">
           {demo ? (
             <PencilButton look="lit" size="lg" onClick={props.onExitDemo}>Закрыть пример</PencilButton>
           ) : (
-            <PencilButton look="lit" size="lg" loading={running} disabled={listChanging || props.exportBlocked} aria-describedby={props.processingProgress && listChanging ? "home-processing-note" : undefined} onClick={props.onExport}>
+            <PencilButton look="lit" size="lg" loading={running} disabled={listChanging || running || props.exportBlocked || !count}
+              aria-describedby={props.processingProgress && listChanging ? "home-processing-note" : undefined} onClick={props.onExport}>
               {running ? "Выгружаю…" : <><Upload size={18} strokeWidth={1.8} aria-hidden="true" />{actionLabel}</>}
             </PencilButton>
           )}
@@ -152,18 +170,49 @@ function ListDesk(props: HomeViewProps) {
       ) : null}
       {mode === "list" && !demo && !running && exportUi.kind === "idle" ? (
         <p className="home-export-hint">
-          {props.destination === "csv" ? "Слова сохранятся в файл TSV для Quizlet или таблицы."
-            : "Если AnkiConnect недоступен, сохранится колода .apkg. Её можно открыть в Anki."}
+          {props.destination === "csv" ? "Файл TSV для Quizlet или таблицы."
+            : props.destination === "obsidian" ? "Для этой выгрузки выберите Anki или TSV в настройках."
+            : props.quantity?.mode === "library"
+              ? "При повторной выгрузке перевод и пример могут заменить ваши правки в Anki. Если Anki закрыт, сохранится колода .apkg."
+              : "В Anki или в файл колоды, если Anki закрыт."}
         </p>
       ) : null}
       <DeskStatusLine {...props} exportUi={savedFileMissing ? { kind: "idle" } : exportUi} />
-      {mode === "list" && unconfirmed ? (
+      {showControls && unconfirmed ? (
         <div className="home-folder">
-          <PencilLink disabled={listChanging || props.exportBlocked} onClick={props.onExport}>Отправить снова</PencilLink>
+          <PencilLink disabled={!count || listChanging || props.exportBlocked} onClick={props.onExport}>Отправить снова</PencilLink>
         </div>
       ) : null}
     </>
   );
+}
+
+function ExportControls({ quantity: q, disabled }: { quantity: Quantity; disabled: boolean }) {
+  return <fieldset className="home-export-choice" disabled={disabled}>
+    <legend>Что выгрузить</legend>
+    <Select aria-label="Состав выгрузки" value={q.mode} onChange={(event) => q.setMode(event.target.value as ExportSelection)}>
+      <option value="library">Вся библиотека</option>
+      <option value="new">Все новые для изучения</option>
+      <option value="portion">Порция новых слов</option>
+    </Select>
+    {q.mode === "library" ? <>
+      <details className="home-priorities">
+        <summary>{q.levels.length === 10 ? "Все приоритеты · 1–10" : `Приоритетов выбрано: ${q.levels.length} из 10`}</summary>
+        <fieldset className="home-levels"><legend className="sr-only">Включить приоритеты</legend>
+          {PRIORITY_LEVELS.map((level) => <label key={level} title={wordsLabel(q.levelCounts[level - 1])}>
+            <input type="checkbox" checked={q.levels.includes(level)} aria-label={`Приоритет ${level}`}
+              onChange={(event) => q.setLevels(event.target.checked ? [...q.levels, level].sort((a, b) => a - b) : q.levels.filter((value) => value !== level))} />
+            {level}
+          </label>)}
+        </fieldset>
+      </details>
+      <p className="home-selection-note">{q.count ? "Включая отложенные и ранее выгруженные слова." : q.levels.length ? "Слов с выбранным приоритетом пока нет." : "Выберите хотя бы один приоритет."}</p>
+    </> : <>
+      {q.mode === "portion" ? <label className="home-portion">До <input type="number" min="1" step="1" value={q.limit}
+        aria-label="Размер порции" onChange={(event) => q.setLimit(event.target.value)} /> слов</label> : null}
+      <p className="home-selection-note">{q.available ? `Доступно для изучения: ${wordsLabel(q.available)}. Уже выгруженные слова пропускаются.` : "Новых слов для изучения пока нет."}</p>
+    </>}
+  </fieldset>;
 }
 
 /**
@@ -251,22 +300,22 @@ function FolderAccess({ state, disabled, onOpen }: { state: ExportFolderState; d
 
 function NoReaderDesk(props: HomeViewProps) {
   const connected = props.reader?.state === "connected";
-  const checking = props.reader?.state === "unknown" || props.reader?.state === "checking";
+  const checking = props.findingReader || props.reader?.state === "unknown" || props.reader?.state === "checking";
   return (
     <>
       <p className="home-eyebrow">Здесь пока нет слов</p>
       <Title />
       <p className="home-lede">Сюда придут слова, которые вы искали в словаре читалки. Подключите её по USB или выберите файл со словами.</p>
       <div className="home-actions">
-        <PencilButton look="lit" size="lg" onClick={props.onSync} disabled={props.listChanging} loading={props.listChanging}>
-          {props.listChanging ? SEARCHING_READER : <><RefreshCw size={17} strokeWidth={1.8} aria-hidden="true" />{LOAD_FROM_READER}</>}
+        <PencilButton look="lit" size="lg" onClick={connected ? props.onSync : props.onFindReader} disabled={props.listChanging || props.findingReader} loading={props.listChanging || props.findingReader}>
+          {props.findingReader ? SEARCHING_READER : <><RefreshCw size={17} strokeWidth={1.8} aria-hidden="true" />{connected ? LOAD_FROM_READER : "Найти Kindle"}</>}
         </PencilButton>
         <ImportFileButton look="pencil" onFile={props.onImportFile} disabled={props.listChanging}>Выбрать файл</ImportFileButton>
         <PencilLink onClick={props.onDemo} disabled={props.listChanging}>Посмотреть на примере</PencilLink>
       </div>
       {!connected && !checking ? (
         <>
-          <p className="home-hand">{READER_NOT_FOUND}</p>
+          <p className="home-hand" role="status">{props.reader?.state === "error" ? "Не удалось проверить подключение читалки." : READER_NOT_FOUND}</p>
           <p className="home-export-hint">Проверьте, что кабель поддерживает передачу данных. Если читалка предлагает режим USB, выберите передачу файлов.</p>
         </>
       ) : null}
@@ -276,10 +325,14 @@ function NoReaderDesk(props: HomeViewProps) {
 
 // ---------- below the desk ----------
 
-function ShortList({ words, onOpenWord, listChanging, exportUi, processingProgress }: HomeViewProps) {
+function ShortList({ words, quantity, onOpenWord, onOpenLibrary, listChanging, exportUi, processingProgress }: HomeViewProps) {
   return (
     <section className="home-list" aria-labelledby="home-list-title">
-      <h2 id="home-list-title" tabIndex={-1}>{LIST_TITLE}</h2>
+      <div className="home-preview-heading">
+        <h2 id="home-list-title" tabIndex={-1}>{LIST_TITLE}</h2>
+        {onOpenLibrary ? <PencilLink onClick={onOpenLibrary}>Открыть библиотеку</PencilLink> : null}
+      </div>
+      {quantity && quantity.count > words.length ? <p className="home-selection-note">Первые {words.length} из {quantity.count.toLocaleString("ru-RU")}</p> : null}
       {processingProgress ? <div className="home-list-progress">
         <ProcessingProgress progress={processingProgress} />
         {listChanging ? <p id="home-processing-note" className="home-export-hint">Подборка ещё меняется. Открытие карточек и выгрузка станут доступны после обработки.</p> : null}
@@ -288,7 +341,7 @@ function ShortList({ words, onOpenWord, listChanging, exportUi, processingProgre
         {words.map((entry, index) => {
           const pos = listPartOfSpeech(entry);
           const meaning = listMeaning(entry);
-          const why = pickReason(entry.ranking?.reasons);
+          const why = entry.study_priority?.reason ?? pickReason(entry.ranking?.reasons);
           return (
             <li key={entry.id}>
               <PencilRule variant={index} />
@@ -366,21 +419,22 @@ function ReaderPlaces() {
   );
 }
 
-function ReaderLine({ reader, listChanging, onSync, onImportFile }: HomeViewProps) {
+function ReaderLine({ reader, findingReader, listChanging, exportBlocked, exportUi, onFindReader, onSync, onImportFile }: HomeViewProps) {
   if (!reader) return null;
   const connected = reader.state === "connected";
-  const checking = reader.state === "unknown" || reader.state === "checking";
+  const checking = findingReader || reader.state === "unknown" || reader.state === "checking";
+  const blocked = listChanging || exportBlocked || exportUi.kind === "running" || findingReader;
   return (
     <p className={`home-reader${connected ? " is-connected" : ""}`}>
-      <span className="home-reader-line">
+      <span className="home-reader-line" role="status">
         <span className="home-reader-dot" aria-hidden="true" />
-        {connected ? `${reader.name} подключён` : checking ? SEARCHING_READER : READER_NOT_FOUND}
+        {checking ? SEARCHING_READER : connected ? `${reader.name} подключён` : reader.state === "error" ? "Не удалось проверить подключение" : READER_NOT_FOUND}
       </span>
       {connected ? (
-        <PencilLink onClick={onSync} disabled={listChanging}>{LOAD_FROM_READER}</PencilLink>
-      ) : (
-        <ImportFileButton look="link" onFile={onImportFile} disabled={listChanging}>Выбрать файл со словами</ImportFileButton>
-      )}
+        <PencilLink onClick={onSync} disabled={blocked}>{LOAD_FROM_READER}</PencilLink>
+      ) : null}
+      {onFindReader ? <PencilLink onClick={onFindReader} disabled={blocked}>Найти Kindle</PencilLink> : null}
+      {!connected ? <ImportFileButton look="link" onFile={onImportFile} disabled={blocked}>Выбрать файл со словами</ImportFileButton> : null}
     </p>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LexemeRecord, LibraryResult } from "@/types";
 import { mockBackend, resetMockBackend } from "@/lib/mock-backend";
-import { compareStudyPriority, priorityEntries, studyPriority } from "./study-priority";
+import { compareStudyPriority, priorityEntries, recordedSearchEvidence, studyPriority } from "./study-priority";
 
 async function libraryEntries() {
   resetMockBackend({ scenario: "mixed", instant: true });
@@ -45,5 +45,16 @@ describe("study priority catalogue", () => {
     const entry = (await libraryEntries())[0];
     delete entry.study_priority;
     expect(studyPriority(entry)).toEqual({ level: 6, score: 0, provisional: true, reason: "Данные для приоритета ещё не получены." });
+  });
+
+  it("counts recorded reader entries and known book IDs without inferring missing searches or books", async () => {
+    const base = (await libraryEntries())[0].occurrences[0];
+    const reader = { ...base, source: "kindle" as const, book_key: "koreader:one", id: "repeat" };
+    const legacy = { ...base, id: "legacy", source: "legacy" as const, book_key: "legacy:book" };
+    const missingBook = { ...reader, id: "no-book", book_key: "", looked_up_at: "", context: "" };
+    expect(recordedSearchEvidence([reader, reader, { ...reader, id: "separate" }, missingBook, legacy]))
+      .toBe("Записей поиска: 3 · Книг в записях: 1");
+    expect(recordedSearchEvidence([missingBook])).toBe("Записей поиска: 1");
+    expect(recordedSearchEvidence([legacy])).toBe("");
   });
 });

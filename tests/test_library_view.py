@@ -70,7 +70,7 @@ class PayloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             library = _load(Path(temporary))
         self.assertEqual(library["entries"], [])
-        self.assertEqual(library["newBatch"], {"count": 0, "ids": []})
+        self.assertEqual(library["newBatch"], {"count": 0, "ids": [], "availableIds": []})
         self.assertEqual(library["historyDays"], 0)
         self.assertEqual(library["rankingMode"], "learning")
 
@@ -181,6 +181,7 @@ class NewBatchTests(unittest.TestCase):
         # The most recent lookup ranks first.
         self.assertEqual(cut["newBatch"]["ids"][0], lid("lumena"))
         self.assertEqual(cut["newBatch"]["ids"], everything["newBatch"]["ids"][:5])
+        self.assertEqual(cut["newBatch"]["availableIds"], everything["newBatch"]["ids"])
 
     def test_only_worth_words_are_in_it_and_unprocessed_words_never(self) -> None:
         words = [*worth_words(2), word("pending", state="pending"), word("faded", days=(60,))]

@@ -128,7 +128,7 @@ export function SettingsView({ settings, onSave, saving, demo, busy, obsidianChe
                 <option value="csv">Файл TSV для Quizlet и таблиц</option>
               </Select>
             </Field>
-            <Field label="Слов за одну выгрузку">
+            <Field label="Порция новых слов по умолчанию" hint="На Главной можно указать другое число или выбрать всю библиотеку.">
               <Select value={batchSize} onChange={(event) => update("export_batch_size", Number(event.target.value))}>
                 {batchSizes.map((size) => <option key={size} value={size}>{size}</option>)}
               </Select>

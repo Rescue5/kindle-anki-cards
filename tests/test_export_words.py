@@ -15,15 +15,16 @@ import unittest
 import zipfile
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from short_list_fixture import build_library, lid, word, worth_words
+from short_list_fixture import build_library, letters, lid, word, worth_words
 
 from kindle_vocab_app import (
     anki_connect,
+    anki_export,
     contracts,
     export_cards,
     reader_sources,
@@ -78,6 +79,13 @@ def _guids(apkg: Path) -> set[str]:
         collection = Path(archive.extract("collection.anki2", temporary))
         with closing(sqlite3.connect(collection)) as connection:
             return {row[0] for row in connection.execute("SELECT guid FROM notes")}
+
+
+def _note_mod(apkg: Path) -> int:
+    with zipfile.ZipFile(apkg) as archive, tempfile.TemporaryDirectory() as temporary:
+        collection = Path(archive.extract("collection.anki2", temporary))
+        with closing(sqlite3.connect(collection)) as connection:
+            return connection.execute("SELECT mod FROM notes").fetchone()[0]
 
 
 def _use(workspace: Path, destination: str = "anki", batch: int = 20) -> None:
@@ -476,6 +484,32 @@ class SelectionTests(_Workspace):
         self.assertEqual(result["exported"], 2)
         self.assertEqual([row[3] for row in _runs(self.workspace)], sorted([lid("lumena"), lid("lumenc")]))
 
+    def test_more_than_one_hundred_ids_are_rechecked_against_current_decisions_and_history(self) -> None:
+        ordinary = [word(f"river{letters(index)}") for index in range(104)]
+        rejected = word("manual", state="rejected", warnings=["possibly_glued_words"])
+        pending = word("pending", state="pending")
+        repository = self.library([*ordinary, rejected, pending])
+        _use(self.workspace, "csv")
+        before = dispatch("load_library", {}, self.workspace)["newBatch"]
+        self.assertEqual(len(before["availableIds"]), 104)
+        self.assertEqual(before["ids"], before["availableIds"][:20])
+
+        skipped, previously_exported = before["availableIds"][:2]
+        repository.set_decision(skipped, "skip")
+        repository.record_export_run("csv", [previously_exported])
+        repository.set_decision(pending["id"], "learn")
+        learned = dispatch("set_decision", {"lexeme_id": rejected["id"], "decision": "learn"}, self.workspace)
+        expected = learned["newBatch"]["availableIds"]
+        self.assertEqual(set(expected), (set(before["availableIds"]) - {skipped, previously_exported}) | {rejected["id"]})
+
+        asked = [*reversed(before["availableIds"]), skipped, rejected["id"], pending["id"]]
+        run = self.export(ids=asked)
+        self.assertEqual(run["exported"], 103)
+        lemmas = {entry["id"]: entry["lemma"] for entry in [*ordinary, rejected]}
+        with Path(run["path"]).open(encoding="utf-8", newline="") as file:
+            self.assertEqual([row["Base form"] for row in csv.DictReader(file, delimiter="\t")], [lemmas[i] for i in expected])
+        self.assertEqual(self.failure(ids=asked).code, "nothing_to_export")
+
     def test_a_decided_word_is_exported_even_when_the_ranking_says_no(self) -> None:
         repository = self.library([word("faded", days=(60,)), *worth_words(1)])
         repository.set_decision(lid("faded"), "learn")
@@ -507,6 +541,211 @@ class SelectionTests(_Workspace):
         self.assertEqual(_runs(self.workspace), [])
 
 
+class LibraryScopeTests(_Workspace):
+    def test_tsv_exports_the_explicit_snapshot_including_every_status_and_decision(self) -> None:
+        words = [word("skip"), word("known"), word("?!", state="rejected"),
+                 word("pending", state="pending"), word("failed", state="failed"), word("ready")]
+        repository = self.library(words)
+        _use(self.workspace, "csv")
+        repository.set_decision(lid("skip"), "skip")
+        repository.set_decision(lid("known"), "known")
+        repository.record_export_run("csv", [lid("ready")])
+        decisions = repository.load_decisions()
+        catalog = repository.load_catalog()
+        catalog["lexemes"].append(word("later"))
+        repository.save_catalog(catalog)
+
+        asked = {"scope": "library", "ids": [*[option["id"] for option in words], lid("known")]}
+        run = self.export(**asked)
+        self.assertEqual(run["exported"], len(words))
+        with Path(run["path"]).open(encoding="utf-8", newline="") as file:
+            self.assertEqual([row["Base form"] for row in csv.DictReader(file, delimiter="\t")], [item["lemma"] for item in words])
+        self.assertNotIn(lid("later"), {item[-1] for item in _runs(self.workspace)})
+        self.assertEqual(repository.load_decisions(), decisions)
+        with repository.connect() as connection:
+            rows = connection.execute(
+                "SELECT lexeme_id, is_repeat FROM export_items WHERE run_id = ?", (run["runId"],),
+            )
+            self.assertEqual({row["lexeme_id"]: row["is_repeat"] for row in rows}, {
+                item["id"]: int(item["id"] == lid("ready")) for item in words
+            })
+            self.assertEqual(connection.execute("SELECT scope FROM export_runs WHERE id = ?", (run["runId"],)).fetchone()[0], "again")
+
+    def test_current_levels_are_rechecked_without_adding_newly_matching_words(self) -> None:
+        repository = self.library([word("changed", state="pending"), word("stays", state="pending")])
+        _use(self.workspace, "csv")
+        selection = [entry["id"] for entry in dispatch("load_library", {}, self.workspace)["entries"]]
+        catalog = repository.load_catalog()
+        catalog["lexemes"] = [word("changed"), word("stays", state="pending"), word("newpending", state="pending")]
+        repository.save_catalog(catalog)
+        result = self.export(scope="library", ids=selection, levels=[6])
+        self.assertEqual(result["exported"], 1)
+        self.assertEqual([row[-1] for row in _runs(self.workspace)], [lid("stays")])
+        self.assertEqual(self.failure(scope="library", ids=[lid("changed")], levels=[10]).code, "nothing_to_export")
+
+    def test_library_repeat_attempt_reuses_anki_guid_and_current_card(self) -> None:
+        repository = self.library([word("lumena", days=(0, 1))])
+        anki = FakeAnki(fail_import=True)
+        self.addCleanup(anki.close)
+        with patch.object(anki_connect, "ANKI_CONNECT_URL", DEAD_ANKI):
+            original = self.export()
+        lexeme_id = lid("lumena")
+        repository.save_card_edit(lexeme_id, meaning_ru="новый перевод", example_occurrence_id="lumena-o0")
+        before = _runs(self.workspace)
+        with patch.object(anki_connect, "ANKI_CONNECT_URL", anki.url):
+            self.assertEqual(self.failure(scope="library", ids=[lexeme_id]).code, "anki_import_rejected")
+            self.assertEqual(_runs(self.workspace), before)
+            failed_path = Path(anki.calls[-1]["params"]["path"])
+            anki.fail_import = False
+            sent = self.export(scope="library", ids=[lexeme_id])
+        self.assertEqual((sent["pushed"], sent["path"]), (1, None))
+        repeated_path = Path(anki.calls[-1]["params"]["path"])
+        self.assertEqual(_guids(repeated_path), _guids(failed_path))
+        self.assertEqual(_guids(repeated_path), _guids(Path(original["path"])))
+        with zipfile.ZipFile(repeated_path) as archive, tempfile.TemporaryDirectory() as temporary:
+            collection = Path(archive.extract("collection.anki2", temporary))
+            with closing(sqlite3.connect(collection)) as connection:
+                tags, fields = connection.execute("SELECT tags, flds FROM notes").fetchone()
+        self.assertIn("повтор", tags.split())
+        self.assertIn("новый перевод", fields)
+        self.assertNotIn("at dusk", fields)
+        self.assertEqual([row[1] for row in _runs(self.workspace)], ["new", "again"])
+
+    def test_same_second_repeat_uses_a_later_note_mod_from_export_history(self) -> None:
+        repository = self.library(worth_words(1))
+        lexeme_id = lid("lumena")
+        now = 1_780_000_000.25
+        stamp = datetime.fromtimestamp(now, UTC).isoformat()
+        with (
+            patch.object(anki_connect, "ANKI_CONNECT_URL", DEAD_ANKI),
+            patch.object(anki_export, "time", side_effect=[now, now, now + 1]),
+            patch.object(anki_export, "sleep") as sleep,
+            patch("kindle_vocab_app.library_state.utc_now", return_value=stamp),
+        ):
+            first = self.export()
+            repository.save_card_edit(lexeme_id, meaning_ru="исправленный перевод")
+            second = self.export(scope="library", ids=[lexeme_id])
+        sleep.assert_called_once_with(0.75)
+        self.assertEqual(_note_mod(Path(first["path"])), int(now))
+        self.assertEqual(_note_mod(Path(second["path"])), int(now) + 1)
+        self.assertEqual(_guids(Path(first["path"])), _guids(Path(second["path"])))
+
+    def test_same_second_retry_also_waits_for_an_unconfirmed_package(self) -> None:
+        self.library(worth_words(1))
+        anki = FakeAnki()
+        self.addCleanup(anki.close)
+        anki.drop_import_response = True
+        now = 1_780_000_000.25
+        with (
+            patch.object(anki_connect, "ANKI_CONNECT_URL", anki.url),
+            patch.object(anki_export, "time", side_effect=[now, now, now + 1]),
+            patch.object(anki_export, "sleep") as sleep,
+        ):
+            request = {"scope": "library", "ids": [lid("lumena")]}
+            self.assertEqual(self.failure(**request).code, "anki_import_unconfirmed")
+            self.assertEqual(_runs(self.workspace), [])
+            first = Path(anki.calls[-1]["params"]["path"])
+            os.utime(first, (now, now))
+            anki.drop_import_response = False
+            self.assertEqual(self.export(**request)["pushed"], 1)
+            retry = Path(anki.calls[-1]["params"]["path"])
+        sleep.assert_called_once_with(0.75)
+        self.assertEqual(_note_mod(retry), _note_mod(first) + 1)
+
+    def test_package_clock_never_waits_for_future_history_or_advances_wall_time(self) -> None:
+        now = 1_780_000_000.25
+        with patch.object(anki_export, "time", return_value=now), patch.object(anki_export, "sleep") as sleep:
+            self.assertEqual(anki_export._package_timestamp({int(now) + 300}), now)
+            sleep.assert_not_called()
+        with (
+            patch.object(anki_export, "time", side_effect=[now, now - 300]),
+            patch.object(anki_export, "sleep") as sleep,
+        ):
+            self.assertEqual(anki_export._package_timestamp({int(now)}), now - 300)
+            sleep.assert_called_once_with(0.75)
+
+    def test_preliminary_note_keeps_its_guid_after_processing_and_reimport(self) -> None:
+        reader_path = self.workspace / "reader.sqlite"
+        with closing(_koreader_db(reader_path)) as connection:
+            connection.execute("UPDATE vocabulary SET word='chose', prev_context='She ', next_context=' a book from the shelf.'")
+            connection.commit()
+        payload = {"file_name": reader_path.name, "data_base64": base64.b64encode(reader_path.read_bytes()).decode()}
+        [old] = dispatch("import_reader_file", payload, self.workspace)["entries"]
+        self.assertEqual(old["processing"]["state"], "pending")
+        with patch.object(anki_connect, "ANKI_CONNECT_URL", DEAD_ANKI):
+            first = self.export(scope="library", ids=[old["id"]])
+            dispatch("process_queue", {}, self.workspace)
+            [current] = dispatch("import_reader_file", payload, self.workspace)["entries"]
+            self.assertEqual(current["lemma"], "choose")
+            self.assertNotEqual(current["id"], old["id"])
+            dispatch("save_card_edit", {"lexeme_id": current["id"], "meaning_ru": "выбирать"}, self.workspace)
+            second = self.export(scope="library", ids=[current["id"]])
+        self.assertEqual(_guids(Path(second["path"])), _guids(Path(first["path"])))
+        with zipfile.ZipFile(second["path"]) as archive, tempfile.TemporaryDirectory() as temporary:
+            collection = Path(archive.extract("collection.anki2", temporary))
+            with closing(sqlite3.connect(collection)) as connection:
+                fields = connection.execute("SELECT flds FROM notes").fetchone()[0].split("\x1f")
+        self.assertEqual(fields[anki_export.FIELDS.index("LexemeId")], current["id"])
+        self.assertEqual(fields[anki_export.FIELDS.index("Meaning")], "выбирать")
+        self.assertEqual([row[-1] for row in _runs(self.workspace)], [current["id"], current["id"]])
+
+    def test_rekey_recovers_a_guid_from_preexisting_anki_history(self) -> None:
+        old = word("chose", state="pending")
+        repository = self.library([old])
+        previous = anki_export.write_apkg([old], self.workspace / "legacy.apkg", require_eligible=False)
+        repository.record_export_run("anki", [old["id"]], path=str(previous.path))
+        catalog = repository.load_catalog()
+        [current] = catalog["lexemes"]
+        current.update(lemma="choose", processing=word("choose")["processing"])
+        repository.save_processed_lexeme(catalog, old["id"])
+        repository.save_catalog(repository.load_catalog())
+
+        with patch.object(anki_connect, "ANKI_CONNECT_URL", DEAD_ANKI):
+            repeated = self.export(scope="library", ids=[lid("choose")])
+        self.assertEqual(_guids(Path(repeated["path"])), _guids(previous.path))
+
+    def test_merge_keeps_the_surviving_forms_note_and_never_reuses_the_retired_guid(self) -> None:
+        old = word("chose", state="pending")
+        keeper = word("choose")
+        repository = self.library([old, keeper])
+        # Neither package had a reserved key when an older bridge first wrote it.
+        old_package = anki_export.write_apkg([old], self.workspace / "old.apkg", require_eligible=False)
+        keeper_package = anki_export.write_apkg([keeper], self.workspace / "keeper.apkg")
+        repository.record_export_run("anki", [old["id"]], path=str(old_package.path))
+        repository.record_export_run("anki", [keeper["id"]], path=str(keeper_package.path))
+        catalog = repository.load_catalog()
+        source = next(entry for entry in catalog["lexemes"] if entry["id"] == old["id"])
+        source.update(lemma="choose", processing=keeper["processing"])
+        self.assertTrue(repository.save_processed_lexeme(catalog, old["id"]))
+
+        with patch.object(anki_connect, "ANKI_CONNECT_URL", DEAD_ANKI):
+            repeated = self.export(scope="library", ids=[keeper["id"]])
+            self.assertEqual(_guids(Path(repeated["path"])), _guids(keeper_package.path))
+            restored_catalog = repository.load_catalog()
+            restored_catalog["lexemes"].append(old)
+            repository.save_catalog(restored_catalog)
+            separate = self.export(scope="library", ids=[old["id"]])
+        self.assertTrue(_guids(Path(separate["path"])).isdisjoint(_guids(old_package.path) | _guids(keeper_package.path)))
+
+    def test_invalid_or_empty_library_selections_fail_before_export(self) -> None:
+        self.library(worth_words(1))
+        ids = [lid("lumena")]
+        for levels in ([], [True], [0], [11], [1, 1], "all", None):
+            with self.subTest(levels=levels):
+                self.assertEqual(self.failure(scope="library", ids=ids, levels=levels).code, "bad_levels")
+        for scope in ("", "again", "other", None):
+            with self.subTest(scope=scope):
+                self.assertEqual(self.failure(scope=scope, ids=ids).code, "bad_scope")
+        self.assertEqual(self.failure(scope="library").code, "nothing_to_export")
+        self.assertEqual(self.failure(scope="library", ids=[]).code, "nothing_to_export")
+        self.assertEqual(self.failure(scope="library", ids=[*ids, "stale-unknown"]).code, "unknown_lexeme")
+        self.assertEqual(self.failure(scope="library", ids=[""]).code, "unknown_lexeme")
+        _use(self.workspace, "obsidian")
+        self.assertEqual(self.failure(scope="library", ids=ids).code, "no_destination")
+        self.assertEqual(_runs(self.workspace), [])
+        self.assertEqual(dispatch("export_folder_status", {}, self.workspace), {"available": False})
+
+
 class ReaderActionsTests(_Workspace):
     def test_utf8_translation_survives_system_code_page_and_restart(self) -> None:
         build_library(self.workspace, [word("glimpse")])
@@ -531,7 +770,7 @@ class ReaderActionsTests(_Workspace):
         self.assertEqual(result["entry"]["decision"]["value"], "skip")
         self.assertEqual(result["entry"]["ranking"]["shelf"], "not_worth")
         self.assertEqual(result["shelves"]["not_worth"], 1)
-        self.assertEqual(result["newBatch"], {"count": 1, "ids": [lid("lumenb")]})
+        self.assertEqual(result["newBatch"], {"count": 1, "ids": [lid("lumenb")], "availableIds": [lid("lumenb")]})
         self.assertEqual(result["disputed"], before["disputed"])
         self.assertEqual(result["again"], before["again"])
         decision = repository.load_decisions()[lexeme_id]
@@ -548,7 +787,7 @@ class ReaderActionsTests(_Workspace):
         self.assertTrue(cleared["ok"], cleared)
         self.assertIsNone(cleared["result"]["entry"]["decision"])
         self.assertEqual(cleared["result"]["entry"]["ranking"], original["ranking"])
-        self.assertEqual(cleared["result"]["newBatch"], {"count": 1, "ids": [lexeme_id]})
+        self.assertEqual(cleared["result"]["newBatch"], {"count": 1, "ids": [lexeme_id], "availableIds": [lexeme_id]})
 
     def test_card_patch_validation_and_reset(self) -> None:
         self.library([word("lumena", days=(0, 1)), word("mist")])
@@ -600,7 +839,7 @@ class ReaderActionsTests(_Workspace):
             self.assertEqual(entry["card"]["meaning_ru"], "мельком увидеть")
             self.assertEqual(entry["card"]["example_occurrence_id"], current_id)
             self.assertNotIn(legacy_id, {item["id"] for item in entry["occurrences"]})
-            self.assertEqual(library["newBatch"], {"count": 0, "ids": []})
+            self.assertEqual(library["newBatch"], {"count": 0, "ids": [], "availableIds": []})
             self.assertEqual(contracts.validate_library(library), [])
 
 

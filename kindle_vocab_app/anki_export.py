@@ -1,18 +1,18 @@
 """Anki deck export (.apkg) with a dedicated, stable note type.
 
-Each lexeme becomes one note whose GUID derives from the lexeme id, so
-re-importing an updated deck refreshes existing notes instead of duplicating
-them. Fields that cannot be derived honestly stay empty; the card templates
-hide empty sections.
+Each lexeme becomes one note whose GUID derives from its reserved Anki key.
+Standalone callers use the lexeme id as the default key. Fields that cannot
+be derived honestly stay empty; the card templates hide empty sections.
 """
 
 from __future__ import annotations
 
 import html
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from time import sleep, time
 from typing import Any
 
 from kindle_vocab_app import card_fields
@@ -186,6 +186,8 @@ def note_tags(lexeme: dict[str, Any], *, occurrence: Mapping[str, Any] | None = 
     if occurrence is None:
         occurrence = primary_occurrence(lexeme)
     tags = ["kindle"]
+    if (lexeme.get("export") or {}).get("state") == "exported":
+        tags.append("повтор")
     book = _tag(str(occurrence.get("book_title") or ""))
     if book:
         tags.append(f"book::{book}")
@@ -206,12 +208,14 @@ def write_apkg(
     definition_lookup: Any = None,
     edits: Mapping[str, Mapping[str, Any]] | None = None,
     require_eligible: bool = True,
+    previous_mod_seconds: Collection[int] = (),
+    note_keys: Mapping[str, str] | None = None,
 ) -> ApkgResult:
     """Write the notes of `lexemes` to an .apkg.
 
     `require_eligible` keeps the old rule (processed, accepted, score 3 to 10); the export pipeline
     selects its words with `export_policy` first and passes False. `edits` holds the reader's card
-    edits by lexeme id.
+    edits by lexeme id. `note_keys` supplies the persistent seed for each Anki GUID.
     """
     import genanki
 
@@ -225,27 +229,39 @@ def write_apkg(
     deck = genanki.Deck(DECK_ID, deck_name or DEFAULT_DECK_NAME)
     exported: list[str] = []
     skipped = 0
+    note_keys = note_keys or {}
     for lexeme in lexemes:
         if require_eligible and not is_exportable(lexeme):
             skipped += 1
             continue
-        card = card_fields.resolve(lexeme, (edits or {}).get(str(lexeme.get("id") or "")))
+        lexeme_id = str(lexeme.get("id") or "")
+        card = card_fields.resolve(lexeme, (edits or {}).get(lexeme_id))
         fields = _note_fields(lexeme, card, definition_lookup)
         deck.add_note(
             genanki.Note(
                 model=model,
                 fields=[fields[name] for name in FIELDS],
-                guid=genanki.guid_for("kindle-cards", str(lexeme.get("id") or "")),
+                guid=genanki.guid_for("kindle-cards", note_keys.get(lexeme_id, lexeme_id)),
                 tags=note_tags(lexeme, occurrence=card.occurrence),
             )
         )
-        exported.append(str(lexeme.get("id") or ""))
+        exported.append(lexeme_id)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = output_path.with_suffix(output_path.suffix + ".tmp")
-    genanki.Package(deck).write_to_file(str(temporary))
+    genanki.Package(deck).write_to_file(str(temporary), timestamp=_package_timestamp(previous_mod_seconds))
     temporary.replace(output_path)
     logger.info("Wrote Anki package path=%s notes=%d skipped=%d", output_path, len(exported), skipped)
     return ApkgResult(path=output_path, exported_ids=exported, skipped=skipped)
+
+
+def _package_timestamp(previous_mod_seconds: Collection[int]) -> float:
+    """Anki compares note modification times at whole-second precision."""
+    now = time()
+    if int(now) in previous_mod_seconds:
+        # Wait at most one second. A backward clock adjustment must not keep the lock held.
+        sleep(int(now) + 1 - now)
+        now = time()
+    return now
 
 
 def wordnet_definition(lemma: str, pos: str, context: str) -> str:

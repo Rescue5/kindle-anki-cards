@@ -7,6 +7,7 @@ import {
   DEMO_NOTE,
   deskStatus,
   exportButtonLabel,
+  exportQuantity,
   exportDoneHint,
   exportDoneText,
   exportErrorText,
@@ -26,6 +27,12 @@ import {
 } from "./home-domain";
 
 const reason = (code: RankingReason["code"], text: string, weight: number): RankingReason => ({ code, text, weight });
+
+it("allows a custom portion above 100 and clamps it to the available words", () => {
+  expect(exportQuantity("101", 123)).toBe(101);
+  expect(exportQuantity("800", 123)).toBe(123);
+  for (const invalid of ["", "0", "-1", "1.5"]) expect(exportQuantity(invalid, 123)).toBe(0);
+});
 const run = (patch: Partial<ExportRun> = {}): ExportRun => ({ destination: "anki", runId: "run-1", exported: 5, path: null, pushed: 5, message: "", ...patch });
 
 describe("progress of the active word queue", () => {
@@ -59,7 +66,7 @@ describe("words and counts", () => {
   });
 
   it("writes the primary action with the size of the short list", () => {
-    expect(exportButtonLabel(15)).toBe("Экспортировать 15");
+    expect(exportButtonLabel(15)).toBe("Выгрузить 15 слов");
   });
 
   it("counts the new words and stays silent at zero", () => {

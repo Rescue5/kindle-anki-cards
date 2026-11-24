@@ -77,11 +77,11 @@ export function FoxFigure() {
         the surface while the lantern and the airborne light can rotate freely. */}
     <g transform="translate(0 444) scale(1 .1) translate(0 -444)" opacity="var(--lamp-glow)">
       <g className="fox-pendant">
-        <ellipse cx="-25" cy="444" rx="275" ry="70" fill={paint("light")} opacity=".45" />
+        <g className="fox-light-breathe"><ellipse cx="-25" cy="444" rx="275" ry="70" fill={paint("light")} opacity=".45" /></g>
       </g>
     </g>
     <g className="fox-pendant">
-      <g fill={paint("light")} opacity="var(--lamp-glow)">
+      <g className="fox-light-breathe" fill={paint("light")} opacity="var(--lamp-glow)">
         <g transform="translate(50 333) rotate(-13)" fill={paint("spill")}>
           <path d="M0 -1 A1 1 0 0 0 0 1 Z" transform="scale(570 153)" />
           <path d="M0 -1 A1 1 0 0 1 0 1 Z" transform="scale(155 153)" />
@@ -95,7 +95,7 @@ export function FoxFigure() {
         <path d="M22 303 H79 L78 365 H21 Z" fill={paint("glass")} opacity="var(--lamp-glow)" />
         <path d="M29 306 H34 V357 H29 Z M61 306 H63 V357 H61 Z" fill="#fff1bb" opacity=".30" />
         <path d="M48 352 Q50 347 48 344" fill="none" stroke="#3c2d21" strokeWidth="2" />
-        <path d="M45 350 C36 341 48 330 48 316 C56 332 60 341 51 350 L50 343 Z" fill="#fff6d2" opacity="var(--lamp-glow)" />
+        <g opacity="var(--lamp-glow)"><path className="fox-flame" d="M45 350 C36 341 48 330 48 316 C56 332 60 341 51 350 L50 343 Z" fill="#fff6d2" /></g>
         <path d="M37 351 H58 L61 360 H34 Z" fill={paint("brass")} />
         <g fill={paint("brass")} stroke="#312216" strokeWidth="1.2">
           <path d="M16 301 L27 291 L38 286 L40 276 H60 L62 286 L73 292 L84 301 Z" />

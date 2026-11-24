@@ -27,6 +27,20 @@ export function priorityEntries(entries: LexemeRecord[], query: string, book: Bo
     .filter((entry) => level === "all" || studyPriority(entry).level === level);
 }
 
+export function recordedSearchEvidence(occurrences: LexemeRecord["occurrences"]): string {
+  const records = new Set<string>();
+  const books = new Set<string>();
+  for (const occurrence of occurrences) {
+    const id = occurrence.id.trim();
+    if (occurrence.source !== "kindle" || !id) continue;
+    records.add(id);
+    const book = occurrence.book_key.trim();
+    if (book) books.add(book);
+  }
+  if (!records.size) return "";
+  return `Записей поиска: ${records.size}${books.size ? ` · Книг в записях: ${books.size}` : ""}`;
+}
+
 export function decisionLabel(entry: LexemeRecord): string {
   if (!entry.decision) return "Вы ещё не выбирали";
   return { learn: "Учить", skip: "Не учить", known: "Знаю", junk: "Не слово" }[entry.decision.value];

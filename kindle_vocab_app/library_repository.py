@@ -245,6 +245,11 @@ class SQLiteVocabularyRepository:
         with self.connect() as connection:
             return library_state.read_decisions(connection)
 
+    def reserve_anki_note_keys(self, lexemes: list[dict[str, Any]]) -> dict[str, str]:
+        identities = [(str(item["id"]), str(item["language"]), str(item["lemma"])) for item in lexemes]
+        with self.connect() as connection:
+            return library_state.reserve_anki_note_keys(connection, identities)
+
     def load_card_edits(self) -> dict[str, dict[str, Any]]:
         with self.connect() as connection:
             return library_state.read_card_edits(connection)
@@ -415,6 +420,8 @@ class SQLiteVocabularyRepository:
                 previous = connection.execute(
                     "SELECT language, canonical_key FROM lexemes WHERE id = ?", (lexeme_id,)
                 ).fetchone()
+                if previous is not None and previous["canonical_key"] != canonical_key:
+                    library_state.remember_legacy_anki_note_keys(connection)
                 connection.execute(
                     """
                     UPDATE lexemes
@@ -626,6 +633,7 @@ class SQLiteVocabularyRepository:
                 """
             )
         }
+        library_state.remember_legacy_anki_note_keys(connection)
         connection.execute("DELETE FROM lexemes")
         now = vocab_cache.utc_now()
         for lexeme in catalog.get("lexemes") or []:

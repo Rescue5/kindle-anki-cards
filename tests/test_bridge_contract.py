@@ -88,15 +88,22 @@ class ValidatorCatchesTests(unittest.TestCase):
         self.assertProblem("more than 5")
 
     def test_disputed_words_are_not_in_the_short_list(self):
-        self.library["newBatch"] = {"count": 4, "ids": ["w1", "w2", "w3", "w5"]}
+        self.library["newBatch"].update(count=4, ids=["w1", "w2", "w3", "w5"])
         self.assertProblem("is not on the worth shelf")
         self.assertProblem("must not be in newBatch.ids")
 
     def test_short_list_is_in_rank_order_and_not_exported(self):
-        self.library["newBatch"] = {"count": 2, "ids": ["w2", "w1"]}
+        self.library["newBatch"].update(count=2, ids=["w2", "w1"])
         self.assertProblem("not in rank order")
-        self.library["newBatch"] = {"count": 1, "ids": ["w4"]}
+        self.library["newBatch"].update(count=1, ids=["w4"])
         self.assertProblem("already exported")
+
+    def test_available_ids_are_ranked_unique_and_include_the_short_list_as_prefix(self):
+        self.library["newBatch"]["availableIds"] = ["w2", "w2", "w1", "w4", "w5", "missing"]
+        for fragment in ("must be a prefix of availableIds", "availableIds: duplicate ids",
+                         "availableIds: not in rank order", "availableIds: w4 is already exported",
+                         "availableIds: w5 is not on the worth shelf", "availableIds: an id that is not in entries"):
+            self.assertProblem(fragment)
 
     def test_disputed_must_be_on_the_disputed_shelf_and_unexported(self):
         self.library["disputed"]["ids"] = ["w1"]

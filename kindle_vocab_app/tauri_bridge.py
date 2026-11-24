@@ -562,6 +562,7 @@ def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str, push:
         output,
         deck_name=str(payload.get("deck_name") or anki_export.DEFAULT_DECK_NAME),
         definition_lookup=definition_lookup,
+        note_keys=repository.reserve_anki_note_keys(candidates),
     )
     if push:
         _emit_progress(job_id, "importing", "Импортируем колоду в Anki", total, total)

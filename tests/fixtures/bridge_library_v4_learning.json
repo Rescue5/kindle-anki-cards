@@ -254,6 +254,9 @@
     "count": 1,
     "ids": [
       "k1"
+    ],
+    "availableIds": [
+      "k1"
     ]
   },
   "disputed": {

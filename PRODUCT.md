@@ -31,15 +31,18 @@ Does:
    file path is shown on the first screen, not hidden in a tooltip).
 2. **Ranks every word** for this reader on a scale of 1 through 10. Start
    with 1. Level 10 flags a possible recording error for inspection.
-   Each word stays searchable and has a reason in its card. Words awaiting
+   Each word stays searchable. Its library row shows the reason for its level.
+   Its card gives the full reason and the recorded lookup and book counts. Words awaiting
    sufficient analysis show an explicitly provisional 6. A reader can choose
    to learn a word at any level.
    This is the core and a statistics/ML problem; it is measured with
    `kindle_vocab_app/ranking_eval.py`. The book being read now is detected
    from recent lookups — the reader never sets a book status.
-3. **Picks a short list.** By default a sync offers the best 15–30 words, not
-   everything: a person with a job will not learn 200 words. The size is a
-   setting.
+3. **Lets readers choose what to take.** Home starts with the whole library
+   and all ten priority levels selected, including previously exported and
+   skipped words. Readers can exclude individual levels, choose every new
+   word recommended for study, or enter a portion size. Home previews up to
+   five words and displays the full number to be exported.
 4. **Asks** only about the few words it is unsure of (at most 5–7 per sync,
    each with a default answer, all skippable).
 5. **Lets the reader fix a card**: translation, which sentence from their book
@@ -47,8 +50,9 @@ Does:
 6. **Exports with one button** to the remembered destination: Anki (through
    AnkiConnect, otherwise an `.apkg` file) or CSV (covers Quizlet and every
    other app). Obsidian keeps working for those who set it up but is not a
-   headline. Re-exporting a word updates the same Anki note (same GUID) with a
-   «повтор» tag — never a duplicate.
+   headline. Re-exporting uses the same Anki note GUID. Anki's import settings
+   govern field updates. A newer translation or example can replace edits
+   made in Anki. Excluding a word from a later export leaves it in Anki.
 7. **Says what did not stick**: words looked up again after their export are
    listed on Главная with an action (export again / fix the card). This is the
    only progress the app shows, and no comparable tool has it.
@@ -68,9 +72,9 @@ Does not:
 
 ## The loop
 
-Plug in the reader → "N new words, already sorted" → (check the few disputed
-ones) → fix a translation or example if needed → export the new ones → next
-time: see what stuck, and what is new.
+Plug in the reader or use «Найти Kindle» → see the ranked words → fix a
+translation or example if needed → choose the library, levels or new words
+to export → return after reading the next book.
 
 The reason to come back is "since last time": new words waiting and the book
 moving forward — never a streak.
@@ -81,8 +85,8 @@ moving forward — never a streak.
 markup inside `<x-dc>` and the demo data in `renderVals()`. They are the
 reference for look and copy, but the scope above wins where they differ:
 
-- **Главная** — since last time, the short list to export, «снова искали после
-  экспорта» with its action. No reading-percent bar (no data for it).
+- **Главная** — choose the export scope, see a five-word preview, check the
+  reader connection or open the complete library.
 - **Слова** opens the complete library ordered from priority 1 through 10,
   with search, book and priority filters. Each card explains the recommendation
   and lets the reader choose to study a word, edit its translation and pick an example.
@@ -93,7 +97,8 @@ reference for look and copy, but the scope above wins where they differ:
 
 Navigation: Главная, Слова, Настройки. The existing Review and Insights screens
 go away. The fox carrying a lantern is the permanent mascot on the Home desk,
-including when the short list is ready. Empty states are said in words; a lamp may go out, but it never
+including when the selection is ready. The fox occasionally speaks in a
+handwritten bubble. Readers can turn its lines off. Empty states are said in words; a lamp may go out, but it never
 explains the state on its own. The Кабинет look stays; milestones do not spend
 time on new decoration. The implementation plan is `docs/plan/m1-m2.md`.
 

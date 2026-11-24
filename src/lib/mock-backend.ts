@@ -288,6 +288,13 @@ export function resetMockBackend(options: { scenario?: string; instant?: boolean
   const quiet = scenario === "no-new" || savedFolder;
   const source = scenario.startsWith("cold-start") ? specs.filter((spec) => spec.state === "pending") : specs;
   activeSpecs = source.map((spec) => (quiet ? { ...spec, fresh: false, state: spec.state === "pending" ? ("ready" as const) : spec.state } : spec));
+  if (scenario === "large") {
+    const sample = specs.find((spec) => spec.lemma === "ephemeral")!;
+    for (let number = 1; number <= 120; number++) {
+      const lemma = `sample-${String(number).padStart(3, "0")}`;
+      activeSpecs.push({ ...sample, word: lemma, lemma });
+    }
+  }
   mockEntries = activeSpecs.map(makeLexeme);
   decisions = new Map();
   cardEdits = new Map();
@@ -431,8 +438,9 @@ function summaries(entries: LexemeRecordV4[]): Omit<LibraryRanking, "rankingVers
     entries
       .filter((entry) => entry.ranking?.shelf === shelf && entry.export.state === "not_exported")
       .sort((a, b) => (a.ranking?.rank ?? 0) - (b.ranking?.rank ?? 0));
-  const batchIds = byRank("worth").slice(0, batchSize()).map((entry) => entry.id);
-  const newBatch: NewBatch = { count: batchIds.length, ids: batchIds };
+  const availableIds = byRank("worth").map((entry) => entry.id);
+  const batchIds = availableIds.slice(0, batchSize());
+  const newBatch: NewBatch = { count: batchIds.length, ids: batchIds, availableIds };
   const disputed: DisputedSummary = { ids: byRank("disputed").slice(0, DISPUTED_CAP).map((entry) => entry.id) };
   const againIds = entries.filter((entry) => entry.export.again).map((entry) => entry.id);
   const again: AgainSummary = { count: againIds.length, ids: againIds, unavailable: !keepsRepeats() };
@@ -631,10 +639,23 @@ function exportPreview(): ExportPreview {
 }
 
 function exportWords(payload: unknown): ExportRun {
-  const request = payload as { scope?: string; ids?: string[] };
-  if (request.scope !== "new" && request.scope !== "again") fail("bad_scope");
+  const request = payload as { scope?: string; ids?: string[]; levels?: number[] };
+  if (request.scope !== "new" && request.scope !== "again" && request.scope !== "library") fail("bad_scope");
+  if (request.levels !== undefined && (request.scope !== "library" || !Array.isArray(request.levels) || !request.levels.length
+    || new Set(request.levels).size !== request.levels.length || request.levels.some((level) => !Number.isInteger(level) || level < 1 || level > 10))) fail("bad_levels");
+  if (request.ids !== undefined && (!Array.isArray(request.ids) || request.ids.some((id) => typeof id !== "string" || !id.trim()))) fail("unknown_lexeme");
   const preview = exportPreview();
-  const ids = request.ids ?? (request.scope === "new" ? preview.new.ids : preview.again.ids);
+  const available = summaries(v4Entries()).newBatch.availableIds ?? preview.new.ids;
+  const requested = request.ids ? new Set(request.ids) : null;
+  if (requested && [...requested].some((id) => !mockEntries.some((entry) => entry.id === id))) fail("unknown_lexeme");
+  const entries = new Map(v4Entries().map((entry) => [entry.id, entry]));
+  let ids: string[];
+  if (request.scope === "library") {
+    ids = [...(requested ?? [])].filter((id) => !request.levels || request.levels.includes(entries.get(id)!.study_priority.level));
+  } else {
+    const pool = request.scope === "new" ? available : preview.again.ids;
+    ids = requested ? pool.filter((id) => requested.has(id)) : request.scope === "new" ? preview.new.ids : preview.again.ids;
+  }
   if (!ids.length) fail("nothing_to_export");
   if (previewScenario() === "export-error") fail("export_failed", "не удалось записать файл");
   if (previewScenario() === "export-busy") fail("export_busy");

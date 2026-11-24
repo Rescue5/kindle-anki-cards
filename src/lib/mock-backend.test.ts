@@ -143,7 +143,7 @@ describe("browser mock speaks the C0 contract", () => {
     expect(run.exported).toBe(preview.new.count);
     expect(run.runId).toBeTruthy();
     const after = await load();
-    expect(after.newBatch).toEqual({ count: 0, ids: [] });
+    expect(after.newBatch).toEqual({ count: 0, ids: [], availableIds: [] });
     for (const id of preview.new.ids) expect(after.entries.find((entry) => entry.id === id)?.export).toMatchObject({ state: "exported", again: false });
     await expectError(callBackend("export_words", { job_id: "j2", scope: "new" }), "nothing_to_export");
     await expectError(callBackend("export_words", { job_id: "j3", scope: "week" }), "bad_scope");
@@ -164,6 +164,18 @@ describe("browser mock speaks the C0 contract", () => {
     expect(run).toMatchObject({ destination: "csv", pushed: 0, path: expect.stringMatching(/\.tsv$/) });
   });
 
+  it("re-exports the chosen library priorities after all new words have been exported", async () => {
+    const { entries } = await load();
+    const ids = entries.map((entry) => entry.id);
+    const levels = [10];
+    const count = entries.filter((entry) => entry.study_priority?.level === 10).length;
+    expect(count).toBeGreaterThan(0);
+    expect(await callBackend<ExportRun>("export_words", { scope: "library", ids })).toMatchObject({ exported: ids.length });
+    expect((await load()).newBatch.count).toBe(0);
+    expect(await callBackend<ExportRun>("export_words", { scope: "library", ids, levels })).toMatchObject({ exported: count });
+    await expectError(callBackend("export_words", { scope: "library", ids, levels: [] }), "bad_levels");
+  });
+
   it("serves the details the lean list leaves out", async () => {
     const details = await callBackend<LexemeDetails>("load_lexeme_details", { lexeme_id: "lexeme-admit" });
     expect(details).toMatchObject({ lexeme_id: "lexeme-admit" });
@@ -180,7 +192,7 @@ describe("scenarios", () => {
     expectEveryKey(library);
     expectRanksAndCounts(library);
     expectShortList(library);
-    expect(library.newBatch).toEqual({ count: 0, ids: [] });
+    expect(library.newBatch).toEqual({ count: 0, ids: [], availableIds: [] });
     expect(library.disputed.ids).toEqual([]);
     expect(library.entries.some((entry) => entry.is_new)).toBe(false);
     expect(library.again.count).toBe(1);
