@@ -18,7 +18,9 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build" / "bridge"
@@ -88,6 +90,51 @@ def build_executable() -> None:
     )
 
 
+def windows_openssl_pair() -> tuple[Path, Path]:
+    """Resolve the DLL names required by this interpreter, without searching PATH."""
+    import importlib.util
+
+    import pefile
+
+    spec = importlib.util.find_spec("_ssl")
+    if spec is None or spec.origin is None:
+        raise SystemExit("The build Python does not provide _ssl")
+    extension = Path(spec.origin).resolve()
+    with pefile.PE(str(extension), fast_load=True) as image:
+        image.parse_data_directories([pefile.DIRECTORY_ENTRY["IMAGE_DIRECTORY_ENTRY_IMPORT"]])
+        imports = {item.dll.decode("ascii").lower() for item in image.DIRECTORY_ENTRY_IMPORT}
+    names = []
+    for library in ("libssl-", "libcrypto-"):
+        matches = sorted(name for name in imports if name.startswith(library) and name.endswith(".dll"))
+        if len(matches) != 1:
+            raise SystemExit(f"Expected one {library} DLL in the imports of {extension}")
+        names.extend(matches)
+
+    prefix = Path(sys.base_prefix).resolve()
+    # Conda stores both in Library/bin. python.org and setup-python normally
+    # place them beside _ssl.pyd in DLLs, including when building from a venv.
+    for directory in (prefix / "Library" / "bin", extension.parent, prefix):
+        if not directory.is_relative_to(prefix):
+            continue
+        ssl, crypto = (directory / name for name in names)
+        if all(path.is_file() and path.resolve().is_relative_to(prefix) for path in (ssl, crypto)):
+            return ssl, crypto
+    raise SystemExit(f"No matching OpenSSL DLL pair ({', '.join(names)}) in build Python: {prefix}")
+
+
+def install_windows_openssl(pair: tuple[Path, Path]) -> None:
+    internal = DIST / "_internal"
+    for source in pair:
+        target = internal / source.name
+        # A second DLL beside the bootloader or in another collected directory
+        # would make the loader's choice depend on the installed layout.
+        duplicates = [path for path in DIST.rglob(source.name) if path != target]
+        if duplicates:
+            raise SystemExit(f"Unexpected duplicate OpenSSL DLL in frozen bridge: {duplicates[0]}")
+        shutil.copyfile(source, target)
+    print("OpenSSL: installed both DLLs from the build Python", flush=True)
+
+
 def prune() -> None:
     """Drop data the bridge never reads; it would only bloat the installer."""
     # PyInstaller's nltk hook copies whatever NLTK data exists on the build
@@ -112,7 +159,9 @@ def download_nltk_data() -> None:
             archive.unlink()
 
 
-def _frozen(executable: Path, workspace: Path, action: str, payload: dict | None = None) -> dict:
+def _frozen(
+    executable: Path, workspace: Path, action: str, payload: dict | None = None, *, timeout: int = 300,
+) -> dict:
     # An empty APPDATA hides any NLTK data installed on the build machine, so
     # the check proves the bundled corpora are used, as on a clean computer.
     appdata = BUILD / "smoke-appdata"
@@ -127,12 +176,54 @@ def _frozen(executable: Path, workspace: Path, action: str, payload: dict | None
     completed = subprocess.run(
         [str(executable)],
         input=json.dumps({"action": action, "payload": payload or {}}, ensure_ascii=False),
-        capture_output=True, text=True, encoding="utf-8", env=env, timeout=300, check=False,
+        capture_output=True, text=True, encoding="utf-8", cwd=workspace, env=env, timeout=timeout, check=False,
     )
-    response = json.loads(completed.stdout)
-    if not response.get("ok"):
-        raise SystemExit(f"Smoke test {action} failed: {response.get('error')}\n{completed.stderr[-2000:]}")
+    try:
+        response = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(
+            f"Smoke test {action} returned invalid JSON (exit {completed.returncode}):\n{completed.stderr[-2000:]}"
+        ) from exc
+    if completed.returncode or not response.get("ok"):
+        raise SystemExit(
+            f"Smoke test {action} failed (exit {completed.returncode}): "
+            f"{response.get('error')}\n{completed.stderr[-2000:]}"
+        )
     return response["result"]
+
+
+def smoke_llm_models(executable: Path, workspace: Path) -> None:
+    """Exercise the bundled SDK and its SSL imports without a key or an external API."""
+    model = "kindle-bridge-smoke"
+
+    class ModelsHandler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            if self.path != "/v1/models":
+                self.send_error(404)
+                return
+            body = json.dumps({
+                "object": "list",
+                "data": [{"id": model, "object": "model", "created": 0, "owned_by": "smoke"}],
+            }).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), ModelsHandler) as server:
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            result = _frozen(executable, workspace, "list_llm_models", {
+                "provider": "lmstudio", "base_url": f"http://127.0.0.1:{server.server_port}/v1",
+            }, timeout=60)
+        finally:
+            server.shutdown()
+            worker.join()
+    if result.get("models") != [model]:
+        raise SystemExit(f"Frozen model list did not match the loopback response: {result}")
+    print("smoke list_llm_models: bundled SDK returned the loopback model", flush=True)
 
 
 def _seed_workspace(workspace: Path) -> None:
@@ -156,6 +247,7 @@ def smoke_test() -> None:
     frozen_ws, reference_ws = BUILD / "smoke-frozen", BUILD / "smoke-reference"
     for workspace in (frozen_ws, reference_ws):
         _seed_workspace(workspace)
+    smoke_llm_models(executable, frozen_ws)
     for action in ("load_demo", "llm_config"):
         _frozen(executable, frozen_ws, action)
         print(f"smoke {action}: ok", flush=True)
@@ -202,7 +294,10 @@ def main() -> None:
     if bool(args.expanded_model) != bool(args.model_notice):
         parser.error("--expanded-model and --model-notice must be supplied together")
     configure_build(args.output_dir)
+    openssl_pair = windows_openssl_pair() if sys.platform == "win32" else None
     build_executable()
+    if openssl_pair is not None:
+        install_windows_openssl(openssl_pair)
     prune()
     download_nltk_data()
     if args.expanded_model:
