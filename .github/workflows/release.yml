@@ -18,8 +18,14 @@ jobs:
         run: |
           $pythonVersion = [regex]::Match((Get-Content pyproject.toml -Raw), '(?m)^version = "([^"]+)"').Groups[1].Value
           if (-not $pythonVersion) { throw "Could not read Python package version from pyproject.toml" }
+          $cargoVersion = [regex]::Match((Get-Content src-tauri/Cargo.toml -Raw), '(?m)^version = "([^"]+)"').Groups[1].Value
+          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $lockPackageVersion = ((Get-Content package-lock.json -Raw | ConvertFrom-Json -AsHashtable).packages['']).version
+          $cargoLockVersion = [regex]::Match((Get-Content src-tauri/Cargo.lock -Raw), '(?ms)\[\[package\]\]\s*name = "kindle-cards"\s*version = "([^"]+)"').Groups[1].Value
           $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
-          if ($pythonVersion -ne $tauriVersion) { throw "Package version mismatch: Python=$pythonVersion Tauri=$tauriVersion" }
+          $versions = @($pythonVersion, $cargoVersion, $packageVersion, $lockPackageVersion, $cargoLockVersion, $tauriVersion)
+          $uniqueVersions = @($versions | Select-Object -Unique)
+          if ($uniqueVersions.Count -ne 1) { throw "Package version mismatch: Python=$pythonVersion Cargo=$cargoVersion npm=$packageVersion npm-lock=$lockPackageVersion Cargo-lock=$cargoLockVersion Tauri=$tauriVersion" }
           if ($tauriVersion -eq "1.0.0") { throw "Public 1.0.0 is blocked until expanded-model redistribution is approved and explicitly packaged." }
 
       - uses: actions/setup-python@v5
