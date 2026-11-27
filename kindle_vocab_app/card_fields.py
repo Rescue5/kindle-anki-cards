@@ -12,8 +12,9 @@ attached to the entry (`offline_dictionary.attach`); no I/O.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from kindle_vocab_app.contracts import MEANING_MAX_LENGTH
@@ -64,7 +65,7 @@ def context_fingerprint(context: str) -> str:
 
 
 def context_translation(lexeme: Mapping[str, Any], context: str) -> str:
-    enrichment = lexeme.get("enrichment") or {}
+    enrichment = enrichment_for_context(lexeme, context)
     translation = _clean(enrichment.get("context_ru"))
     if not context or not translation or enrichment.get("status", "ready") != "ready":
         return ""
@@ -80,7 +81,57 @@ def context_translation(lexeme: Mapping[str, Any], context: str) -> str:
     return translation if enrichment_sentences(lexeme, 1) == [context] else ""
 
 
-def resolve(lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None = None) -> ResolvedCard:
+def enrichment_for_context(lexeme: Mapping[str, Any], context: str) -> Mapping[str, Any]:
+    """A durable AI result suitable for the selected occurrence, for editor and exports."""
+    enrichment = lexeme.get("enrichment") or {}
+    if enrichment.get("status", "ready") != "ready":
+        return {}
+    if enrichment.get("prompt_version") == 2 or "selected_context_sha256" in enrichment:
+        return enrichment if enrichment.get("selected_context_sha256") == context_fingerprint(context) else {}
+    if original := enrichment.get("context_source_sha256"):
+        # v1 identified its first, potentially clipped quote. Only an exact
+        # full-quote match can expose context_ru (see context_translation).
+        sent = context[:MAX_ENRICHMENT_CONTEXT_CHARS]
+        return enrichment if original == context_fingerprint(sent) else {}
+    return enrichment
+
+
+def context_fragment_translation(lexeme: Mapping[str, Any], context: str) -> str:
+    """Translation of a clipped v2 quote, separate from the full-quote translation."""
+    enrichment = enrichment_for_context(lexeme, context)
+    if enrichment.get("context_truncated") is not True or len(context) <= MAX_ENRICHMENT_CONTEXT_CHARS:
+        return ""
+    if enrichment.get("context_source_sha256") != context_fingerprint(context[:MAX_ENRICHMENT_CONTEXT_CHARS]):
+        return ""
+    return _clean(enrichment.get("context_ru"))
+
+
+def review_fingerprint(lexeme: Mapping[str, Any], baseline: ResolvedCard) -> str:
+    """Hash the non-AI translation and lexical input to the review for the selected quote."""
+    analysis = (lexeme.get("processing") or {}).get("analysis") or {}
+    word = str(baseline.occurrence.get("word") or lexeme.get("display_form") or lexeme.get("lemma") or "")
+    lemma = str(analysis.get("base_form") or lexeme.get("lemma") or "")
+    pos = str(analysis.get("pos") or "")
+    context = str(baseline.occurrence.get("context") or "")
+    return context_fingerprint(json.dumps([word, lemma, pos, baseline.meaning_ru, context], ensure_ascii=False))
+
+
+def _enrichment_for_resolved(lexeme: Mapping[str, Any], baseline: ResolvedCard) -> Mapping[str, Any]:
+    context = str(baseline.occurrence.get("context") or "")
+    enrichment = enrichment_for_context(lexeme, context)
+    if enrichment.get("prompt_version") == 2 and enrichment.get("review_fingerprint") != review_fingerprint(lexeme, baseline):
+        return {}
+    return enrichment
+
+
+def enrichment_for_card(lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
+    """Return the review for the current translation and quote, independent of example mode."""
+    return _enrichment_for_resolved(lexeme, resolve(lexeme, edit, include_enrichment=False))
+
+
+def resolve(
+    lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None = None, *, include_enrichment: bool = True,
+) -> ResolvedCard:
     """Resolve the card of a library entry.
 
     `edit` is the reader's row from `card_edits` (`meaning_ru`, `example_occurrence_id`,
@@ -89,8 +140,6 @@ def resolve(lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None = None) ->
     """
     occurrences = list(lexeme.get("occurrences") or [])
     edit = edit or {}
-
-    meaning, source = _meaning(lexeme, edit)
 
     chosen_id = str(edit.get("example_occurrence_id") or "")
     occurrence: Mapping[str, Any] = {}
@@ -106,24 +155,25 @@ def resolve(lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None = None) ->
     if not occurrence:
         occurrence = longest_occurrence(occurrences)
 
-    return ResolvedCard(
+    meaning, source = _base_meaning(lexeme, edit)
+    baseline = ResolvedCard(
         meaning_ru=meaning,
         meaning_source=source,
         occurrence=occurrence,
         example_occurrence_id=str(occurrence.get("id") or ""),
         edited=bool(edit.get("meaning_ru")) or bool(chosen_id),
     )
+    if not include_enrichment or source == "edited":
+        return baseline
+    if generated := _clean(_enrichment_for_resolved(lexeme, baseline).get("meaning_ru")):
+        return replace(baseline, meaning_ru=generated, meaning_source="llm")
+    return baseline
 
 
-def _meaning(lexeme: Mapping[str, Any], edit: Mapping[str, Any]) -> tuple[str, str]:
+def _base_meaning(lexeme: Mapping[str, Any], edit: Mapping[str, Any]) -> tuple[str, str]:
     edited = _clean(edit.get("meaning_ru"))
     if edited:
         return edited, "edited"
-    enrichment = lexeme.get("enrichment") or {}
-    if enrichment.get("status", "ready") == "ready":
-        generated = _clean(enrichment.get("meaning_ru"))
-        if generated:
-            return generated, "llm"
     offline = _clean((lexeme.get("dictionary") or {}).get("meaning_ru"))
     if offline:
         return _fit(offline), "dictionary"

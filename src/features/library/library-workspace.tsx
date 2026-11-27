@@ -1,71 +1,102 @@
 import * as React from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import * as Dialog from "@radix-ui/react-dialog";
 import { Check, ChevronDown, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ImportFileButton } from "@/components/import-file-button";
+import { ruCount } from "@/features/reading/reading-domain";
 import { cn } from "@/lib/utils";
 import { cardDraft, selectedExample } from "./card-editor-domain";
-import { previewPriorityReason, priorityEntries, studyPriority, type PriorityFilter } from "./study-priority";
+import { previewPriorityReason, studyPriority } from "./study-priority";
+import { CATALOGUE_PRIORITY_GROUPS, catalogueGroup, defaultCatalogueFilters, selectCatalogueEntries, selectTranslationEntries, type CatalogueDecision, type CatalogueSort } from "./catalogue-selectors";
+import type { useCatalogueFilters } from "./use-catalogue-filters";
 import { CardEditor } from "./card-editor";
 import type { useLibraryController } from "./use-library-controller";
-import type { LexemeRecord } from "@/types";
+import type { LexemeRecord, StudyPrioritySource } from "@/types";
 import "./library-workspace.css";
 
 type Controller = ReturnType<typeof useLibraryController>;
 
-type Props = { controller: Controller; batchLexemeId?: string; exporting?: boolean; onBackToBatch?: () => void; onDraftChange?: (dirty: boolean, pending: boolean) => void };
+export type CatalogueTranslation = {
+  availability: "loading" | "setup" | "ready";
+  eligibleIds: ReadonlySet<string>;
+  onStart: (ids: readonly string[]) => void;
+  onOpenSettings: () => void;
+  providerLabel?: string;
+  providerKind?: "cloud" | "local";
+  perSense?: boolean;
+};
 
-const PRIORITY_GROUPS = [
-  { label: "1–3 · В первую очередь", levels: [1, 2, 3] },
-  { label: "4–6 · Средний приоритет", levels: [4, 5, 6] },
-  { label: "7–9 · Можно отложить", levels: [7, 8, 9] },
-  { label: "10 · Проверить запись", levels: [10] },
+type Props = { controller: Controller; catalogueFilters: ReturnType<typeof useCatalogueFilters>; translation: CatalogueTranslation; batchLexemeId?: string; exporting?: boolean; onBackToBatch?: () => void; onDraftChange?: (dirty: boolean, pending: boolean) => void };
+
+const decisionOptions: ReadonlyArray<{ value: CatalogueDecision; label: string }> = [
+  { value: "visible", label: "Без «Не учить»" },
+  { value: "all", label: "Все решения" },
+  { value: "undecided", label: "Без решения" },
+  { value: "learn", label: "Учить" },
+  { value: "skip", label: "Не учить" },
+  { value: "known", label: "Знаю" },
+  { value: "junk", label: "Не слово" },
 ];
 
-function PriorityMenu({ value, onChange }: { value: PriorityFilter; onChange: (value: PriorityFilter) => void }) {
-  const item = (choice: PriorityFilter) => <DropdownMenu.RadioItem key={choice} value={String(choice)} className="words-priority-option">
-    <DropdownMenu.ItemIndicator className="words-priority-check"><Check size={14} aria-hidden="true" /></DropdownMenu.ItemIndicator>
-    {choice === "all" ? "Все приоритеты" : `Приоритет ${choice}`}
-  </DropdownMenu.RadioItem>;
+function PriorityMenu({ levels, onChange }: { levels: readonly number[]; onChange: (levels: readonly number[]) => void }) {
   return <DropdownMenu.Root>
     <DropdownMenu.Trigger asChild>
-      <Button variant="secondary" size="sm" className="words-priority-trigger">
-        {value === "all" ? "Все приоритеты" : `Приоритет ${value}`}
+      <Button variant="secondary" size="sm" className="words-priority-trigger" aria-label={levels.length ? `Приоритеты: ${levels.join(", ")}` : "Все приоритеты"}>
+        {levels.length ? `Приоритеты · ${levels.join(", ")}` : "Все приоритеты"}
         <ChevronDown size={15} aria-hidden="true" />
       </Button>
     </DropdownMenu.Trigger>
     <DropdownMenu.Portal>
       <DropdownMenu.Content className="app-scrollbar words-priority-menu" align="start" sideOffset={4} collisionPadding={12}>
-        <DropdownMenu.RadioGroup value={String(value)} onValueChange={(next) => onChange(next === "all" ? "all" : Number(next))}>
-          {item("all")}
-          {PRIORITY_GROUPS.map((group) => <DropdownMenu.Group key={group.label} aria-label={group.label}>
+          <DropdownMenu.CheckboxItem className="words-priority-option" checked={!levels.length} onSelect={(event) => event.preventDefault()} onCheckedChange={() => onChange([])}>
+            <DropdownMenu.ItemIndicator className="words-priority-check"><Check size={14} aria-hidden="true" /></DropdownMenu.ItemIndicator>
+            Все приоритеты
+          </DropdownMenu.CheckboxItem>
+          {CATALOGUE_PRIORITY_GROUPS.map((group) => <DropdownMenu.Group key={group.label} aria-label={group.label}>
             <DropdownMenu.Label className="words-priority-label">{group.label}</DropdownMenu.Label>
-            {group.levels.map(item)}
+            {group.levels.map((level) => <DropdownMenu.CheckboxItem key={level} checked={levels.includes(level)}
+              className="words-priority-option" onSelect={(event) => event.preventDefault()}
+              onCheckedChange={(checked) => onChange(checked ? [...levels, level].sort((a, b) => a - b) : levels.filter((value) => value !== level))}>
+              <DropdownMenu.ItemIndicator className="words-priority-check"><Check size={14} aria-hidden="true" /></DropdownMenu.ItemIndicator>
+              Приоритет {level}
+            </DropdownMenu.CheckboxItem>)}
           </DropdownMenu.Group>)}
-        </DropdownMenu.RadioGroup>
       </DropdownMenu.Content>
     </DropdownMenu.Portal>
   </DropdownMenu.Root>;
 }
 
-export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controller, batchLexemeId, exporting, onBackToBatch, onDraftChange }: Props) {
-  const [priorityFilter, setPriorityFilter] = React.useState<PriorityFilter>("all");
+export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controller, catalogueFilters, translation, batchLexemeId, exporting, onBackToBatch, onDraftChange }: Props) {
+  const { filters, setFilters } = catalogueFilters;
   const [selectedId, setSelectedId] = React.useState(batchLexemeId ?? "");
   const [inspectorOpen, setInspectorOpen] = React.useState(Boolean(batchLexemeId));
   const [dirty, setDirty] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [restoreFocus, setRestoreFocus] = React.useState(false);
   const headingRef = React.useRef<HTMLHeadingElement>(null);
-  const rootRef = React.useRef<HTMLDivElement>(null);
+  const searchRef = React.useRef<HTMLInputElement>(null);
   const focusEditor = React.useRef(Boolean(batchLexemeId));
   const operating = controller.operation.status === "running";
   const busy = operating || Boolean(exporting);
   const selectedBook = controller.books.find((book) => book.key === controller.selectedBookKey);
   const prioritySource = controller.ranking?.studyPrioritySource;
-  const entries = React.useMemo(() => priorityEntries(controller.entries, controller.query, selectedBook, priorityFilter, prioritySource),
-    [controller.entries, controller.query, selectedBook, priorityFilter, prioritySource]);
+  const entries = React.useMemo(() => selectCatalogueEntries(controller.entries, controller.query, selectedBook, filters, prioritySource),
+    [controller.entries, controller.query, selectedBook, filters, prioritySource]);
+  const candidates = React.useMemo(() => selectTranslationEntries(entries, translation.eligibleIds), [entries, translation.eligibleIds]);
+  const filterCount = Number(Boolean(filters.levels.length)) + Number(filters.decision !== "visible") + Number(filters.recent);
+  const filterSummary = [
+    filters.levels.length ? `Уровни: ${filters.levels.join(", ")}` : "",
+    filters.recent ? "Последнее пополнение" : "",
+    filters.decision === "visible" ? "«Не учить» скрыты" : decisionOptions.find(({ value }) => value === filters.decision)?.label,
+  ].filter(Boolean).join(" · ");
+  const translationSummary = [
+    controller.query.trim() ? `Поиск: «${controller.query.trim()}»` : "",
+    selectedBook?.key ? `Книга: «${selectedBook.label}»` : "",
+    filterSummary,
+  ].filter(Boolean).join(" · ");
   // The direct entry is independent of all saved filters. Keep a removed word open to undo its decision.
   const selected = controller.entries.find((entry) => entry.id === selectedId) ?? null;
   React.useEffect(() => { onDraftChange?.(dirty, pending); }, [dirty, pending, onDraftChange]);
@@ -91,7 +122,7 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
   }, [dirty]);
   React.useEffect(() => {
     if (inspectorOpen || !restoreFocus || entries.some((entry) => entry.id === selectedId)) return;
-    rootRef.current?.querySelector<HTMLInputElement>('[aria-label="Поиск слова, контекста или книги"]')?.focus();
+    searchRef.current?.focus();
     setRestoreFocus(false);
   }, [inspectorOpen, restoreFocus, entries, selectedId]);
 
@@ -117,30 +148,46 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
     setInspectorOpen(false);
   }
 
-  return <div ref={rootRef} className={cn("library-workspace words-screen card-workspace", inspectorOpen && "is-editing")}>
+  return <div className={cn("library-workspace words-screen card-workspace", inspectorOpen && "is-editing")}>
     <main className="words-main">
       <header className="words-head">
-        <div className="words-head-top"><h1>Слова</h1></div>
+        <div className="words-head-top"><h1>Слова</h1>
+          <TranslationControl translation={translation} entries={candidates} summary={translationSummary} blocked={busy || pending || controller.loading || controller.demo}
+            onFocusFallback={() => searchRef.current?.focus()} />
+        </div>
         <div className="words-toolbar">
-          <div className="screen-search"><Search size={16} aria-hidden="true" /><Input aria-label="Поиск слова, контекста или книги" placeholder="Найти слово" value={controller.query} onChange={(event) => controller.setQuery(event.target.value)} /></div>
+          <div className="screen-search"><Search size={16} aria-hidden="true" /><Input ref={searchRef} id="library-search" aria-label="Поиск слова, контекста или книги" placeholder="Найти слово" value={controller.query} onChange={(event) => controller.setQuery(event.target.value)} /></div>
           <Select aria-label="Книга" value={controller.selectedBookKey} onChange={(event) => controller.setSelectedBookKey(event.target.value)}>
             {controller.books.map((book) => <option key={book.key || "all"} value={book.key}>{book.label}</option>)}
           </Select>
         </div>
-        <div className="words-filters words-priority-filter">
-          <PriorityMenu value={priorityFilter} onChange={setPriorityFilter} />
-          <p className="words-priority-direction">{prioritySource === "rp-v2-personal"
-            ? "Приоритет учитывает, в скольких романах встречается слово, и ваши повторные поиски. Предварительные оценки идут следом. Уровень 10 — проверить запись."
-            : prioritySource === "rp-v2-coverage"
-            ? "Сначала слова с известным книжным охватом, затем предварительные оценки. Уровень 10 — проверить запись."
-            : "1 — учить в первую очередь · 10 — возможная ошибка записи"}</p>
+        <div className="words-catalogue-order">
+          <Select aria-label="Сортировка слов" value={filters.sort} onChange={(event) => setFilters({ ...filters, sort: event.target.value as CatalogueSort })}>
+            <option value="priority">По приоритету</option>
+            <option value="added">По дате добавления</option>
+          </Select>
+          <p className="words-priority-direction">{filters.sort === "added" ? "Сначала недавно добавленные. Группы по приоритету скрыты." : "Начните с приоритета 1. Уровень 10 — проверить запись."}</p>
         </div>
+        <div className="words-catalogue-filters">
+          <button type="button" className="words-filter" aria-pressed={filters.recent}
+            onClick={() => setFilters({ ...filters, recent: !filters.recent })}>Последнее пополнение</button>
+          <details>
+            <summary>Фильтры{filterCount ? ` · ${filterCount}` : ""}</summary>
+            <div className="words-catalogue-controls">
+              <PriorityMenu levels={filters.levels} onChange={(levels) => setFilters({ ...filters, levels })} />
+              <Select aria-label="Моё решение" value={filters.decision} onChange={(event) => setFilters({ ...filters, decision: event.target.value as CatalogueDecision })}>
+                {decisionOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+              </Select>
+              {filterCount ? <Button variant="ghost" size="sm" onClick={() => setFilters({ ...defaultCatalogueFilters, sort: filters.sort })}>Сбросить фильтры</Button> : null}
+            </div>
+          </details>
+        </div>
+        <p className="words-catalogue-summary">{filterSummary}</p>
         <details className="card-library-tools"><summary>Загрузка и обработка</summary>
           <div className="card-edit-actions">
             <Button variant="secondary" size="sm" disabled={busy || controller.demo || controller.connectors.kindle.state !== "connected"} onClick={() => void controller.syncKindle()}>Загрузить с читалки</Button>
             <ImportFileButton disabled={busy || controller.demo} onFile={(file) => void controller.importReaderFile(file)}>Загрузить файл</ImportFileButton>
             {controller.queueStatus.failed > 0 ? <Button variant="secondary" size="sm" disabled={busy || controller.demo} onClick={() => void controller.retryFailed()}>Повторить обработку</Button> : null}
-            {controller.settings.llm_enabled && (controller.enrichmentQueue.pending > 0 || controller.enrichmentQueue.failed > 0) ? <Button variant="secondary" size="sm" disabled={busy || controller.demo} onClick={() => void controller.enrichWords({ retryFailed: controller.enrichmentQueue.pending === 0 })}>{controller.enrichmentQueue.pending > 0 ? "Перевести слова" : "Повторить перевод"}</Button> : null}
             {operating ? <Button variant="ghost" size="sm" onClick={() => void controller.cancel()}>Отменить</Button> : null}
           </div>
         </details>
@@ -148,26 +195,131 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
         {operating ? <p className="words-meta" role="status">{controller.operation.message || "Обработка…"}</p> : null}
         {controller.queueStatus.failed > 0 ? <p className="words-error">Некоторые слова не удалось обработать. Повтор доступен в разделе «Загрузка и обработка».</p> : null}
       </header>
-      <WordList entries={entries} selectedId={selectedId} onSelect={selectWord} loading={controller.loading} disabled={pending}
+      <WordList entries={entries} groupByPriority={filters.sort === "priority"} prioritySource={prioritySource} selectedId={selectedId}
+        revealSelection={inspectorOpen || restoreFocus} onSelect={selectWord} loading={controller.loading} disabled={pending}
         restoreFocus={restoreFocus && !inspectorOpen} onFocusRestored={() => setRestoreFocus(false)} />
     </main>
     <aside className="library-inspector words-inspector" aria-label="Карточка слова">
       {inspectorOpen ? <div className={cn("card-back", !batchLexemeId && "card-back-list")}><Button variant="ghost" disabled={pending} onClick={back}>{batchLexemeId ? "К подборке" : "К списку слов"}</Button></div> : null}
       {selected ? <CardEditor key={selected.id} entry={selected} prioritySource={prioritySource} headingRef={headingRef} readOnly={controller.demo} busy={busy}
-        llmEnabled={controller.settings.llm_enabled} onEnrich={(id, retryFailed) => void controller.enrichWords({ ids: [id], retryFailed })}
+        llmEnabled={translation.availability === "ready"} onEnrich={(id, retryFailed) => void controller.enrichWords({ ids: [id], retryFailed })}
         onSave={controller.saveCardEdit} onDecision={controller.setWordDecision} onDirtyChange={setDirty} onPendingChange={setPending} />
         : <p className="words-state">{batchLexemeId ? "Слово недоступно в библиотеке." : "Выберите слово, чтобы исправить карточку."}</p>}
     </aside>
   </div>;
 });
 
+function TranslationControl({ translation, entries, summary, blocked, onFocusFallback }: {
+  translation: CatalogueTranslation;
+  entries: readonly LexemeRecord[];
+  summary: string;
+  blocked: boolean;
+  onFocusFallback: () => void;
+}) {
+  const [preview, setPreview] = React.useState<{ entries: readonly LexemeRecord[]; summary: string; provider: string; kind: CatalogueTranslation["providerKind"]; perSense: boolean } | null>(null);
+  const noEntriesId = React.useId();
+  const trigger = React.useRef<HTMLButtonElement>(null);
+  const provider = translation.providerLabel || (translation.providerKind === "local" ? "локальная модель" : "выбранная модель");
+  const current = translation.availability === "ready" && preview?.provider === provider && preview.summary === summary
+    && preview.kind === translation.providerKind && preview.perSense === Boolean(translation.perSense)
+    && preview.entries.length === entries.length && preview.entries.every((entry, index) => entry.id === entries[index].id);
+  const count = preview?.entries.length ?? 0;
+
+  if (translation.availability === "setup" && !preview) {
+    return <Button id="library-translate" variant="secondary" size="sm" disabled={blocked} onClick={translation.onOpenSettings}>Настроить перевод с ИИ</Button>;
+  }
+
+  return <div className="words-translation">
+    <Dialog.Root open={preview !== null} onOpenChange={(open) => setPreview(open
+      ? { entries, summary, provider, kind: translation.providerKind, perSense: Boolean(translation.perSense) }
+      : null)}>
+      <Dialog.Trigger asChild>
+        <Button ref={trigger} id="library-translate" variant="default" size="sm" disabled={blocked || translation.availability !== "ready" || !entries.length}
+          aria-describedby={!entries.length && translation.availability === "ready" ? noEntriesId : undefined}>
+          {translation.availability === "loading" ? "Проверяю настройку ИИ…" : `Перевести с ИИ · ${entries.length.toLocaleString("ru-RU")}`}
+        </Button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="words-translation-overlay" />
+        <Dialog.Content className="words-translation-dialog" onCloseAutoFocus={(event) => {
+          if (trigger.current && !trigger.current.disabled) return;
+          event.preventDefault();
+          onFocusFallback();
+        }}>
+          <Dialog.Title>Перевести с ИИ?</Dialog.Title>
+          <Dialog.Description>
+            Подходящих слов в выбранном списке: {count.toLocaleString("ru-RU")}. Модель: {preview?.provider}.
+          </Dialog.Description>
+          <p className="words-translation-summary">{preview?.summary}</p>
+          <p>{preview?.kind === "local" ? "Запрос получит локальная модель." : "Запрос получит выбранный провайдер."} В нём будут форма слова, лемма, часть речи, номер в запросе, текущий перевод и до 400 символов выбранной цитаты.</p>
+          {preview?.perSense ? <p>ИИ также предложит примеры для каждого значения.</p> : null}
+          <ol className="words-translation-preview app-scrollbar" aria-label="Слова для перевода" tabIndex={0}>
+            {preview?.entries.map((entry) => <li key={entry.id}>{entry.display_form || entry.lemma}</li>)}
+          </ol>
+          {!current ? <p role="status">Подборка или настройки изменились. Откройте подтверждение заново.</p> : null}
+          <div className="words-translation-actions">
+            <Dialog.Close asChild><Button variant="ghost" size="sm">Отмена</Button></Dialog.Close>
+            <Button variant="default" size="sm" disabled={!current || blocked || !count} onClick={() => {
+              if (!preview?.entries.length || !current || blocked) return;
+              translation.onStart(preview.entries.map(({ id }) => id));
+              setPreview(null);
+            }}>Перевести {count.toLocaleString("ru-RU")} {ruCount(count, "слово", "слова", "слов")}</Button>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+    {!entries.length && translation.availability === "ready" ? <p id={noEntriesId}>В этой выборке нет слов для перевода</p> : null}
+  </div>;
+}
+
 const ROW_HEIGHT = 92;
+const GROUP_HEIGHT = 38;
 const OVERSCAN = 5;
 
-function WordList({ entries, selectedId, onSelect, loading, disabled, restoreFocus, onFocusRestored }: { entries: LexemeRecord[]; selectedId: string; onSelect: (id: string) => void; loading: boolean; disabled: boolean; restoreFocus: boolean; onFocusRestored: () => void }) {
+type CatalogueRow = { offset: number; height: number } & ({ kind: "word"; entry: LexemeRecord } | { kind: "group"; label: string });
+
+function catalogueRows(entries: readonly LexemeRecord[], group: boolean, source?: StudyPrioritySource) {
+  const rows: CatalogueRow[] = [];
+  const wordRows = new Map<string, CatalogueRow>();
+  let offset = 0;
+  let previous = "";
+  for (const entry of entries) {
+    if (group) {
+      const label = catalogueGroup(entry, source);
+      if (label !== previous) {
+        rows.push({ kind: "group", label, offset, height: GROUP_HEIGHT });
+        offset += GROUP_HEIGHT;
+        previous = label;
+      }
+    }
+    const row = { kind: "word", entry, offset, height: ROW_HEIGHT } as const;
+    rows.push(row);
+    wordRows.set(entry.id, row);
+    offset += ROW_HEIGHT;
+  }
+  return { rows, wordRows, totalHeight: offset };
+}
+
+function firstRowAt(rows: readonly CatalogueRow[], offset: number) {
+  let start = 0;
+  let end = rows.length;
+  while (start < end) {
+    const middle = Math.floor((start + end) / 2);
+    const row = rows[middle];
+    if (row.offset + row.height <= offset) start = middle + 1;
+    else end = middle;
+  }
+  return start;
+}
+
+function WordList({ entries, groupByPriority, prioritySource, revealSelection, selectedId, onSelect, loading, disabled, restoreFocus, onFocusRestored }: {
+  entries: LexemeRecord[]; groupByPriority: boolean; prioritySource?: StudyPrioritySource; revealSelection: boolean; selectedId: string;
+  onSelect: (id: string) => void; loading: boolean; disabled: boolean; restoreFocus: boolean; onFocusRestored: () => void;
+}) {
   const [container, setContainer] = React.useState<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = React.useState(0);
   const [height, setHeight] = React.useState(640);
+  const layout = React.useMemo(() => catalogueRows(entries, groupByPriority, prioritySource), [entries, groupByPriority, prioritySource]);
   React.useEffect(() => {
     if (!container) return;
     const observer = new ResizeObserver(([item]) => setHeight(item.contentRect.height));
@@ -176,11 +328,12 @@ function WordList({ entries, selectedId, onSelect, loading, disabled, restoreFoc
   }, [container]);
   React.useEffect(() => {
     if (!container) return;
-    const index = entries.findIndex((entry) => entry.id === selectedId);
-    const top = Math.max(0, index) * ROW_HEIGHT;
-    if (top < container.scrollTop || top + ROW_HEIGHT > container.scrollTop + container.clientHeight) container.scrollTop = top;
+    const selected = revealSelection ? layout.wordRows.get(selectedId) : undefined;
+    if (selected && (selected.offset < container.scrollTop || selected.offset + selected.height > container.scrollTop + container.clientHeight)) {
+      container.scrollTop = selected.offset;
+    }
     setScrollTop(container.scrollTop);
-  }, [entries, selectedId, container]);
+  }, [layout, selectedId, container, revealSelection]);
   React.useEffect(() => {
     if (!restoreFocus || !container || height === 0) return;
     const frame = window.requestAnimationFrame(() => {
@@ -191,23 +344,26 @@ function WordList({ entries, selectedId, onSelect, loading, disabled, restoreFoc
         if (document.activeElement === row) onFocusRestored();
         return;
       }
-      const index = entries.findIndex((entry) => entry.id === selectedId);
-      if (index >= 0) {
-        container.scrollTop = index * ROW_HEIGHT;
+      const selected = layout.wordRows.get(selectedId);
+      if (selected) {
+        container.scrollTop = selected.offset;
         setScrollTop(container.scrollTop);
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [restoreFocus, container, height, scrollTop, selectedId, entries, onFocusRestored]);
+  }, [restoreFocus, container, height, scrollTop, selectedId, layout, onFocusRestored]);
   if (loading) return <div className="words-state" role="status"><Loader2 className="animate-spin" />Загружаем библиотеку</div>;
   if (!entries.length) return <div className="words-state"><h2>В этой выборке нет слов</h2><p>Измените отбор, книгу или поисковый запрос.</p></div>;
-  const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const end = Math.min(entries.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN);
+  const { rows, totalHeight } = layout;
+  const start = Math.max(0, firstRowAt(rows, scrollTop) - OVERSCAN);
+  const end = Math.min(rows.length, firstRowAt(rows, scrollTop + height) + OVERSCAN);
   return <div className="words-table" style={{ "--catalog-row-height": `${ROW_HEIGHT}px` } as React.CSSProperties}>
     <div className="words-table-head card-list-head"><span>Слово</span><span>Предложение из книги</span><span>Приоритет</span></div>
     <div ref={setContainer} className="app-scrollbar words-table-body" onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
-      <div style={{ height: start * ROW_HEIGHT }} />
-      {entries.slice(start, end).map((entry) => {
+      <div style={{ height: rows[start]?.offset ?? totalHeight }} />
+      {rows.slice(start, end).map((row) => {
+        if (row.kind === "group") return <h2 className="words-priority-group" key={`group-${row.label}`} style={{ height: row.height }}>{row.label}</h2>;
+        const { entry } = row;
         const occurrence = selectedExample(entry, cardDraft(entry).exampleId);
         const priority = studyPriority(entry);
         return <button type="button" disabled={disabled} key={entry.id} data-selected-word={selectedId === entry.id ? "true" : undefined} aria-current={selectedId === entry.id ? "true" : undefined}
@@ -218,7 +374,7 @@ function WordList({ entries, selectedId, onSelect, loading, disabled, restoreFoc
           <span className="words-row-reason">{previewPriorityReason(priority)}</span>
         </button>;
       })}
-      <div style={{ height: Math.max(0, entries.length - end) * ROW_HEIGHT }} />
+      <div style={{ height: totalHeight - (rows[end]?.offset ?? totalHeight) }} />
     </div>
   </div>;
 }

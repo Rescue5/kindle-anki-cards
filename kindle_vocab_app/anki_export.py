@@ -15,7 +15,7 @@ from pathlib import Path
 from time import sleep, time
 from typing import Any
 
-from kindle_vocab_app import card_fields
+from kindle_vocab_app import card_fields, study_details
 from kindle_vocab_app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -142,19 +142,41 @@ def build_note_fields(
     The meaning and the example sentence are the card the reader saw (`card_fields.resolve`):
     `edit` is the reader's row from `card_edits`, if any.
     """
-    return _note_fields(lexeme, card_fields.resolve(lexeme, edit), definition_lookup)
+    card, enrichment = study_details.resolve(lexeme, edit)
+    return _note_fields(lexeme, card, enrichment, definition_lookup)
 
 
 def _note_fields(
-    lexeme: dict[str, Any], card: card_fields.ResolvedCard, definition_lookup: Any,
+    lexeme: dict[str, Any],
+    card: card_fields.ResolvedCard,
+    enrichment: Mapping[str, Any],
+    definition_lookup: Any,
 ) -> dict[str, str]:
     analysis = (lexeme.get("processing") or {}).get("analysis") or {}
-    enrichment = lexeme.get("enrichment") or {}
+    raw_enrichment = lexeme.get("enrichment") or {}
     occurrence = card.occurrence
     word = str(occurrence.get("word") or lexeme.get("display_form") or lexeme.get("lemma") or "")
     lemma = str(analysis.get("base_form") or lexeme.get("lemma") or word)
     pos = _POS_LABELS.get(str(analysis.get("pos") or ""), "")
     context = str(occurrence.get("context") or "")
+    structured = raw_enrichment.get("prompt_version") == 2
+    example = _escape(_clean(enrichment.get("example_en")))
+    example_translation = _escape(_clean(enrichment.get("example_ru")))
+    context_translation = card_fields.context_translation(lexeme, context)
+    if structured:
+        context_translation = study_details.quote_translation(enrichment, card)
+        if context_translation and enrichment.get("context_truncated"):
+            context_translation = f"Перевод фрагмента: {context_translation}"
+        details = [
+            study_details.book_meaning_line(enrichment, card),
+            *study_details.sense_lines(enrichment, card),
+        ]
+        # The existing template puts ExampleTranslation immediately after Example.
+        # Keep the original English sentence last so it still sits beside its translation.
+        extra = "".join(f"<div>{_escape(line)}</div>" for line in details if line)
+        if not example:
+            example_translation = ""
+        example = extra + example
 
     definition = _clean(enrichment.get("definition_en"))
     definition_source = ""
@@ -171,9 +193,9 @@ def _note_fields(
         "Meaning": _escape(card.meaning_ru),
         "Definition": _escape(definition),
         "DefinitionSource": definition_source,
-        "ContextTranslation": _escape(card_fields.context_translation(lexeme, context)),
-        "Example": _escape(_clean(enrichment.get("example_en"))),
-        "ExampleTranslation": _escape(_clean(enrichment.get("example_ru"))),
+        "ContextTranslation": _escape(context_translation),
+        "Example": example,
+        "ExampleTranslation": example_translation,
         "Book": _escape(str(occurrence.get("book_title") or "")),
         "Author": _escape(str(occurrence.get("authors") or "")),
         "Usefulness": str(int(score)) if isinstance(score, (int, float)) else "",
@@ -235,8 +257,8 @@ def write_apkg(
             skipped += 1
             continue
         lexeme_id = str(lexeme.get("id") or "")
-        card = card_fields.resolve(lexeme, (edits or {}).get(lexeme_id))
-        fields = _note_fields(lexeme, card, definition_lookup)
+        card, enrichment = study_details.resolve(lexeme, (edits or {}).get(lexeme_id))
+        fields = _note_fields(lexeme, card, enrichment, definition_lookup)
         deck.add_note(
             genanki.Note(
                 model=model,

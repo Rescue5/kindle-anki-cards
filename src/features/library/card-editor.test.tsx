@@ -51,14 +51,17 @@ describe("card editor states", () => {
     resetMockBackend({ scenario: "mixed", instant: true });
     const entry = (await mockBackend<LibraryResult>("load_library", {})).entries[0];
     entry.enrichment = null;
+    entry.enrichment_state = "pending";
     const render = (llmEnabled = true, disabled = false) => renderToStaticMarkup(<WordTranslationDetails entry={entry}
       llmEnabled={llmEnabled} disabled={disabled} onEnrich={() => {}} />);
     expect(render()).toContain("Перевести слово");
     expect(render(false)).not.toContain("<button");
     expect(render(true, true)).toMatch(/<button[^>]*disabled/);
     entry.enrichment = { status: "failed", error: "Ошибка", provider: "test", model: "test", updated_at: "", prompt_version: 1 };
+    entry.enrichment_state = "failed";
     expect(render()).toContain("Повторить перевод слова");
     entry.processing.state = "pending";
+    entry.enrichment_state = "ineligible";
     expect(render()).not.toContain("<button");
   });
   it("shows ready generated examples separately without attaching a translation to another book context", async () => {
@@ -66,10 +69,29 @@ describe("card editor states", () => {
     const entry = (await mockBackend<LibraryResult>("load_library", {})).entries[0];
     entry.enrichment = { status: "ready", example_en: "A generated example.", example_ru: "Созданный пример.",
       context_ru: "Перевод другого контекста", error: "", provider: "test", model: "test", updated_at: "", prompt_version: 1 } satisfies Enrichment;
+    entry.enrichment_state = "pending";
     const html = renderToStaticMarkup(<WordTranslationDetails entry={entry} llmEnabled={true} disabled={false} onEnrich={() => {}} />);
     expect(html).toContain("A generated example.");
     expect(html).toContain("Созданный пример.");
     expect(html).not.toContain("Перевод другого контекста");
-    expect(html).not.toContain("<button");
+    expect(html).toContain("Перевести слово с ИИ");
+  });
+
+  it("links the verified sense and generated examples to the saved review", async () => {
+    resetMockBackend({ scenario: "mixed", instant: true });
+    const entry = (await mockBackend<LibraryResult>("load_library", {})).entries[0];
+    entry.enrichment = { status: "ready", meaning_ru: "берег; банк", meaning_action: "kept", context_quality: "good", context_meaning_ru: "берег",
+      context_truncated: true, context_ru: "На другом берегу", senses: [
+        { meaning_ru: "берег реки", example_en: "He stood on the bank.", example_ru: "Он стоял на берегу." },
+        { meaning_ru: "банк", example_en: "The bank closed at five.", example_ru: "Банк закрылся в пять." },
+      ], provider: "test", model: "test", updated_at: "", error: "", prompt_version: 2 };
+    entry.enrichment_state = "ready";
+    const render = () => renderToStaticMarkup(<WordTranslationDetails entry={entry} llmEnabled disabled={false} onEnrich={() => {}} />);
+    expect(render()).toContain("ИИ подтвердил исходный перевод");
+    expect(render()).toContain("В этой цитате");
+    expect(render()).toContain("Перевод фрагмента");
+    expect(render()).toContain("Банк закрылся в пять.");
+    entry.enrichment_state = "pending";
+    expect(render()).not.toContain("В этой цитате");
   });
 });

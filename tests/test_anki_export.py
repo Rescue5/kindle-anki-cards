@@ -7,7 +7,7 @@ import zipfile
 from contextlib import closing
 from pathlib import Path
 
-from kindle_vocab_app import anki_export, vocab_cache
+from kindle_vocab_app import anki_export, card_fields, vocab_cache
 from kindle_vocab_app.library_repository import repository_for
 from kindle_vocab_app.tauri_bridge import dispatch
 
@@ -127,6 +127,86 @@ class AnkiExportTests(unittest.TestCase):
         self.assertEqual(anki_export.build_note_fields(lexeme, edit=edit)["ContextTranslation"], "Взгляд на рассвете.")
         lexeme["last_seen_at"] = "2026-07-13"
         self.assertEqual(anki_export.build_note_fields(lexeme, edit=edit)["ContextTranslation"], "")
+
+    def test_structured_details_keep_examples_paired_inside_the_existing_note_type(self) -> None:
+        lexeme = _lexeme("bank")
+        source = lexeme["occurrences"][0]
+        other = {**source, "id": "other", "context": "A bank advertised a mortgage."}
+        lexeme["occurrences"].append(other)
+        fingerprint = card_fields.context_fingerprint(source["context"])
+        lexeme["enrichment"] = {
+            "status": "ready", "prompt_version": 2,
+            "selected_context_sha256": fingerprint, "context_source_sha256": fingerprint,
+            "context_quality": "good", "context_truncated": False,
+            "meaning_ru": "берег", "context_meaning_ru": "берег реки",
+            "context_ru": "Она увидела берег и побежала.",
+            "example_en": "They walked along the bank.", "example_ru": "Они шли вдоль берега.",
+            "senses": [
+                {"meaning_ru": "банк", "example_en": "A <b>bank</b> lent it.", "example_ru": "Банк выдал & заём."},
+                {"meaning_ru": "вираж", "example_en": "The plane began to bank.", "example_ru": "Самолёт накренился."},
+                {"meaning_ru": "резерв", "example_en": "They operate a blood bank.",
+                 "example_ru": "Они заведуют банком крови."},
+                {"meaning_ru": "ряд", "example_en": "A bank of switches lit up.",
+                 "example_ru": "Засветился ряд переключателей."},
+                {"meaning_ru": "берег", "example_en": "They walked along the bank.",
+                 "example_ru": "Они шли вдоль берега."},
+            ],
+        }
+        picked = {"example_occurrence_id": source["id"]}
+        baseline = card_fields.resolve(lexeme, picked, include_enrichment=False)
+        lexeme["enrichment"]["review_fingerprint"] = card_fields.review_fingerprint(lexeme, baseline)
+        fields = anki_export.build_note_fields(lexeme, edit=picked)
+        self.assertEqual(list(fields), anki_export.FIELDS)
+        self.assertEqual(fields["Meaning"], "берег")
+        self.assertEqual(fields["ContextTranslation"], "Она увидела берег и побежала.")
+        self.assertIn("Значение в цитате: берег реки", fields["Example"])
+        self.assertIn("банк — A &lt;b&gt;bank&lt;/b&gt; lent it. — Банк выдал &amp; заём.", fields["Example"])
+        self.assertIn("вираж — The plane began to bank. — Самолёт накренился.", fields["Example"])
+        self.assertIn("резерв — They operate a blood bank. — Они заведуют банком крови.", fields["Example"])
+        self.assertIn("ряд — A bank of switches lit up. — Засветился ряд переключателей.", fields["Example"])
+        self.assertEqual(fields["Example"].count("Пример по значению"), 4)
+        self.assertTrue(fields["Example"].endswith("They walked along the bank."))
+        self.assertEqual(fields["Example"].count("They walked along the bank."), 1)
+        self.assertEqual(fields["ExampleTranslation"], "Они шли вдоль берега.")
+
+        moved = anki_export.build_note_fields(lexeme, edit={"example_occurrence_id": other["id"]})
+        self.assertIn("mortgage", moved["Context"])
+        self.assertEqual(moved["ContextTranslation"], "")
+        self.assertNotIn("Значение в цитате", moved["Example"])
+
+        manual = {**picked, "meaning_ru": "свой перевод"}
+        stale = anki_export.build_note_fields(lexeme, edit=manual)
+        self.assertEqual(stale["Meaning"], "свой перевод")
+        self.assertEqual(stale["Example"], "")
+        self.assertEqual(stale["ContextTranslation"], "")
+        baseline = card_fields.resolve(lexeme, manual, include_enrichment=False)
+        lexeme["enrichment"]["review_fingerprint"] = card_fields.review_fingerprint(lexeme, baseline)
+        fresh = anki_export.build_note_fields(lexeme, edit=manual)
+        self.assertEqual(fresh["Meaning"], "свой перевод")
+        self.assertIn("Банк выдал &amp; заём.", fresh["Example"])
+        self.assertIn("Самолёт накренился.", fresh["Example"])
+
+    def test_truncated_translation_is_labeled_and_bound_to_the_full_quote(self) -> None:
+        lexeme = _lexeme("glimpse")
+        excerpt = "A glimpse " + "x" * (card_fields.MAX_ENRICHMENT_CONTEXT_CHARS - 10)
+        source = lexeme["occurrences"][0]
+        source["context"] = excerpt + " at dusk"
+        lexeme["occurrences"].append({**source, "context": excerpt + " at dawn", "id": "other"})
+        lexeme["enrichment"] = {
+            "status": "ready", "prompt_version": 2,
+            "selected_context_sha256": card_fields.context_fingerprint(source["context"]),
+            "context_source_sha256": card_fields.context_fingerprint(excerpt),
+            "context_truncated": True, "context_quality": "ambiguous",
+            "context_meaning_ru": "предположение", "context_ru": "переведённая часть",
+        }
+        picked = {"example_occurrence_id": source["id"]}
+        baseline = card_fields.resolve(lexeme, picked, include_enrichment=False)
+        lexeme["enrichment"]["review_fingerprint"] = card_fields.review_fingerprint(lexeme, baseline)
+        first = anki_export.build_note_fields(lexeme, edit=picked)
+        self.assertEqual(first["ContextTranslation"], "Перевод фрагмента: переведённая часть")
+        self.assertNotIn("предположение", first["Example"])
+        second = anki_export.build_note_fields(lexeme, edit={"example_occurrence_id": "other"})
+        self.assertEqual(second["ContextTranslation"], "")
 
     def test_only_useful_accepted_words_are_written_with_stable_guids(self) -> None:
         lexemes = [

@@ -6,13 +6,15 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from kindle_vocab_app import anki_export, enrichment, settings, vocab_cache
+from kindle_vocab_app import anki_export, card_fields, enrichment, settings, vocab_cache
 from kindle_vocab_app.library_repository import repository_for
 from kindle_vocab_app.llm import LLMError
 from kindle_vocab_app.llm import presets as llm_presets
-from kindle_vocab_app.llm.openai_compatible import parse_json_object
+from kindle_vocab_app.llm.anthropic_client import AnthropicClient
+from kindle_vocab_app.llm.openai_compatible import OpenAICompatibleClient, parse_json_object
 from kindle_vocab_app.tauri_bridge import dispatch
 
 
@@ -77,6 +79,10 @@ class FakeClient:
                     "example_en": "Example.",
                     "example_ru": "Пример.",
                     "note_ru": "",
+                    "meaning_action": "added",
+                    "context_meaning_ru": f"значение {item['lemma']}",
+                    "context_quality": "good" if item["sentences"] else "missing",
+                    "senses": [],
                 }
                 for item in request["items"]
                 if item["lemma"] not in self.skip
@@ -211,6 +217,41 @@ class EnrichmentTests(unittest.TestCase):
         with self.assertRaises(LLMError):
             parse_json_object("no json here")
 
+    def test_length_finish_reason_rejects_valid_looking_json(self) -> None:
+        with patch("openai.OpenAI") as sdk:
+            client = OpenAICompatibleClient(base_url="https://example.invalid", api_key="synthetic", model="fake")
+            sdk.return_value.chat.completions.create.return_value = SimpleNamespace(choices=[SimpleNamespace(
+                finish_reason="length", message=SimpleNamespace(content='{"items": []}'),
+            )])
+            with self.assertRaisesRegex(LLMError, "Ответ модели оборвался"):
+                client.complete_json("system", "user", {})
+
+    def test_anthropic_refuses_context_window_truncation(self) -> None:
+        with patch("anthropic.Anthropic") as sdk:
+            client = AnthropicClient(api_key="synthetic", model="fake")
+            sdk.return_value.beta.messages.create.return_value = SimpleNamespace(
+                stop_reason="model_context_window_exceeded", content=[SimpleNamespace(type="text", text='{"items": []}')],
+            )
+            with self.assertRaisesRegex(LLMError, "Ответ модели оборвался"):
+                client.complete_json("system", "user", {})
+
+    def test_incomplete_sense_pair_rejects_word_and_uses_small_batches(self) -> None:
+        class IncompleteClient(FakeClient):
+            def complete_json(self, system: str, user: str, schema: dict) -> dict:
+                answer = super().complete_json(system, user, schema)
+                answer["items"][0]["senses"] = [
+                    {"meaning_ru": "отдельный смысл", "example_en": "Incomplete example", "example_ru": ""},
+                ]
+                return answer
+
+        words = [_lexeme(f"word{i}") for i in range(5)]
+        client, store = IncompleteClient(), MemoryStore()
+        result = enrichment.enrich(words, client, store, provider="fake", examples_per_sense=True)
+        self.assertEqual([len(batch["items"]) for batch in client.calls], [2, 2, 1])
+        self.assertEqual((result.enriched, result.failed), (2, 3))
+        self.assertEqual(store.saved["word0"]["status"], "failed")
+        self.assertIsNone(store.saved["word0"]["payload"])
+
     def test_enrichment_survives_catalog_replacement(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             repository = repository_for(Path(temporary))
@@ -286,29 +327,143 @@ class EnrichmentTests(unittest.TestCase):
             settings.save(workspace, settings.AppSettings(llm_auto_enrich=True, llm_provider="openai"))
             manual = {"ids": [word["id"]]}
             automatic: dict = {}
-            with patch.object(enrichment, "build_client", return_value=CaptureClient()) as client:
+            with (patch.object(enrichment, "build_client", return_value=CaptureClient()) as client,
+                  patch("kindle_vocab_app.tauri_bridge.offline_dictionary.attach")):
+                dispatch("save_card_edit", {"lexeme_id": word["id"], "meaning_ru": "взгляд"}, workspace)
                 for payload in (manual, automatic):
                     with self.assertRaisesRegex(ValueError, "Включите перевод через ИИ"):
                         dispatch("enrich_lexemes", payload, workspace)
+                self.assertEqual(dispatch("enrich_lexemes", {"ids": []}, workspace)["requested"], 0)
                 client.assert_not_called()
                 self.assertEqual(requests, [])
 
                 settings.save(workspace, settings.AppSettings(
                     llm_enabled=True, llm_auto_enrich=True, llm_provider="openai",
                 ))
-                self.assertEqual(dispatch("enrich_lexemes", manual, workspace)["enriched"], 1)
+                result = dispatch("enrich_lexemes", manual, workspace)
+                self.assertEqual(result["enriched"], 1)
+                entry = next(item for item in result["entries"] if item["id"] == word["id"])
+                self.assertTrue(entry["enrichment"]["context_truncated"])
+                self.assertTrue(entry["enrichment"]["context_matches"])
+                self.assertEqual(anki_export.build_note_fields(entry)["ContextTranslation"], "")
+                self.assertEqual(card_fields.context_fragment_translation(entry, sources[0]), "Предложение.")
+                self.assertEqual(card_fields.context_translation(entry, "A" * 400), "")
+                self.assertEqual(card_fields.context_fragment_translation(entry, "A" * 405 + "B"), "")
                 self.assertEqual(dispatch("enrich_lexemes", automatic, workspace)["enriched"], 1)
                 self.assertEqual(dispatch("enrich_lexemes", automatic, workspace)["enriched"], 0)
                 self.assertTrue(dispatch("test_llm", {}, workspace)["ok"])
 
         self.assertEqual([json.loads(request) for request in requests], [
-            {"items": [{"n": 1, "word": "glimpsed", "lemma": "glimpse", "pos": "n",
-                        "sentences": ["A" * 400, "B" * 400]}]},
-            {"items": [{"n": 1, "word": "dread", "lemma": "dread", "pos": "n",
+            {"examples_per_sense": False, "items": [{"n": 1, "word": "glimpsed", "lemma": "glimpse", "pos": "n",
+                        "current_meaning_ru": "взгляд", "sentences": ["A" * 400]}]},
+            {"examples_per_sense": False, "items": [{"n": 1, "word": "dread", "lemma": "dread", "pos": "n",
+                        "current_meaning_ru": "",
                         "sentences": ["A sentence with dread in it."]}]},
-            {"items": [{"n": 1, "word": "glimpse", "lemma": "glimpse", "pos": "n",
+            {"examples_per_sense": False, "items": [{"n": 1, "word": "glimpse", "lemma": "glimpse", "pos": "n",
+                        "current_meaning_ru": "",
                         "sentences": ["For a moment he caught a glimpse of the city below."]}]},
         ])
+
+    def test_explicit_selection_and_legacy_upgrade_respect_exact_count(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            repository = repository_for(workspace)
+            old, skipped, rejected, malformed = [_lexeme(word) for word in ("glimpse", "dread", "tarn", "00:17")]
+            rejected["processing"].update(state="rejected")
+            rejected["processing"]["analysis"].update(accepted=False, importance_score=1)
+            catalog = vocab_cache.empty_catalog()
+            catalog["lexemes"] = [old, skipped, rejected, malformed]
+            repository.save_catalog(catalog)
+            repository.set_decision(skipped["id"], "skip")
+            repository.save_enrichment("en", "glimpse", status="ready", provider="fake", model="old",
+                                       prompt_version=1, payload={"meaning_ru": "старый"})
+            settings.save(workspace, settings.AppSettings(llm_enabled=True, llm_provider="openai"))
+            library = dispatch("load_library", {}, workspace)
+            self.assertEqual(library["enrichmentQueue"]["pending"], 0)
+            self.assertEqual({entry["lemma"]: entry["enrichment_state"] for entry in library["entries"]},
+                             {"glimpse": "pending", "dread": "pending", "tarn": "pending", "00:17": "ineligible"})
+            excluded = next(entry for entry in library["entries"] if entry["lemma"] == "00:17")
+            self.assertEqual(excluded["enrichment_ineligible_reason"], "В записи нет букв")
+            fake = FakeClient()
+            with patch.object(enrichment, "build_client", return_value=fake) as client:
+                self.assertEqual(dispatch("enrich_lexemes", {"ids": [], "expected_count": 0}, workspace)["requested"], 0)
+                self.assertEqual(dispatch("enrich_lexemes", {}, workspace)["requested"], 0)
+                with self.assertRaisesRegex(ValueError, "Доступно: 0"):
+                    dispatch("enrich_lexemes", {"ids": [malformed["id"]], "expected_count": 1}, workspace)
+                for invalid in (None, "", [True], [""]):
+                    with self.assertRaises(ValueError):
+                        dispatch("enrich_lexemes", {"ids": invalid}, workspace)
+                client.assert_not_called()
+                result = dispatch("enrich_lexemes", {
+                    "ids": [old["id"], skipped["id"], rejected["id"], rejected["id"]], "expected_count": 3,
+                }, workspace)
+            self.assertEqual((result["requested"], result["enriched"]), (3, 3))
+            self.assertEqual({entry["lemma"] for entry in fake.calls[0]["items"]}, {"glimpse", "dread", "tarn"})
+            previous = next(entry for entry in fake.calls[0]["items"] if entry["lemma"] == "glimpse")
+            self.assertEqual(previous["current_meaning_ru"], "старый")
+
+    def test_selected_quote_fingerprint_manual_precedence_and_failed_refresh(self) -> None:
+        class SenseClient(FakeClient):
+            def complete_json(self, system: str, user: str, schema: dict) -> dict:
+                answer = super().complete_json(system, user, schema)
+                [item] = answer["items"]
+                item.update(meaning_action="kept", context_quality="ambiguous", senses=[
+                    {"meaning_ru": "берег", "example_en": "The bank was steep.", "example_ru": "Берег был крутым."},
+                    {"meaning_ru": "БЕРЕГ", "example_en": "Duplicate", "example_ru": "Дубль"},
+                    {"meaning_ru": "банк", "example_en": "The bank opened.", "example_ru": "Банк открылся."},
+                    {"meaning_ru": "вираж", "example_en": "The plane made a tight bank.", "example_ru": "Самолёт резко накренился."},
+                    {"meaning_ru": "ряд", "example_en": "A bank of screens lit up.", "example_ru": "Ряд экранов загорелся."},
+                ])
+                return answer
+
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            repository = repository_for(workspace)
+            word = _lexeme("bank")
+            word["occurrences"].append({**word["occurrences"][0], "id": "short", "context": "The bank lent money."})
+            catalog = vocab_cache.empty_catalog()
+            catalog["lexemes"] = [word]
+            repository.save_catalog(catalog)
+            settings.save(workspace, settings.AppSettings(llm_enabled=True, llm_provider="openai", llm_examples_per_sense=True))
+            self.assertTrue(settings.load(workspace).llm_examples_per_sense)
+            fix = {"lexeme_id": word["id"], "meaning_ru": "финансовое учреждение", "example_occurrence_id": "short"}
+            dispatch("save_card_edit", fix, workspace)
+            client = SenseClient()
+            with patch.object(enrichment, "build_client", return_value=client):
+                result = dispatch("enrich_lexemes", {"ids": [word["id"]], "expected_count": 1}, workspace)
+            [entry] = result["entries"]
+            self.assertEqual(entry["enrichment_state"], "ready")
+            self.assertTrue(entry["enrichment"]["context_matches"])
+            self.assertTrue(entry["enrichment"]["review_matches"])
+            self.assertEqual(entry["enrichment"]["meaning_ru"], "финансовое учреждение")
+            self.assertEqual(entry["card"]["meaning_source"], "edited")
+            self.assertEqual([sense["meaning_ru"] for sense in entry["enrichment"]["senses"]], ["берег", "банк", "вираж", "ряд"])
+            self.assertEqual(client.calls[0]["items"][0]["sentences"], ["The bank lent money."])
+            self.assertTrue(client.calls[0]["examples_per_sense"])
+
+            settings.save(workspace, settings.AppSettings(llm_enabled=True, llm_provider="openai"))
+            [different_mode] = dispatch("load_library", {}, workspace)["entries"]
+            self.assertEqual(different_mode["enrichment_state"], "pending")
+            self.assertTrue(different_mode["enrichment"]["context_matches"])
+            self.assertTrue(different_mode["enrichment"]["review_matches"])
+
+            changed_meaning = dispatch("save_card_edit", {
+                "lexeme_id": word["id"], "meaning_ru": "ручная правка",
+            }, workspace)["entry"]
+            self.assertTrue(changed_meaning["enrichment"]["context_matches"])
+            self.assertFalse(changed_meaning["enrichment"]["review_matches"])
+            self.assertEqual(changed_meaning["card"]["meaning_ru"], "ручная правка")
+
+            changed = dispatch("save_card_edit", {"lexeme_id": word["id"], "example_occurrence_id": ""}, workspace)["entry"]
+            self.assertEqual(changed["enrichment_state"], "pending")
+            self.assertFalse(changed["enrichment"]["context_matches"])
+            self.assertFalse(changed["enrichment"]["review_matches"])
+            self.assertEqual(changed["card"]["meaning_ru"], "ручная правка")
+            with patch.object(enrichment, "build_client", return_value=FakeClient(skip={"bank"})):
+                result = dispatch("enrich_lexemes", {"ids": [word["id"]]}, workspace)
+            self.assertEqual(result["failed"], 1)
+            self.assertEqual(result["entries"][0]["enrichment"]["input_fingerprint"], entry["enrichment"]["input_fingerprint"])
+            self.assertEqual(result["enrichmentQueue"]["pending"], 0)
 
     def test_old_settings_keep_their_custom_endpoint(self) -> None:
         legacy = {"llm_enabled": True, "llm_model": "m", "llm_base_url": "https://example.test/v1"}

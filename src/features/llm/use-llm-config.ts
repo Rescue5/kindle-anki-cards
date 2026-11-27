@@ -8,6 +8,33 @@ const idle = { status: "idle" } as const;
 
 const errorText = (error: unknown) => String(error).replace(/^Error:\s*/, "");
 
+export function modelConfigured(settings: AppSettings, preset?: LlmPreset): boolean {
+  return Boolean(preset && (settings.llm_model.trim() || preset.default_model)
+    && (preset.id !== "custom" || settings.llm_base_url.trim()));
+}
+
+/** Refresh key availability on return from Settings. No connection to a model provider is made. */
+export function useLibraryProvider(settings: AppSettings, active: boolean) {
+  const [config, setConfig] = React.useState<LlmConfig | null | undefined>();
+  React.useEffect(() => {
+    let current = true;
+    setConfig(undefined);
+    if (active && settings.llm_enabled) {
+      void callBackend<LlmConfig>("llm_config", {}).then(
+        (value) => { if (current) setConfig(value); },
+        () => { if (current) setConfig(null); },
+      );
+    }
+    return () => { current = false; };
+  }, [active, settings.llm_enabled, settings.llm_provider]);
+  const preset = config?.presets.find((p) => p.id === settings.llm_provider);
+  const configured = preset && modelConfigured(settings, preset) && (!preset.needs_key || config?.has_key[preset.id]);
+  const availability = !settings.llm_enabled ? "setup" : config === undefined ? "loading" : configured ? "ready" : "setup";
+  const model = settings.llm_model.trim() || preset?.default_model;
+  const providerLabel = [preset?.label, model].filter(Boolean).join(" · ");
+  return { availability, providerLabel, providerKind: preset?.local ? "local" : "cloud" } as const;
+}
+
 /**
  * Provider configuration for the settings screen. The API key goes straight to
  * the OS keychain through the backend; the frontend only learns whether one is

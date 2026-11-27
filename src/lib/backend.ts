@@ -14,6 +14,7 @@ export const defaultSettings: AppSettings = {
   llm_model: "",
   llm_base_url: "",
   llm_auto_enrich: false,
+  llm_examples_per_sense: false,
   obsidian_sync_enabled: false,
   obsidian_vault_path: "",
   obsidian_cards_path: "cards/Book Vocab",

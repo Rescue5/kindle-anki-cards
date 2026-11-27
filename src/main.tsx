@@ -5,6 +5,9 @@ import { SettingsView } from "@/components/settings-view";
 import { obsidianVaultPathError } from "@/lib/export-destinations";
 import { LibraryWorkspace } from "@/features/library/library-workspace";
 import { useLibraryController } from "@/features/library/use-library-controller";
+import { useCatalogueFilters } from "@/features/library/use-catalogue-filters";
+import { translationState } from "@/features/library/domain";
+import { useLibraryProvider } from "@/features/llm/use-llm-config";
 import { HomeScreen } from "@/features/home/home-screen";
 import { FoxTour } from "@/features/onboarding/fox-tour";
 import { useFoxTour } from "@/features/onboarding/use-fox-tour";
@@ -34,6 +37,21 @@ function App() {
   const controller = useLibraryController();
   // `?view=` opens a screen directly; used for browser previews and README screenshots.
   const [view, setView] = React.useState<View>(() => parseView(window.location.search));
+  const catalogueFilters = useCatalogueFilters();
+  const [focusLlmSettings, setFocusLlmSettings] = React.useState(false);
+  const focusTranslation = React.useRef(false);
+  const provider = useLibraryProvider(controller.settings, navViewOf(view) === "words" && !controller.loading);
+  const eligibleIds = React.useMemo(() => new Set(controller.entries.filter((entry) => {
+    const state = translationState(entry);
+    return state === "pending" || state === "failed";
+  }).map((entry) => entry.id)), [controller.entries]);
+  React.useEffect(() => {
+    if (view !== "words" || !focusTranslation.current || provider.availability === "loading") return;
+    const launch = document.getElementById("library-translate");
+    const target = launch && !launch.matches(":disabled") ? launch : document.getElementById("library-search");
+    target?.focus();
+    focusTranslation.current = false;
+  }, [view, provider.availability]);
   const tour = useFoxTour(controller.initialLibraryEmpty, view === "home" && !controller.demo);
   const [batchLexemeId, setBatchLexemeId] = React.useState<string>();
   const returnFocus = React.useRef<string>();
@@ -43,11 +61,12 @@ function App() {
     draftDirty.current = dirty;
     setCardSaving(pending);
   }, []);
-  function navigate(next: View) {
+  function navigate(next: View, focusLlm = false) {
     if (view === next || cardSaving) return;
     if (draftDirty.current && !window.confirm("Есть несохранённые правки. Уйти и отменить их?")) return;
     draftDirty.current = false;
     setBatchLexemeId(undefined);
+    setFocusLlmSettings(focusLlm);
     setView(next);
   }
   function openBatchWord(id: string) {
@@ -182,6 +201,11 @@ function App() {
           {/* Until Спорные and Экспорт ship, their views open the library workspace. */}
           {view === "words" || view === "triage" || view === "export" ? (
             <LibraryWorkspace controller={controller} batchLexemeId={batchLexemeId} exporting={exporting}
+              catalogueFilters={catalogueFilters}
+              translation={{ ...provider, availability: controller.settingsSaving ? "loading" : provider.availability,
+                eligibleIds, perSense: Boolean(controller.settings.llm_examples_per_sense),
+                onOpenSettings: () => navigate("settings", true),
+                onStart: (ids) => void controller.enrichWords({ ids, retryFailed: true, exact: true }) }}
               onBackToBatch={batchLexemeId ? backToBatch : undefined} onDraftChange={reportDraft} />
           ) : null}
           {view === "settings" && loading ? <main className="reading-page app-scrollbar"><p className="screen-page" role="status">Загружаю настройки…</p></main> : null}
@@ -190,6 +214,7 @@ function App() {
               settings={controller.settings}
               onSave={controller.saveSettings}
               onOpenTour={tour.start}
+              focusLlm={focusLlmSettings} onOpenWords={() => { focusTranslation.current = true; navigate("words"); }}
               saving={controller.settingsSaving}
               busy={busy || exporting}
             />

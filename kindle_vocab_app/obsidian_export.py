@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from kindle_vocab_app import card_fields
+from kindle_vocab_app import study_details
 from kindle_vocab_app.obsidian_sync import vault_operation_lock
 
 _PLUGIN = "obsidian-spaced-repetition"
@@ -278,12 +278,14 @@ def _prepare_notes(
         if stable_id in seen:
             raise ObsidianExportError("Несколько выбранных слов имеют один постоянный ID карточки Obsidian")
         seen.add(stable_id)
-        card = card_fields.resolve(entry, edits.get(lexeme_id))
+        card, enrichment = study_details.resolve(entry, edits.get(lexeme_id))
         spelling = str(entry.get("display_form") or entry.get("lemma") or "—")
         front = _literal(spelling, settings)
         back = _literal(card.meaning_ru or "—", settings)
         if context := str(card.occurrence.get("context") or "").strip():
             back += "<br>" + _literal(context, settings)
+        for detail in study_details.answer_details(enrichment, card):
+            back += "<br>" + _literal(detail, settings)
         if any(marker in line for marker in settings.inline for line in (front, back)):
             raise ObsidianExportError("Разделитель Spaced Repetition встречается в тексте карточки Kindle Cards")
         if any(line in settings.reserved for line in (front, back)):

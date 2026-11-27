@@ -62,6 +62,7 @@ const RANKING_VERSION = "r2";
 
 let scenarioOverride: string | undefined;
 let instant = false;
+const reviewedInputs = new Map<string, string>();
 
 const previewScenario = () =>
   scenarioOverride ?? (typeof window === "undefined" ? "mixed" : (new URLSearchParams(window.location.search).get("scenario") ?? "mixed"));
@@ -253,7 +254,7 @@ function makeLexeme(spec: Spec, index: number): LexemeRecord {
       anki: { state: "not_exported", last_exported_at: "" },
       quizlet: { state: "not_exported", last_exported_at: "" },
     },
-    first_seen_at: FIRST_SEEN,
+    first_seen_at: spec.fresh ? "2026-07-22T10:00:00Z" : FIRST_SEEN,
     last_seen_at: occurrences.at(-1)?.looked_up_at ?? FIRST_SEEN,
     last_kindle_sync_id: "preview-sync",
     dictionary: spec.meaning ? { meaning_ru: spec.meaning, pos: spec.pos, source: "wiktionary" } : null,
@@ -294,6 +295,7 @@ let mockSettings: AppSettings = { ...defaultSettings };
 
 /** Rebuild the in-memory library for a scenario. Tests call it with `instant`; the preview never does. */
 export function resetMockBackend(options: { scenario?: string; instant?: boolean } = {}): void {
+  reviewedInputs.clear();
   scenarioOverride = options.scenario;
   instant = options.instant ?? false;
   const scenario = previewScenario();
@@ -424,6 +426,9 @@ function withV4(entry: LexemeRecord, rankings: Map<string, LexemeRanking>): Lexe
   const mark = exportMarks.get(entry.id);
   return {
     ...entry,
+    enrichment_state: mockReviewState(entry),
+    enrichment_ineligible_reason: mockReviewState(entry) === "ineligible"
+      ? (["ready", "rejected"].includes(entry.processing.state) ? "В записи нет букв" : "Слово ещё не обработано") : undefined,
     study_priority: mockStudyPriority(entry),
     ranking: rankings.get(entry.id) ?? null,
     decision: decisions.get(entry.id) ?? null,
@@ -601,23 +606,49 @@ function isEnrichable(entry: LexemeRecord) {
 
 function mockEnrichmentQueue() {
   return {
-    pending: mockEntries.filter((entry) => isEnrichable(entry) && !entry.enrichment).length,
+    pending: mockEntries.filter((entry) => isEnrichable(entry) && !entry.enrichment
+      && !["skip", "known", "junk"].includes(decisions.get(entry.id)?.value ?? "")).length,
     failed: mockEntries.filter((entry) => isEnrichable(entry) && entry.enrichment?.status === "failed").length,
   };
 }
 
+function reviewInput(entry: LexemeRecord) {
+  const edit = cardEdits.get(entry.id);
+  return JSON.stringify([edit?.example_occurrence_id ?? defaultExampleId(entry), edit?.meaning_ru ?? entry.dictionary?.meaning_ru ?? "",
+    Boolean(mockSettings.llm_examples_per_sense)]);
+}
+
+function mockReviewState(entry: LexemeRecord): NonNullable<LexemeRecord["enrichment_state"]> {
+  if (!["ready", "rejected"].includes(entry.processing.state) || !/[a-z]/i.test(entry.lemma)) return "ineligible";
+  if (entry.enrichment?.status === "failed") return "failed";
+  return entry.enrichment?.prompt_version === 2 && reviewedInputs.get(entry.id) === reviewInput(entry) ? "ready" : "pending";
+}
+
 function mockEnrichment(entry: LexemeRecord): Enrichment {
+  const card = cardOf(entry);
+  const sentence = entry.occurrences.find((item) => item.id === card.example_occurrence_id)?.context ?? "";
+  const weak = sentence.trim().split(/\s+/).length < 5;
+  const example = showcaseTranslations[entry.lemma];
+  const meaning = card.meaning_ru || example?.meaning_ru || `перевод «${entry.lemma}»`;
+  const senses = mockSettings.llm_examples_per_sense && entry.lemma === "admit" ? [
+    { meaning_ru: "признавать", example_en: "I admit I was wrong.", example_ru: "Признаю, я ошибся." },
+    { meaning_ru: "допускать, впускать", example_en: "This ticket admits one visitor.", example_ru: "По этому билету может пройти один посетитель." },
+  ] : [];
   return {
     status: "ready",
-    meaning_ru: `перевод «${entry.lemma}»`,
-    definition_en: `a preview definition of ${entry.lemma}`,
-    context_ru: "Перевод предложения из книги.",
-    example_en: `A new example with ${entry.lemma}.`,
-    example_ru: "Новый пример.",
+    meaning_ru: meaning,
+    meaning_action: card.meaning_ru ? "kept" : "added",
+    context_quality: !sentence ? "missing" : weak ? "weak" : "good",
+    context_meaning_ru: weak ? "" : meaning.split(";")[0],
+    context_matches: true,
+    context_truncated: sentence.length > 400,
+    example_en: weak ? example?.example_en : undefined,
+    example_ru: weak ? example?.example_ru : undefined,
+    senses,
     note_ru: "",
     provider: "preview",
     model: "preview-model",
-    prompt_version: 1,
+    prompt_version: 2,
     error: "",
     updated_at: new Date().toISOString(),
   };
@@ -805,8 +836,22 @@ export async function mockBackend<T>(action: string, payload: unknown): Promise<
     return { ok: true, model: "preview-model", seconds: 1.4, sample: { meaning_ru: "мельком увидеть; проблеск", definition_en: "a brief look" } } as T;
   }
   if (action === "enrich_lexemes") {
-    const ids = new Set(mockEntries.filter((entry) => isEnrichable(entry) && entry.enrichment?.status !== "ready").map((entry) => entry.id));
-    mockEntries = mockEntries.map((entry) => (ids.has(entry.id) ? { ...entry, enrichment: mockEnrichment(entry) } : entry));
+    const request = payload as { ids?: string[]; retry_failed?: boolean; expected_count?: number };
+    const chosen = request.ids === undefined ? undefined : new Set(request.ids);
+    const ids = new Set(mockEntries.filter((entry) => {
+      if (chosen) {
+        const state = mockReviewState(entry);
+        return chosen.has(entry.id) && (state === "pending" || (request.retry_failed && state === "failed"));
+      }
+      return isEnrichable(entry) && !["known", "skip", "junk"].includes(decisions.get(entry.id)?.value ?? "")
+        && (!entry.enrichment || (request.retry_failed && entry.enrichment.status === "failed"));
+    }).map((entry) => entry.id));
+    if (request.expected_count !== undefined && request.expected_count !== ids.size) throw new Error("Состав слов изменился. Откройте список для подтверждения ещё раз.");
+    mockEntries = mockEntries.map((entry) => {
+      if (!ids.has(entry.id)) return entry;
+      reviewedInputs.set(entry.id, reviewInput(entry));
+      return { ...entry, enrichment: mockEnrichment(entry) };
+    });
     return { requested: ids.size, enriched: ids.size, failed: 0, error: "", message: `Переведено: ${ids.size}; без перевода: 0`, entries: v4Entries(), queue_status: mockQueueStatus(), enrichmentQueue: mockEnrichmentQueue() } as T;
   }
   if (action === "export_apkg" || action === "push_anki") {

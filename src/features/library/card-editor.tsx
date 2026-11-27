@@ -4,7 +4,8 @@ import { ClipLamp } from "@/components/light/light";
 import { PencilFrame } from "@/components/sketch/sketch";
 import { MEANING_MAX_LENGTH, type DecisionValue, type LexemeRecord, type StudyPrioritySource } from "@/types";
 import { cardChanges, cardDraft, selectedExample, type CardChanges, type CardDraft } from "./card-editor-domain";
-import { isCardEligible, obsidianSyncReason, partOfSpeechLabel, processingLabel, russianMeaning } from "./domain";
+import { obsidianSyncReason, partOfSpeechLabel, processingLabel, russianMeaning, translationState } from "./domain";
+import "./word-translation.css";
 import { decisionLabel, isRpV2Priority, recordedSearchEvidence, studyPriority } from "./study-priority";
 
 type Props = {
@@ -126,6 +127,8 @@ export function CardEditor({ entry, prioritySource, readOnly, busy, llmEnabled, 
         {error ? <p role="alert" className="words-error">{error}</p> : null}
         <p role="status" className="words-meta">{message || (dirty ? "Есть несохранённые правки" : "")}</p>
       </form>
+      {dirty ? <p className="words-meta">Сохраните правки, чтобы проверить перевод по выбранному предложению.</p> :
+        <WordTranslationDetails entry={entry} llmEnabled={llmEnabled} disabled={disabled} onEnrich={onEnrich} />}
       <div className="card-decision" aria-busy={pending}>
         <p className="words-meta">Моё решение · {decisionLabel(entry)}</p>
         <div className="card-edit-actions" role="group" aria-label="Моё решение">
@@ -145,7 +148,6 @@ export function CardEditor({ entry, prioritySource, readOnly, busy, llmEnabled, 
       </> : null}
       {entry.processing.error ? <p className="words-error">{entry.processing.error}</p> : null}
       {entry.enrichment?.error ? <p className="words-error">{entry.enrichment.error}</p> : null}
-      <WordTranslationDetails entry={entry} llmEnabled={llmEnabled} disabled={disabled || dirty} onEnrich={onEnrich} />
       <p className="words-meta">Obsidian · {obsidianSyncReason(entry)}</p>
       <h3>Все контексты</h3>
       {entry.occurrences.map((item) => <blockquote className="word-context" key={item.id}><p>{item.context || "Контекст отсутствует"}</p><footer>{item.book_title || "Источник без названия"}{item.authors ? ` · ${item.authors}` : ""}</footer></blockquote>)}
@@ -160,17 +162,43 @@ export function WordTranslationDetails({ entry, llmEnabled, disabled, onEnrich }
   onEnrich: (id: string, retryFailed: boolean) => void;
 }) {
   const enrichment = entry.enrichment;
-  if (enrichment?.status === "ready") return <div className="words-translation">
-    {enrichment.definition_en ? <p>{enrichment.definition_en}</p> : null}
-    {enrichment.example_en ? <div><h3>Сгенерированный пример</h3><p><em>{enrichment.example_en}</em></p>
-      {enrichment.example_ru ? <p>{enrichment.example_ru}</p> : null}</div> : null}
-    {enrichment.note_ru ? <p>{enrichment.note_ru}</p> : null}
-  </div>;
-  if (!isCardEligible(entry)) return null;
-  const failed = enrichment?.status === "failed";
-  return <div className="words-translation">
-    <p className="words-meta">{failed ? "Перевод этого слова не удался." : llmEnabled ? "Перевода по контексту ещё нет." : "Перевод по контексту можно включить в настройках."}</p>
-    {llmEnabled ? <Button type="button" variant="secondary" size="sm" disabled={disabled}
-      onClick={() => onEnrich(entry.id, failed)}>{failed ? "Повторить перевод слова" : "Перевести слово"}</Button> : null}
+  const state = translationState(entry);
+  const failed = state === "failed";
+  const checked = enrichment?.status === "ready" && enrichment.prompt_version >= 2 && (enrichment.review_matches ?? state === "ready")
+    && enrichment.context_matches !== false;
+  const showExample = checked || (enrichment?.status === "ready" && enrichment.prompt_version === 1 && enrichment.context_matches !== false);
+  const canCheck = state === "pending" || failed;
+  if (!showExample && !canCheck) return entry.enrichment_ineligible_reason
+    ? <p className="words-meta">Перевод с ИИ недоступен. {entry.enrichment_ineligible_reason}.</p> : null;
+  return <div className="word-translation-review">
+    {checked && <div>
+      <h3>Проверка перевода</h3>
+      <p className="words-meta">{!enrichment.meaning_ru ? "ИИ не нашёл подходящего перевода."
+        : enrichment.meaning_action === "kept" ? "ИИ подтвердил исходный перевод."
+        : enrichment.meaning_action === "refined" ? "ИИ уточнил перевод слова." : "ИИ предложил перевод слова."}</p>
+      {entry.card?.meaning_source === "edited" && enrichment.meaning_ru && enrichment.meaning_ru !== entry.card.meaning_ru &&
+        <p><strong>Вариант ИИ</strong> — {enrichment.meaning_ru}. Ваш перевод сохранён в карточке.</p>}
+      {enrichment.context_meaning_ru ? <p><strong>В этой цитате</strong> — {enrichment.context_meaning_ru}</p>
+        : <p className="words-meta">{enrichment.context_quality === "missing" ? "Для этого слова нет книжной цитаты." : "По цитате нельзя уверенно выбрать значение."}</p>}
+      {enrichment.context_ru && <p><strong>{enrichment.context_truncated ? "Перевод фрагмента" : "Перевод цитаты"}</strong> — {enrichment.context_ru}</p>}
+    </div>}
+    {showExample && enrichment && <>
+      {enrichment.example_en ? <div><h3>Сгенерированный пример</h3><p lang="en"><em>{enrichment.example_en}</em></p>
+        {enrichment.example_ru ? <p>{enrichment.example_ru}</p> : null}</div> : null}
+      {checked && enrichment.senses && enrichment.senses.length > 0 && <div><h3>Примеры по значениям · ИИ</h3>
+        <ol>{enrichment.senses.map((sense) => <li key={sense.meaning_ru}>
+          <strong>{sense.meaning_ru}</strong><p lang="en"><em>{sense.example_en}</em></p><p>{sense.example_ru}</p>
+        </li>)}</ol></div>}
+      {enrichment.definition_en || enrichment.note_ru ? <details><summary>Пояснение к переводу</summary>
+        {enrichment.definition_en && <p lang="en">{enrichment.definition_en}</p>}
+        {enrichment.note_ru && <p>{enrichment.note_ru}</p>}</details> : null}
+    </>}
+    {canCheck && <>
+      <p className="words-meta">{failed ? "Проверку перевода не удалось завершить."
+        : enrichment?.status === "ready" ? "Можно проверить перевод по текущей цитате и настройкам."
+        : llmEnabled ? "Перевода по контексту ещё нет." : "Перевод по контексту можно включить в настройках."}</p>
+      {llmEnabled ? <Button type="button" variant="secondary" size="sm" disabled={disabled}
+        onClick={() => onEnrich(entry.id, failed)}>{failed ? "Повторить перевод слова" : "Перевести слово с ИИ"}</Button> : null}
+    </>}
   </div>;
 }

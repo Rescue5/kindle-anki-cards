@@ -3,49 +3,66 @@
 The offline optimizer stays the deterministic source of acceptance and
 usefulness. This module only adds what local data cannot provide honestly:
 the Russian meaning of the sense used in the book, a learner definition, a
-translation of the book sentence and a fresh example. Results are stored per
-canonical lexeme, so every word is sent to the provider at most once.
+translation of the selected quote and a fresh example when needed. Results are
+stored per canonical lexeme and tied to the input used to generate them.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from queue import SimpleQueue
 from typing import Any, Protocol
 
 from kindle_vocab_app import card_fields
-from kindle_vocab_app.anki_export import is_exportable, primary_occurrence
+from kindle_vocab_app.anki_export import is_exportable
+from kindle_vocab_app.contracts import MEANING_MAX_LENGTH
 from kindle_vocab_app.llm import LLMError
 from kindle_vocab_app.llm.presets import get_api_key, preset_for
 from kindle_vocab_app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-PROMPT_VERSION = 1
+PROMPT_VERSION = 2
 BATCH_SIZE = 8
 MAX_CONSECUTIVE_FAILED_BATCHES = 3
-CONTEXTS_PER_WORD = 2
 
-FIELDS = ("meaning_ru", "definition_en", "context_ru", "example_en", "example_ru", "note_ru")
-_FIELD_LIMITS = {"meaning_ru": 120, "definition_en": 200, "context_ru": 600, "example_en": 200, "example_ru": 240, "note_ru": 200}
+_FIELD_LIMITS = {
+    "meaning_ru": MEANING_MAX_LENGTH, "definition_en": 200, "context_ru": 600,
+    "example_en": 200, "example_ru": 240, "note_ru": 200, "context_meaning_ru": MEANING_MAX_LENGTH,
+}
+_MEANING_ACTIONS = ("kept", "refined", "added")
+_CONTEXT_QUALITIES = ("good", "weak", "ambiguous", "missing")
+_SENSE_FIELDS = ("meaning_ru", "example_en", "example_ru")
 
 SYSTEM_PROMPT = """You write vocabulary flashcards for a Russian-speaking adult who reads English books on Kindle.
-Each numbered item contains a word the reader looked up, its dictionary form, a part-of-speech guess and up to two excerpts from the book. An excerpt may be truncated.
+Each numbered item contains the word, its dictionary form, a part-of-speech guess, the current Russian meaning and zero or one selected book excerpt. The excerpt may be truncated.
 
-For every item, first decide which sense the word has in the book sentence, then fill:
-- meaning_ru: concise Russian translation of exactly that sense, 1-4 words, in dictionary form (infinitive for verbs, singular nominative for nouns) even if the book uses another form; separate close alternatives with "; ".
+For every item, fill:
+- meaning_ru and meaning_action: keep a correct existing translation verbatim (kept); correct or supplement it only when needed (refined); supply a concise dictionary-form translation if none exists (added).
+- context_meaning_ru: Russian meaning of the word specifically in the selected excerpt; empty when the excerpt does not establish a sense.
+- context_quality: good if the excerpt teaches the sense, weak if it is fragmentary or hard to learn from, ambiguous if multiple senses fit, missing if there is no excerpt.
 - definition_en: short learner-friendly English definition of that sense, at most 15 words.
-- context_ru: natural Russian translation of the first book sentence; empty string if there is no sentence.
-- example_en: one new short everyday sentence using the word in the same sense. Do not reuse the book sentence.
-- example_ru: Russian translation of example_en.
+- context_ru: translate only the supplied excerpt. Leave empty when none is supplied.
+- example_en and example_ru: for weak, ambiguous or missing context, write a new short example that clearly demonstrates a supported sense, then translate it. Leave both empty if a good excerpt suffices. Do not reuse a book excerpt.
+- senses: if examples_per_sense is true, return all substantially different major senses, each with its own meaning_ru, example_en and example_ru. Combine synonyms and near-equivalent nuances. Otherwise return an empty array.
 - note_ru: optional short Russian note when it truly helps: register (книжное, устаревшее, разговорное, грубое), part of a phrasal verb or idiom, or a false friend. Otherwise an empty string.
 
 If an item is a proper name, a typo or not an English word, leave meaning_ru empty and explain briefly in note_ru.
 Return every item exactly once with its "n" number. Use plain text without markdown."""
 
+_ITEM_PROPERTIES = {
+    "n": {"type": "integer"},
+    **{name: {"type": "string"} for name in _FIELD_LIMITS},
+    "meaning_action": {"type": "string", "enum": list(_MEANING_ACTIONS)},
+    "context_quality": {"type": "string", "enum": list(_CONTEXT_QUALITIES)},
+    "senses": {"type": "array", "items": {
+        "type": "object", "properties": {name: {"type": "string"} for name in _SENSE_FIELDS},
+        "required": list(_SENSE_FIELDS), "additionalProperties": False,
+    }},
+}
 SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -53,8 +70,8 @@ SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {
                 "type": "object",
-                "properties": {"n": {"type": "integer"}, **{name: {"type": "string"} for name in FIELDS}},
-                "required": ["n", *FIELDS],
+                "properties": _ITEM_PROPERTIES,
+                "required": list(_ITEM_PROPERTIES),
                 "additionalProperties": False,
             },
         }
@@ -117,14 +134,58 @@ def build_client(provider: str, model: str, base_url: str = "", *, parallel: boo
     )
 
 
-def needs_enrichment(lexeme: dict[str, Any], *, retry_failed: bool = False) -> bool:
-    if not is_exportable(lexeme):
+def batch_size_for(default: int, *, examples_per_sense: bool) -> int:
+    return min(default, 2) if examples_per_sense else default
+
+
+def _ineligible_reason(lexeme: Mapping[str, Any]) -> str:
+    if (lexeme.get("processing") or {}).get("state") not in {"ready", "rejected"}:
+        return "Слово ещё не обработано"
+    spelling = str(lexeme.get("display_form") or lexeme.get("lemma") or "")
+    return "" if any(character.isalpha() for character in spelling) else "В записи нет букв"
+
+
+def needs_enrichment(lexeme: dict[str, Any], *, retry_failed: bool = False, decision: str = "") -> bool:
+    """Conservative automatic admission, including for libraries upgraded from v1."""
+    if decision in {"skip", "known", "junk"} or _ineligible_reason(lexeme) or not is_exportable(lexeme):
         return False
-    enrichment = lexeme.get("enrichment") or {}
-    status = enrichment.get("status")
-    if status == "ready" and enrichment.get("prompt_version") == PROMPT_VERSION:
-        return False
-    return retry_failed or status != "failed"
+    status = (lexeme.get("enrichment") or {}).get("status")
+    return status != "ready" and (retry_failed or status != "failed")
+
+
+def enrichment_state(
+    lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None = None, *, examples_per_sense: bool = False,
+) -> str:
+    if _ineligible_reason(lexeme):
+        return "ineligible"
+    stored = lexeme.get("enrichment") or {}
+    status = stored.get("status")
+    if status == "failed":
+        return "failed"
+    if (status == "ready" and stored.get("prompt_version") == PROMPT_VERSION
+            and stored.get("input_fingerprint") == _prepare_word(lexeme, edit, examples_per_sense).fingerprint):
+        return "ready"
+    return "pending"
+
+
+def decorate(
+    entries: list[dict[str, Any]], edits: Mapping[str, Mapping[str, Any]], *, examples_per_sense: bool,
+) -> None:
+    for entry in entries:
+        edit = edits.get(entry["id"])
+        entry["enrichment_state"] = enrichment_state(entry, edit, examples_per_sense=examples_per_sense)
+        if entry["enrichment_state"] == "ineligible":
+            entry["enrichment_ineligible_reason"] = _ineligible_reason(entry)
+        if stored := entry.get("enrichment"):
+            selected = card_fields.resolve(entry, edit, include_enrichment=False).occurrence
+            context = str(selected.get("context") or "")
+            applicable = card_fields.enrichment_for_context(entry, context)
+            proven = "selected_context_sha256" in stored or bool(stored.get("context_source_sha256"))
+            context_matches = bool(applicable and (proven or card_fields.context_translation(entry, context)))
+            decorated = {**stored, "context_matches": context_matches}
+            if stored.get("prompt_version") == PROMPT_VERSION:
+                decorated["review_matches"] = bool(card_fields.enrichment_for_card(entry, edit))
+            entry["enrichment"] = decorated
 
 
 def candidates(
@@ -132,78 +193,161 @@ def candidates(
     *,
     ids: set[str] | None = None,
     retry_failed: bool = False,
+    edits: Mapping[str, Mapping[str, Any]] | None = None,
+    decisions: Mapping[str, Mapping[str, Any]] | None = None,
+    examples_per_sense: bool = False,
 ) -> list[dict[str, Any]]:
     """New words first: the reader cares most about what they just looked up."""
-    selected = [
-        lexeme
-        for lexeme in lexemes
-        if (not ids or str(lexeme.get("id") or "") in ids) and needs_enrichment(lexeme, retry_failed=retry_failed)
-    ]
+    if ids is None:
+        decisions = decisions or {}
+        selected = [lexeme for lexeme in lexemes if needs_enrichment(
+            lexeme, retry_failed=retry_failed, decision=str(decisions.get(lexeme["id"], {}).get("value") or ""),
+        )]
+    else:
+        edits = edits or {}
+        states = {"pending", "failed"} if retry_failed else {"pending"}
+        selected = [lexeme for lexeme in lexemes if lexeme["id"] in ids and enrichment_state(
+            lexeme, edits.get(lexeme["id"]), examples_per_sense=examples_per_sense,
+        ) in states]
     selected.sort(key=lambda item: str(item.get("last_seen_at") or ""), reverse=True)
     selected.sort(key=lambda item: item.get("freshness") != "new")
     return selected
 
 
-def queue_counts(lexemes: list[dict[str, Any]]) -> dict[str, int]:
-    pending = sum(needs_enrichment(item) for item in lexemes)
-    failed = sum(
-        is_exportable(item) and (item.get("enrichment") or {}).get("status") == "failed" for item in lexemes
-    )
+def queue_counts(
+    lexemes: list[dict[str, Any]], decisions: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, int]:
+    pending = len(candidates(lexemes, decisions=decisions))
+    failed = sum(not _ineligible_reason(item) and (item.get("enrichment") or {}).get("status") == "failed" for item in lexemes)
     return {"pending": pending, "failed": failed}
 
 
-def _prompt_items(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    items = []
-    for number, lexeme in enumerate(batch, 1):
-        analysis = (lexeme.get("processing") or {}).get("analysis") or {}
-        primary = primary_occurrence(lexeme)
-        items.append(
-            {
-                "n": number,
-                "word": str(primary.get("word") or lexeme.get("display_form") or lexeme.get("lemma") or ""),
-                "lemma": str(analysis.get("base_form") or lexeme.get("lemma") or ""),
-                "pos": str(analysis.get("pos") or ""),
-                "sentences": card_fields.enrichment_sentences(lexeme, CONTEXTS_PER_WORD),
-            }
-        )
-    return items
+@dataclass(frozen=True)
+class _WordInput:
+    word: str
+    lemma: str
+    pos: str
+    current_meaning: str
+    context: str
+    review_fingerprint: str
+    fingerprint: str
+
+    @property
+    def excerpt(self) -> str:
+        return self.context[:card_fields.MAX_ENRICHMENT_CONTEXT_CHARS]
 
 
-def build_user_message(batch: list[dict[str, Any]]) -> str:
-    return json.dumps({"items": _prompt_items(batch)}, ensure_ascii=False)
+def _prepare_word(
+    lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None, examples_per_sense: bool,
+) -> _WordInput:
+    analysis = (lexeme.get("processing") or {}).get("analysis") or {}
+    card = card_fields.resolve(lexeme, edit)
+    source = card_fields.resolve(lexeme, edit, include_enrichment=False)
+    occurrence = card.occurrence
+    word = str(occurrence.get("word") or lexeme.get("display_form") or lexeme.get("lemma") or "")
+    lemma = str(analysis.get("base_form") or lexeme.get("lemma") or "")
+    pos = str(analysis.get("pos") or "")
+    context = str(occurrence.get("context") or "")
+    review = card_fields.review_fingerprint(lexeme, source)
+    fingerprint = card_fields.context_fingerprint(json.dumps([review, examples_per_sense]))
+    return _WordInput(word, lemma, pos, card.meaning_ru, context, review, fingerprint)
 
 
-def parse_items(data: dict[str, Any], batch_size: int) -> dict[int, dict[str, str]]:
+def _user_message(words: list[_WordInput], examples_per_sense: bool) -> str:
+    return json.dumps({"examples_per_sense": examples_per_sense, "items": [
+        {"n": number, "word": word.word, "lemma": word.lemma, "pos": word.pos,
+         "current_meaning_ru": word.current_meaning, "sentences": [word.excerpt] if word.excerpt else []}
+        for number, word in enumerate(words, 1)
+    ]}, ensure_ascii=False)
+
+
+def parse_items(data: dict[str, Any], batch_size: int) -> dict[int, dict[str, Any]]:
     """Validate the model response; return cleaned payloads keyed by item number."""
-    result: dict[int, dict[str, str]] = {}
-    for raw in data.get("items") or []:
+    result: dict[int, dict[str, Any]] = {}
+    seen: set[int] = set()
+    rows = data.get("items")
+    if not isinstance(rows, list):
+        return result
+    for raw in rows:
         if not isinstance(raw, dict):
             continue
-        try:
-            number = int(raw.get("n"))
-        except (TypeError, ValueError):
+        number = raw.get("n")
+        if type(number) is not int or not 1 <= number <= batch_size:
             continue
-        if not 1 <= number <= batch_size or number in result:
+        if number in seen:
+            result.pop(number, None)
+            continue
+        seen.add(number)
+        if not all(isinstance(raw.get(name), str) for name in _FIELD_LIMITS):
+            continue
+        if raw.get("meaning_action") not in _MEANING_ACTIONS or raw.get("context_quality") not in _CONTEXT_QUALITIES:
+            continue
+        senses = _senses(raw.get("senses"))
+        if senses is None:
             continue
         result[number] = {
-            name: " ".join(str(raw.get(name) or "").split())[: _FIELD_LIMITS[name]] for name in FIELDS
+            **{name: " ".join(raw[name].split())[:limit] for name, limit in _FIELD_LIMITS.items()},
+            "meaning_action": raw["meaning_action"], "context_quality": raw["context_quality"],
+            "senses": senses,
         }
     return result
 
 
-def _request_batch(client: CompletionClient, batch: list[dict[str, Any]]) -> dict[int, dict[str, str]]:
-    prompt_items = _prompt_items(batch)
-    message = json.dumps({"items": prompt_items}, ensure_ascii=False)
-    items = parse_items(client.complete_json(SYSTEM_PROMPT, message, SCHEMA), len(batch))
-    for number, payload in items.items():
-        if payload["context_ru"]:
-            sentences = prompt_items[number - 1]["sentences"]
-            payload["context_source_sha256"] = card_fields.context_fingerprint(sentences[0]) if sentences else ""
+def _senses(raw_senses: Any) -> list[dict[str, str]] | None:
+    result = []
+    seen: set[str] = set()
+    if not isinstance(raw_senses, list):
+        return None
+    for raw in raw_senses:
+        if not isinstance(raw, dict) or not all(isinstance(raw.get(name), str) for name in _SENSE_FIELDS):
+            return None
+        sense = {name: " ".join(raw[name].split())[:_FIELD_LIMITS[name]] for name in _SENSE_FIELDS}
+        key = sense["meaning_ru"].casefold()
+        if not all(sense.values()):
+            return None
+        if key in seen:
+            continue
+        result.append(sense)
+        seen.add(key)
+    return result
+
+
+def _request_batch(
+    client: CompletionClient, words: list[_WordInput], examples_per_sense: bool,
+) -> dict[int, dict[str, Any]]:
+    message = _user_message(words, examples_per_sense)
+    items = parse_items(client.complete_json(SYSTEM_PROMPT, message, SCHEMA), len(words))
+    for number, payload in list(items.items()):
+        word = words[number - 1]
+        if payload["meaning_action"] == "kept" and word.current_meaning:
+            payload["meaning_ru"] = word.current_meaning
+        payload["meaning_action"] = (
+            "kept" if word.current_meaning and payload["meaning_ru"] == word.current_meaning
+            else "refined" if word.current_meaning else "added"
+        )
+        if not word.excerpt:
+            payload.update(context_ru="", context_meaning_ru="", context_quality="missing")
+        elif payload["context_quality"] == "missing":
+            payload["context_quality"] = "weak"
+        if not (payload["example_en"] and payload["example_ru"]):
+            payload.update(example_en="", example_ru="")
+            if payload["meaning_ru"] and payload["context_quality"] != "good":
+                items.pop(number)
+                continue
+        if not examples_per_sense:
+            payload["senses"] = []
+        payload.update(
+            input_fingerprint=word.fingerprint,
+            review_fingerprint=word.review_fingerprint,
+            selected_context_sha256=card_fields.context_fingerprint(word.context),
+            context_source_sha256=card_fields.context_fingerprint(word.excerpt),
+            context_truncated=len(word.context) > len(word.excerpt),
+        )
     return items
 
 
 def _save_batch(
-    batch: list[dict[str, Any]], items: dict[int, dict[str, str]], batch_error: str,
+    batch: list[dict[str, Any]], items: dict[int, dict[str, Any]], batch_error: str,
     store: EnrichmentStore, provider: str, model: str, summary: EnrichmentSummary,
 ) -> None:
     for number, lexeme in enumerate(batch, 1):
@@ -212,12 +356,13 @@ def _save_batch(
         if payload is not None and not (payload["meaning_ru"] or payload["note_ru"]):
             payload = None
             error = "Модель не дала перевод"
-        store.save_enrichment(
-            str(lexeme.get("language") or "en"), str(lexeme.get("lemma") or ""),
-            status="ready" if payload is not None else "failed", provider=provider,
-            model=model, prompt_version=PROMPT_VERSION, payload=payload,
-            error="" if payload is not None else error,
-        )
+        if payload is not None or (lexeme.get("enrichment") or {}).get("status") != "ready":
+            store.save_enrichment(
+                str(lexeme.get("language") or "en"), str(lexeme.get("lemma") or ""),
+                status="ready" if payload is not None else "failed", provider=provider,
+                model=model, prompt_version=PROMPT_VERSION, payload=payload,
+                error="" if payload is not None else error,
+            )
         if payload is None:
             summary.failed += 1
         else:
@@ -234,23 +379,28 @@ def enrich(
     progress: Callable[[int, int], None] | None = None,
     batch_size: int = BATCH_SIZE,
     max_parallel_batches: int = 1,
+    edits: Mapping[str, Mapping[str, Any]] | None = None,
+    examples_per_sense: bool = False,
 ) -> EnrichmentSummary:
     summary = EnrichmentSummary(requested=len(lexemes))
     if not lexemes:
         return summary
     if batch_size < 1 or max_parallel_batches < 1:
         raise ValueError("Batch size and concurrency must be positive")
+    batch_size = batch_size_for(batch_size, examples_per_sense=examples_per_sense)
     consecutive_failures = 0
     next_start = 0
     pending = {}
-    finished: SimpleQueue[Future[dict[int, dict[str, str]]]] = SimpleQueue()
+    edits = edits or {}
+    finished: SimpleQueue[Future[dict[int, dict[str, Any]]]] = SimpleQueue()
     with ThreadPoolExecutor(max_workers=max_parallel_batches) as pool:
         while True:
             # Drain available replies before admitting more work (one may be a quota error).
             while (not summary.error and next_start < len(lexemes)
                    and len(pending) < max_parallel_batches and finished.empty()):
                 batch = lexemes[next_start : next_start + batch_size]
-                future = pool.submit(_request_batch, client, batch)
+                inputs = [_prepare_word(word, edits.get(word["id"]), examples_per_sense) for word in batch]
+                future = pool.submit(_request_batch, client, inputs, examples_per_sense)
                 pending[future] = batch
                 future.add_done_callback(finished.put)
                 next_start += len(batch)
@@ -296,9 +446,9 @@ SAMPLE_LEXEME: dict[str, Any] = {
 }
 
 
-def test_connection(client: CompletionClient) -> dict[str, str]:
+def test_connection(client: CompletionClient) -> dict[str, Any]:
     """Translate one built-in sample word; no library data leaves the computer."""
-    items = parse_items(client.complete_json(SYSTEM_PROMPT, build_user_message([SAMPLE_LEXEME]), SCHEMA), 1)
+    items = _request_batch(client, [_prepare_word(SAMPLE_LEXEME, None, False)], False)
     if 1 not in items or not items[1]["meaning_ru"]:
         raise LLMError("Модель ответила, но не дала перевод пробного слова")
     return items[1]

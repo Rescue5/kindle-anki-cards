@@ -14,6 +14,7 @@ import {
 } from "./domain";
 import type {
   AppSettings,
+  EnrichmentQueue,
   BookOption,
   ConnectorStatus,
   CoverSummary,
@@ -50,6 +51,7 @@ type EnrichResult = {
   error: string;
   message: string;
   entries: LexemeRecord[];
+  enrichmentQueue?: EnrichmentQueue;
   queue_status: QueueStatus;
 };
 
@@ -99,6 +101,7 @@ export function useLibraryController() {
   const [selectedId, setSelectedId] = React.useState("");
   const [operation, setOperation] = React.useState<Operation>(idleOperation);
   const [queueStatus, setQueueStatus] = React.useState<QueueStatus>(emptyQueue);
+  const [autoQueue, setAutoQueue] = React.useState<EnrichmentQueue>();
   const [loading, setLoading] = React.useState(true);
   const [initialLibraryEmpty, setInitialLibraryEmpty] = React.useState<boolean | null>(null);
   // The short-list parts of the last library answer (null until the bridge sends them).
@@ -147,6 +150,7 @@ export function useLibraryController() {
   const applyLibrary = React.useCallback((result: LibraryResult) => {
     entriesRef.current = result.entries;
     setEntries(result.entries);
+    setAutoQueue(result.enrichmentQueue);
     setRanking(rankingOf(result));
     setBooks(result.books.length ? result.books : [{ label: "Все книги", key: "" }]);
     setCoverSummary(result.coverSummary);
@@ -231,7 +235,8 @@ export function useLibraryController() {
         || next.obsidian_cards_path !== previous.obsidian_cards_path) {
         checkObsidian(next);
       }
-      if (next.export_batch_size !== previous.export_batch_size) await loadLibrary();
+      if (next.export_batch_size !== previous.export_batch_size
+        || next.llm_examples_per_sense !== previous.llm_examples_per_sense) await loadLibrary();
     }).finally(() => {
       pendingSettingsWrites.current -= 1;
       if (pendingSettingsWrites.current === 0) {
@@ -243,7 +248,7 @@ export function useLibraryController() {
     });
     settingsWritesRef.current = saved.catch(() => undefined);
     return saved;
-  }, [applyLibrary, checkObsidian, edits]);
+  }, [checkObsidian, loadLibrary]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -594,18 +599,25 @@ export function useLibraryController() {
     }
   }, [begin, demo, edits, fail, obsidianCheck.status]);
 
-  const enrichmentQueue = React.useMemo(() => enrichmentCounts(entries), [entries]);
+  const enrichmentQueue = React.useMemo(() => autoQueue ?? enrichmentCounts(entries), [autoQueue, entries]);
   const enrichInFlightRef = React.useRef(false);
+  const lastEnrichIds = React.useRef<readonly string[]>();
 
-  const enrichWords = React.useCallback(async (options: { ids?: string[]; retryFailed?: boolean } = {}) => {
-    if (enrichInFlightRef.current || operationRef.current.status === "running" || edits.isWriting()) return;
+  const enrichWords = React.useCallback(async (options: { ids?: readonly string[]; retryFailed?: boolean; exact?: boolean } = {}) => {
+    if (demoRef.current || options.ids?.length === 0 || pendingSettingsWrites.current > 0
+      || enrichInFlightRef.current || operationRef.current.status === "running" || edits.isWriting()) return;
     enrichInFlightRef.current = true;
+    const ids = options.ids ? [...new Set(options.ids)] : undefined;
+    lastEnrichIds.current = ids;
     const id = begin("enrich", "Перевод по контексту", "Отправляем слова провайдеру ИИ");
     try {
       const version = edits.getVersion();
-      const result = await callBackend<EnrichResult>("enrich_lexemes", { job_id: id, ids: options.ids, retry_failed: options.retryFailed ?? false });
+      const result = await callBackend<EnrichResult>("enrich_lexemes", {
+        job_id: id, ids, retry_failed: options.retryFailed ?? false, expected_count: options.exact ? ids?.length : undefined,
+      });
       if (!edits.acceptsVersion(version) || demoRef.current) return;
       setEntries(result.entries);
+      setAutoQueue(result.enrichmentQueue);
       setQueueStatus(result.queue_status ?? emptyQueue);
       setOperation((current) => ({
         ...current,
@@ -626,14 +638,14 @@ export function useLibraryController() {
     if (!shouldAutoEnrich({
       enabled: settings.llm_enabled,
       auto: settings.llm_auto_enrich,
-      loading: loading || demo,
+      loading: loading || demo || settingsSaving,
       inFlight: enrichInFlightRef.current,
       pending: enrichmentQueue.pending,
       processingPending: queueStatus.pending,
       operation,
     })) return;
     void enrichWords();
-  }, [demo, enrichWords, enrichmentQueue.pending, loading, operation, queueStatus.pending, settings.llm_auto_enrich, settings.llm_enabled]);
+  }, [demo, enrichWords, enrichmentQueue.pending, loading, operation, queueStatus.pending, settings.llm_auto_enrich, settings.llm_enabled, settingsSaving]);
 
   const cancel = React.useCallback(async () => {
     const current = operationRef.current;
@@ -647,7 +659,7 @@ export function useLibraryController() {
     if (kind === "kindle") return void syncKindle();
     if (kind === "covers") return void downloadCovers();
     if (kind === "processing") return void retryFailed();
-    if (kind === "enrich") return void enrichWords({ retryFailed: true });
+    if (kind === "enrich") return void enrichWords({ ids: lastEnrichIds.current, retryFailed: true });
   }, [downloadCovers, enrichWords, retryFailed, syncKindle]);
 
   const dismissOperation = React.useCallback(() => setOperation(idleOperation), []);

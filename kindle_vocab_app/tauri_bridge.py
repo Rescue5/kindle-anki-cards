@@ -516,26 +516,42 @@ def _llm_action(action: str, payload: dict[str, Any], workspace: Path, *, job_id
         return {"ok": True, "model": client.model, "seconds": round(time.monotonic() - started, 1), "sample": sample}
 
     # enrich_lexemes
-    if not app_settings.llm_enabled:
+    requested = None
+    if "ids" in payload:
+        ids = payload["ids"]
+        if not isinstance(ids, list) or not all(isinstance(item, str) and item.strip() for item in ids):
+            raise ValueError("Список слов для перевода должен содержать только непустые идентификаторы")
+        requested = set(ids)
+    if not app_settings.llm_enabled and (requested is None or requested):
         raise ValueError("Включите перевод через ИИ в настройках")
+    expected = payload.get("expected_count")
+    if "expected_count" in payload and (type(expected) is not int or expected < 0):
+        raise ValueError("Ожидаемое число слов для перевода должно быть целым неотрицательным числом")
     repository = repository_for(workspace)
     catalog = repository.load_catalog()
-    requested = {str(value) for value in payload.get("ids") or []} or None
+    state = repository.load_reader_state()
+    edits = state["card_edits"]
+    offline_dictionary.attach(catalog["lexemes"])
     selected = enrichment.candidates(
-        catalog["lexemes"], ids=requested, retry_failed=bool(payload.get("retry_failed"))
+        catalog["lexemes"], ids=requested, retry_failed=payload.get("retry_failed") is True,
+        edits=edits, decisions=state["decisions"], examples_per_sense=app_settings.llm_examples_per_sense,
     )
     limit = int(payload.get("limit") or 0)
     if limit > 0:
         selected = selected[:limit]
+    if expected is not None and expected != len(selected):
+        raise ValueError(f"Список слов для перевода изменился. Доступно: {len(selected)}. Обновите выбор")
     _emit_progress(job_id, "preparing", f"Слов для перевода: {len(selected)}", 0, max(len(selected), 1))
     summary = enrichment.EnrichmentSummary()
     if selected:
         preset = llm_presets.preset_for(provider)
-        parallel = preset.max_parallel_batches > 1 and len(selected) > preset.batch_size
+        batch_size = enrichment.batch_size_for(preset.batch_size, examples_per_sense=app_settings.llm_examples_per_sense)
+        parallel = preset.max_parallel_batches > 1 and len(selected) > batch_size
         client = enrichment.build_client(provider, model, base_url, parallel=parallel)
         summary = enrichment.enrich(
             selected, client, repository, provider=provider,
             batch_size=preset.batch_size, max_parallel_batches=preset.max_parallel_batches,
+            edits=edits, examples_per_sense=app_settings.llm_examples_per_sense,
             progress=lambda done, total: _emit_progress(job_id, "enriching", f"Обработано {done} из {total}", done, total),
         )
         catalog = repository.load_catalog()
@@ -555,7 +571,6 @@ def _llm_action(action: str, payload: dict[str, Any], workspace: Path, *, job_id
         "message": f"{message}. {summary.error}" if summary.error else message,
         "entries": catalog["lexemes"],
         "queue_status": repository.queue_status(),
-        "enrichmentQueue": enrichment.queue_counts(catalog["lexemes"]),
     }
 
 
@@ -599,6 +614,7 @@ def _export_apkg(payload: dict[str, Any], workspace: Path, *, job_id: str, push:
         output,
         deck_name=str(payload.get("deck_name") or anki_export.DEFAULT_DECK_NAME),
         definition_lookup=definition_lookup,
+        edits=repository.load_card_edits(),
         note_keys=repository.reserve_anki_note_keys(candidates),
     )
     if push:
@@ -821,7 +837,6 @@ def _catalog_response(
                               "errors": sum(book.get("cover_status") == "error" for book in real_books)}
     result["connectors"] = connector_status or _connector_status(workspace, probe_kindle=False)
     result["queueStatus"] = queue_status or {"pending": 0, "processing": 0, "failed": 0, "total": 0}
-    result["enrichmentQueue"] = enrichment.queue_counts(catalog.get("lexemes") or [])
     offline_dictionary.attach(result["entries"])
     result.update(_ranked_library(result["entries"], workspace, reader_state=reader_state))
     return result
@@ -836,17 +851,22 @@ def _ranked_library(
     library is not stored there, so it is ranked without them.
     """
     state = repository_for(workspace).load_reader_state() if reader_state else {}
+    app_settings = settings.load(workspace)
     # The audit only records the legacy shelf and score. Open the coverage snapshot once,
     # for the response after the decision has been stored.
     with (nullcontext() if decision_audit else book_coverage.open_model(workspace)) as model:
-        return library_view.decorate(
+        result = library_view.decorate(
             entries,
             decisions=state.get("decisions"),
             card_edits=state.get("card_edits"),
             exported_at=state.get("exported_at"),
-            batch_size=settings.load(workspace).export_batch_size,
+            batch_size=app_settings.export_batch_size,
             coverage_model=model,
         )
+    if not decision_audit:
+        enrichment.decorate(entries, state.get("card_edits") or {}, examples_per_sense=app_settings.llm_examples_per_sense)
+        result["enrichmentQueue"] = enrichment.queue_counts(entries, state.get("decisions"))
+    return result
 
 
 def _with_ranking(result: dict[str, Any], workspace: Path) -> dict[str, Any]:

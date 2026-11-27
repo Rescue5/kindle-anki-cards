@@ -93,7 +93,12 @@ reference for look and copy, but the scope above wins where they differ:
 
 - **Главная** — choose the export scope, see a five-word preview, check the
   reader connection or open the complete library.
-- **Слова** opens the complete library with measured words in priority order,
+- **Слова** opens the library with “do not study” decisions hidden by default.
+  The reader can restore them, choose multiple levels, filter to the last import
+  that added words, or sort by when a word first entered the local library.
+  A visible AI translation action previews the filtered words before sending them.
+  Its review distinguishes the meaning in the chosen sentence from additional
+  generated examples. The priority view lists measured words in priority order,
   followed by provisional assessments and possible recording errors,
   with search, book and priority filters. Each card explains the recommendation
   and lets the reader choose to study a word, edit its translation and pick an example.

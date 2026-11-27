@@ -67,8 +67,14 @@ class OpenAICompatibleClient:
                 if exc.status_code in (408, 409) or 500 <= exc.status_code < 600:
                     raise LLMError(f"Провайдер временно недоступен ({exc.status_code})", transient=True) from exc
                 raise LLMError(f"Ошибка провайдера ({exc.status_code}): {_short(exc)}") from exc
-            content = (response.choices[0].message.content or "") if response.choices else ""
-            return parse_json_object(content)
+            if not response.choices:
+                raise LLMError("Модель не вернула ответ")
+            choice = response.choices[0]
+            if choice.finish_reason == "length":
+                raise LLMError("Ответ модели оборвался: слишком длинный")
+            if choice.finish_reason not in (None, "stop"):
+                raise LLMError("Модель не завершила ответ")
+            return parse_json_object(choice.message.content or "")
 
     def list_models(self) -> list[str]:
         import openai

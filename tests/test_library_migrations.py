@@ -477,22 +477,27 @@ def _scrub(value: Any) -> Any:
     return value
 
 
-_V4_LIBRARY_KEYS = (
+_POST_GOLDEN_LIBRARY_KEYS = (
     "rankingVersion", "rankingMode", "historyDays", "repeatSignal", "shelves", "newBatch",
-    "disputed", "again", "studyPrioritySource",
+    "disputed", "again", "studyPrioritySource", "enrichmentQueue",
 )
-_V4_ENTRY_KEYS = ("ranking", "study_priority", "decision", "card", "export", "is_new")
+_POST_GOLDEN_ENTRY_KEYS = (
+    "ranking", "study_priority", "decision", "card", "export", "is_new",
+    "enrichment_state", "enrichment_ineligible_reason",
+)
 
 
-def _without_v4(library: dict[str, Any]) -> dict[str, Any]:
-    """The golden file predates the short-list parts; every old field must still be there unchanged."""
-    return {
-        **{key: value for key, value in library.items() if key not in _V4_LIBRARY_KEYS},
-        "entries": [
-            {key: value for key, value in entry.items() if key not in _V4_ENTRY_KEYS}
-            for entry in library["entries"]
-        ],
-    }
+def _legacy_library_payload(library: dict[str, Any]) -> dict[str, Any]:
+    """Compare stable legacy fields, excluding explicitly versioned behavior changes."""
+    entries = []
+    for entry in library["entries"]:
+        legacy = {key: value for key, value in entry.items() if key not in _POST_GOLDEN_ENTRY_KEYS}
+        if stored := legacy.get("enrichment"):
+            legacy["enrichment"] = {
+                key: value for key, value in stored.items() if key not in {"context_matches", "review_matches"}
+            }
+        entries.append(legacy)
+    return {**{key: value for key, value in library.items() if key not in _POST_GOLDEN_LIBRARY_KEYS}, "entries": entries}
 
 
 class BulkCatalogGoldenTests(unittest.TestCase):
@@ -510,9 +515,20 @@ class BulkCatalogGoldenTests(unittest.TestCase):
             library = dispatch("load_library", {}, workspace)
 
         self.assertEqual(json.loads(json.dumps(catalog)), golden["load_catalog"])
+        expected = {key: value for key, value in golden["load_library"].items() if key != "enrichmentQueue"}
         self.assertEqual(
-            json.loads(json.dumps(_scrub(_without_v4(library)))), golden["load_library"]
+            json.loads(json.dumps(_scrub(_legacy_library_payload(library)))), expected,
         )
+        # A ready legacy result remains stored and eligible for manual refresh,
+        # while the rejected and unfinished words never enter the automatic queue.
+        self.assertEqual(library["enrichmentQueue"], {"pending": 1, "failed": 0})
+        entries = {entry["lemma"]: entry for entry in library["entries"]}
+        self.assertEqual({word: entry["enrichment_state"] for word, entry in entries.items()}, {
+            "lantern": "pending", "meander": "pending", "quibble": "pending", "brogue": "ineligible",
+            "fernweh": "ineligible", "tarn": "ineligible", "zephyr": "ineligible",
+        })
+        self.assertFalse(entries["lantern"]["enrichment"]["context_matches"])
+        self.assertFalse(entries["lantern"]["enrichment"]["review_matches"])
         # The same migrated library also carries a valid short-list payload.
         self.assertEqual(library["studyPrioritySource"], "legacy")
         self.assertEqual(contracts.validate_library(library), [])

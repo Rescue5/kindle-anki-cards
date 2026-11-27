@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from kindle_vocab_app import obsidian_export
+from kindle_vocab_app import card_fields, obsidian_export
 from kindle_vocab_app.obsidian_export import export_cards, managed_folder
 from kindle_vocab_app.obsidian_sync import vault_operation_lock
 
@@ -97,6 +97,37 @@ def test_reexport_preserves_schedule_and_identity(vault: Path, schedule: str) ->
     assert note.parent.name == "03" and result.notices
     assert "новый" in note.read_text(encoding="utf-8") and "level-01" in note.read_text(encoding="utf-8")
     assert schedule.replace("\n", "\r\n").encode("utf-8") in note.read_bytes()
+
+
+def test_reexport_adds_structured_examples_without_new_cards_or_schedule_changes(vault: Path) -> None:
+    _settings(vault, multilineCardEndMarker="%%end%%")
+    result = _single(vault)
+    note, = result.folder.rglob("*.md")
+    schedule = "<!--SR:!2026-12-06,9,250-->"
+    text = note.read_text(encoding="utf-8")
+    note.write_text(text.replace("%%end%%", f"{schedule}\n%%end%%"), encoding="utf-8")
+    entry = _entry()
+    entry["processing"] = {"state": "ready"}
+    fingerprint = card_fields.context_fingerprint(entry["occurrences"][0]["context"])
+    entry["enrichment"] = {
+        "status": "ready", "prompt_version": 2, "meaning_ru": "мимолётное впечатление",
+        "selected_context_sha256": fingerprint, "context_source_sha256": fingerprint,
+        "context_quality": "good", "context_truncated": False, "context_meaning_ru": "взгляд",
+        "example_en": "He caught a glimpse.", "example_ru": "Он успел заметить.",
+        "senses": [
+            {"meaning_ru": "проблеск", "example_en": "A glimpse :: of light.", "example_ru": "Проблеск света."},
+        ],
+    }
+    baseline = card_fields.resolve(entry, include_enrichment=False)
+    entry["enrichment"]["review_fingerprint"] = card_fields.review_fingerprint(entry, baseline)
+    updated = _single(vault, entry)
+    assert updated.written_ids == ["alpha"] and not updated.conflict_ids
+    assert list(updated.folder.rglob("*.md")) == [note]
+    text = note.read_text(encoding="utf-8")
+    assert text.count("\n?\n") == 1 and text.count(schedule) == 1
+    assert "He caught a glimpse&#46; — Он успел заметить&#46;" in text
+    assert "A glimpse &#58;&#58; of light&#46; — Проблеск света&#46;" in text
+    assert _single(vault, entry).unchanged_ids == ["alpha"]
 
 
 def test_folder_decks_keep_path_and_follow_renames_inside_managed_folder(vault: Path) -> None:

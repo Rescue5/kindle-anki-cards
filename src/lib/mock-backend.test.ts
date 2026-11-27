@@ -27,6 +27,16 @@ async function expectError(promise: Promise<unknown>, code: keyof typeof ERROR_T
 describe("browser mock speaks the C0 contract", () => {
   beforeEach(() => resetMockBackend({ scenario: "mixed", instant: true }));
 
+  it("sends only confirmed low-priority words and rejects an outdated preview", async () => {
+    const ids = ["lexeme-aldric", "lexeme-vigilant"];
+    await expect(callBackend("enrich_lexemes", { ids: [], expected_count: 0 })).resolves.toMatchObject({ requested: 0 });
+    await expect(callBackend("enrich_lexemes", { ids, expected_count: 3 })).rejects.toThrow();
+    await expect(callBackend("enrich_lexemes", { ids, expected_count: 2 })).resolves.toMatchObject({ enriched: 2 });
+    const reviewed = (await load()).entries.filter((entry) => entry.enrichment_state === "ready").map((entry) => entry.id);
+    expect(reviewed.sort()).toEqual(ids);
+    expect((await load()).entries.find((entry) => entry.id === "lexeme-00:17")?.enrichment_state).toBe("ineligible");
+  });
+
   it("carries every library-level and lexeme-level key, with the old fields beside them", async () => {
     const library = await load();
     expectEveryKey(library);

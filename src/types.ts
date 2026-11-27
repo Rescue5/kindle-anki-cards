@@ -71,6 +71,13 @@ export type Enrichment = {
   example_en?: string;
   example_ru?: string;
   note_ru?: string;
+  meaning_action?: "kept" | "refined" | "added";
+  context_meaning_ru?: string;
+  context_quality?: "good" | "weak" | "ambiguous" | "missing";
+  context_truncated?: boolean;
+  context_matches?: boolean;
+  review_matches?: boolean;
+  senses?: { meaning_ru: string; example_en: string; example_ru: string }[];
   provider: string;
   model: string;
   prompt_version: number;
@@ -123,6 +130,8 @@ export type LexemeRecord = {
   last_seen_at: string;
   last_kindle_sync_id: string;
   enrichment?: Enrichment | null;
+  enrichment_state?: "pending" | "failed" | "ready" | "ineligible";
+  enrichment_ineligible_reason?: string;
   /** Offline meanings from the bundled Wiktionary dictionary, attached when the library loads. */
   dictionary?: DictionaryMeaning | null;
   /** Short-list contract (C0). Optional until the bridge sends it; see `LexemeRecordV4`. */
@@ -376,6 +385,7 @@ export type AppSettings = {
   llm_model: string;
   llm_base_url: string;
   llm_auto_enrich: boolean;
+  llm_examples_per_sense?: boolean;
   obsidian_sync_enabled: boolean;
   obsidian_vault_path: string;
   obsidian_cards_path: string;

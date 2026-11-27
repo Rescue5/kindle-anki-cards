@@ -38,6 +38,7 @@ class AppSettings:
     llm_model: str = ""
     llm_base_url: str = ""
     llm_auto_enrich: bool = False
+    llm_examples_per_sense: bool = False
     obsidian_sync_enabled: bool = False
     obsidian_vault_path: str = ""
     obsidian_cards_path: str = "cards/Book Vocab"
@@ -95,6 +96,7 @@ def to_dict(settings: AppSettings) -> dict[str, Any]:
         "llm_model": settings.llm_model,
         "llm_base_url": settings.llm_base_url,
         "llm_auto_enrich": settings.llm_auto_enrich,
+        "llm_examples_per_sense": settings.llm_examples_per_sense,
         "obsidian_sync_enabled": settings.obsidian_sync_enabled,
         "obsidian_vault_path": settings.obsidian_vault_path,
         "obsidian_cards_path": settings.obsidian_cards_path,
@@ -155,6 +157,7 @@ def from_dict(data: dict[str, Any]) -> AppSettings:
         llm_model=str(data.get("llm_model", "")),
         llm_base_url=llm_base_url,
         llm_auto_enrich=bool(data.get("llm_auto_enrich", False)),
+        llm_examples_per_sense=data.get("llm_examples_per_sense") is True,
         obsidian_sync_enabled=bool(data.get("obsidian_sync_enabled", False)),
         obsidian_vault_path=str(data.get("obsidian_vault_path", "")),
         obsidian_cards_path=str(data.get("obsidian_cards_path", "cards/Book Vocab")),

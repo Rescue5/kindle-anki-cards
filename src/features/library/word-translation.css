@@ -1,0 +1,19 @@
+.word-translation-review {
+  margin-block: 1rem;
+  padding-block: .75rem;
+  border-block-start: 1px solid hsl(var(--pencil) / .35);
+  overflow-wrap: anywhere;
+}
+
+.word-translation-review > * + *, .word-translation-review li + li {
+  margin-block-start: .75rem;
+}
+
+.word-translation-review h3, .word-translation-review p {
+  margin-block: .25rem;
+}
+
+.word-translation-review ol {
+  list-style: decimal;
+  padding-inline-start: 1.5rem;
+}

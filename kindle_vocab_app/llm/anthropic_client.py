@@ -59,8 +59,10 @@ class AnthropicClient:
 
         if response.stop_reason == "refusal":
             raise LLMError("Модель отказалась обрабатывать эту группу слов")
-        if response.stop_reason == "max_tokens":
+        if response.stop_reason in ("max_tokens", "model_context_window_exceeded"):
             raise LLMError("Ответ модели оборвался: слишком длинный")
+        if response.stop_reason not in (None, "end_turn", "stop_sequence"):
+            raise LLMError("Модель не завершила ответ")
         text = next((block.text for block in response.content if block.type == "text"), "")
         try:
             value = json.loads(text)

@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
 
-from kindle_vocab_app import card_fields
+from kindle_vocab_app import study_details
 
 _SEPARATORS = {"quizlet": "\t", "remnote": " >> "}
 _CONTROLS = str.maketrans({code: " " for code in (*range(32), *range(127, 160), 0xFEFF)})
@@ -51,7 +51,7 @@ def write_study_file(
 
 
 def _card_text(lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None) -> tuple[str, str]:
-    card = card_fields.resolve(lexeme, edit)
+    card, enrichment = study_details.resolve(lexeme, edit)
     occurrence = card.occurrence
     front = (
         _single_line(occurrence.get("word"))
@@ -62,6 +62,8 @@ def _card_text(lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None) -> tup
     context = _single_line(occurrence.get("context"))
     if context:
         back = f"{back} · Пример: {context}"
+    for detail in study_details.answer_details(enrichment, card):
+        back += f" · {_single_line(detail)}"
     return front, back
 
 

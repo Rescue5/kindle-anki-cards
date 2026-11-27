@@ -1,7 +1,7 @@
 import * as React from "react";
 import { Check, KeyRound, Loader2, PlugZap, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useLlmConfig } from "@/features/llm/use-llm-config";
+import { modelConfigured, useLlmConfig } from "@/features/llm/use-llm-config";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -66,11 +66,13 @@ type SettingsViewProps = {
   settings: AppSettings;
   onSave: (patch: Partial<AppSettings>) => Promise<void>;
   onOpenTour: () => void;
+  onOpenWords?: () => void;
+  focusLlm?: boolean;
   saving: boolean;
   busy: boolean;
 };
 
-export function SettingsView({ settings, onSave, onOpenTour, saving, busy }: SettingsViewProps) {
+export function SettingsView({ settings, onSave, onOpenTour, onOpenWords, focusLlm, saving, busy }: SettingsViewProps) {
   const [saveError, setSaveError] = React.useState("");
   const latestSave = React.useRef(0);
   const batchSize = settings.export_batch_size ?? EXPORT_BATCH_SIZE_DEFAULT;
@@ -145,7 +147,8 @@ export function SettingsView({ settings, onSave, onOpenTour, saving, busy }: Set
           </div>
         </SettingsSection>
 
-        <LlmSettingsSection settings={settings} update={update} persistPatch={persistPatch} />
+        <LlmSettingsSection settings={settings} update={update} persistPatch={persistPatch} focusOnMount={focusLlm}
+          onOpenWords={onOpenWords} saveBeforeOpen={onSave} blocked={saving || busy} />
 
       </div>
     </main>
@@ -156,12 +159,20 @@ type LlmSettingsSectionProps = {
   settings: AppSettings;
   update: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
   persistPatch: (patch: Partial<AppSettings>) => void;
+  onOpenWords?: () => void;
+  focusOnMount?: boolean;
+  saveBeforeOpen: (patch: Partial<AppSettings>) => Promise<void>;
+  blocked: boolean;
 };
 
-function LlmSettingsSection({ settings, update, persistPatch }: LlmSettingsSectionProps) {
+function LlmSettingsSection({ settings, update, persistPatch, onOpenWords, focusOnMount, saveBeforeOpen, blocked }: LlmSettingsSectionProps) {
   const llm = useLlmConfig(settings, persistPatch);
   const [apiKey, setApiKey] = React.useState("");
   const [replacingKey, setReplacingKey] = React.useState(false);
+  const [openError, setOpenError] = React.useState("");
+  React.useEffect(() => {
+    if (focusOnMount) document.getElementById("llm-enabled-switch")?.focus();
+  }, [focusOnMount]);
   const preset = llm.preset;
   const showKeyInput = Boolean(preset?.needs_key) && (!llm.hasKey || replacingKey);
   const models = llm.models.status === "done" ? llm.models.value : [];
@@ -173,7 +184,7 @@ function LlmSettingsSection({ settings, update, persistPatch }: LlmSettingsSecti
   }
 
   return (
-    <SettingsSection title="Перевод через ИИ" description="Без ИИ значения берутся из встроенного Викисловаря. Для перевода по контексту облачный провайдер получает форму слова из книги, словарную форму, предполагаемую часть речи, номер слова в запросе и до двух фрагментов предложений по 400 символов каждый. Локальные модели работают без интернета.">
+    <SettingsSection title="Перевод через ИИ" description="ИИ сверяет текущий перевод со значением слова в выбранной цитате. Провайдер получает форму слова, лемму, часть речи, номер в запросе, текущий перевод и до 400 символов выбранной цитаты.">
       <SwitchRow id="llm-enabled-switch" label="Переводить слова по контексту" hint="Нужен ключ облачного провайдера или локальная модель в LM Studio или Ollama." checked={settings.llm_enabled} onChange={(value) => update("llm_enabled", value)} />
 
       {llm.configError ? <p className="screen-error-note">Не удалось загрузить провайдеров: {llm.configError}</p> : null}
@@ -246,7 +257,19 @@ function LlmSettingsSection({ settings, update, persistPatch }: LlmSettingsSecti
         </p>
       </div>
 
-      <SwitchRow id="llm-auto-switch" label="Переводить новые слова автоматически" hint="Перевод также можно запустить кнопкой «Перевести» на экране слов. Готовый перевод сохраняется. После сбоя запрос может повториться." checked={settings.llm_auto_enrich} onChange={(value) => update("llm_auto_enrich", value)} disabled={!settings.llm_enabled} />
+      <SwitchRow id="llm-senses-switch" label="Пример для каждого значения" hint="Для разных значений многозначного слова ИИ добавит отдельные английские примеры с переводом. В обычном режиме пример появится, если книжной цитаты недостаточно."
+        checked={Boolean(settings.llm_examples_per_sense)} onChange={(value) => update("llm_examples_per_sense", value)} />
+      <SwitchRow id="llm-auto-switch" label="Автоматически проверять непереведённые слова" hint="Из подходящих слов без перевода ИИ сначала возьмёт последнее пополнение. Для ручного выбора уровней оставьте эту настройку выключенной." checked={settings.llm_auto_enrich} onChange={(value) => update("llm_auto_enrich", value)} disabled={!settings.llm_enabled} />
+      {onOpenWords ? <div>
+        <Button type="button" disabled={blocked || !llm.ready || !modelConfigured(settings, preset)} onClick={async () => {
+          setOpenError("");
+          try {
+            if (!settings.llm_enabled) await saveBeforeOpen({ llm_enabled: true });
+            onOpenWords();
+          } catch (error) { setOpenError(String(error)); }
+        }}>{settings.llm_enabled ? "Выбрать слова для перевода" : "Включить ИИ и выбрать слова"}</Button>
+        {openError ? <p className="screen-error-note" role="alert">{openError}</p> : null}
+      </div> : null}
     </SettingsSection>
   );
 }

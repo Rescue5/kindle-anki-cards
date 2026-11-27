@@ -174,6 +174,13 @@ export function isCardEligible(entry: LexemeRecord): boolean {
   return entry.processing.state === "ready" && analysis?.accepted !== false && typeof score === "number" && score >= 3 && score <= 10;
 }
 
+/** New bridges validate the selected sentence, source meaning and example mode on disk. */
+export function translationState(entry: LexemeRecord): NonNullable<LexemeRecord["enrichment_state"]> {
+  if (entry.enrichment_state) return entry.enrichment_state;
+  if (!isCardEligible(entry)) return "ineligible";
+  return entry.enrichment?.status ?? "pending";
+}
+
 export function enrichmentCounts(entries: LexemeRecord[]) {
   return entries.reduce(
     (result, entry) => {
@@ -206,7 +213,10 @@ export function needsAnkiUpdate(entry: LexemeRecord): boolean {
 
 /** The best Russian meaning available: a context translation, else the offline dictionary. */
 export function russianMeaning(entry: LexemeRecord): { text: string; source: "context" | "dictionary" | "analysis" } | null {
-  if (entry.enrichment?.status === "ready" && entry.enrichment.meaning_ru) return { text: entry.enrichment.meaning_ru, source: "context" };
+  if (entry.enrichment?.status === "ready" && entry.enrichment.context_matches !== false
+    && entry.enrichment.review_matches !== false && entry.enrichment.meaning_ru) {
+    return { text: entry.enrichment.meaning_ru, source: "context" };
+  }
   if (entry.dictionary?.meaning_ru) return { text: entry.dictionary.meaning_ru, source: "dictionary" };
   const legacy = entry.processing.analysis?.russian_meanings;
   return legacy ? { text: legacy, source: "analysis" } : null;
