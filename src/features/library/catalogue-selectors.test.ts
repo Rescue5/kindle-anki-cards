@@ -40,6 +40,26 @@ describe("catalogue selectors", () => {
     expect(selectCatalogueEntries(entries, "", undefined, { ...defaultCatalogueFilters, decision: "all" })).toHaveLength(2);
   });
 
+  it("hides exact book coverage by default without hiding rounded, personalized or unknown coverage", async () => {
+    const word = await fixture();
+    const priority = { level: 1, score: 1, provisional: false, reason: "Причина." };
+    const entries = [
+      word("all-books", 1, { study_priority: { ...priority, coverage_score: 1 } }),
+      word("near-full", 1, { study_priority: { ...priority, coverage_score: .99999 } }),
+      word("boosted", 1, { study_priority: { ...priority, coverage_score: .6 } }),
+      word("unknown", 6, { study_priority: { ...priority, level: 6, coverage_score: null, provisional: true } }),
+      word("missing-coverage", 1, { study_priority: priority }),
+    ];
+    const visible = selectCatalogueEntries(entries, "", undefined, defaultCatalogueFilters, "rp-v2-personal");
+    expect(visible.map(({ id }) => id)).toEqual(["boosted", "missing-coverage", "near-full", "unknown"]);
+    expect(selectTranslationEntries(visible, new Set(entries.map(({ id }) => id)))).toEqual(visible);
+    expect(selectCatalogueEntries(entries, "all-books", undefined, defaultCatalogueFilters, "rp-v2-personal", true))
+      .toEqual([entries[0]]);
+    expect(selectCatalogueEntries(entries, "", undefined, defaultCatalogueFilters, "legacy")).toHaveLength(entries.length);
+    expect(selectCatalogueEntries(entries, "", undefined, defaultCatalogueFilters, "rp-v2-coverage").map(({ id }) => id))
+      .toEqual(["boosted", "near-full", "unknown"]);
+  });
+
   it("uses the first import date and stable freshness even after export", async () => {
     const word = await fixture();
     const entries = [

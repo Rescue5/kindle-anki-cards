@@ -39,6 +39,7 @@ from kindle_vocab_app import (
     settings,
     study_formats,
 )
+from kindle_vocab_app.atomic_files import replace_file
 from kindle_vocab_app.coded_error import CodedError
 from kindle_vocab_app.library_repository import repository_for
 from kindle_vocab_app.library_state import parse_moment
@@ -326,7 +327,7 @@ def _write_tsv(
             writer.writeheader()
             for lexeme in lexemes:
                 writer.writerow(_tsv_row(lexeme, edits.get(str(lexeme["id"]))))
-        temporary.replace(output)
+        replace_file(temporary, output)
     logger.info("Wrote export file words=%d", len(lexemes))
     return output
 

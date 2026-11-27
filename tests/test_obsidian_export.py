@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -57,7 +58,11 @@ def test_new_vault_repeat_and_open_folder(vault: Path) -> None:
     assert note.parent.name == "03" and note.name.startswith("glimpse--kc-")
     before = note.read_bytes()
     assert b"flashcards/kindle-cards/level-03" in before
-    assert b"\nglimpse\n?\n" in before
+    front, separator, back, *_ = before.decode("utf-8").split("\n---\n\n", 1)[1].splitlines()
+    assert separator == "?"
+    assert front.startswith('<h2 lang="en">glimpse</h2><details><summary>Цитата из книги</summary>')
+    assert "This is the default and longer quotation&#46;" in front
+    assert back == "<strong>Перевод</strong><br>взгляд"
     repeated = _single(vault)
     assert repeated.unchanged_ids == ["alpha"] and not repeated.written_ids
     assert note.read_bytes() == before
@@ -74,7 +79,10 @@ def test_disabled_plugin_keeps_custom_settings_and_resolves_manual_card(vault: P
     note, = result.folder.rglob("*.md")
     text = note.read_text(encoding="utf-8")
     assert '"study/custom/kindle-cards/level-03"' in text
-    assert "glimpse\n%%card%%\nручное значение<br>My " in text
+    front, separator, back, end = text.split("\n---\n\n", 1)[1].splitlines()
+    assert (separator, end) == ("%%card%%", "%%end%%")
+    assert "My " in front and "My " not in back
+    assert back == "<strong>Перевод</strong><br>ручное значение"
     assert "::" not in text and "#no-sr" not in text and "[[quote]]" not in text
     assert "default" not in text and text.endswith("\n%%end%%\n")
     assert config.read_bytes() == before
@@ -97,6 +105,24 @@ def test_reexport_preserves_schedule_and_identity(vault: Path, schedule: str) ->
     assert note.parent.name == "03" and result.notices
     assert "новый" in note.read_text(encoding="utf-8") and "level-01" in note.read_text(encoding="utf-8")
     assert schedule.replace("\n", "\r\n").encode("utf-8") in note.read_bytes()
+
+
+def test_new_layout_upgrades_old_flat_card_and_preserves_fsrs(vault: Path) -> None:
+    result = _single(vault)
+    note, = result.folder.rglob("*.md")
+    prefix = note.read_text(encoding="utf-8").split("kindle_cards_checksum:", 1)[0]
+    old_body = "---\n\nglimpse\n?\nвзгляд<br>This is the default and longer quotation&#46;\n"
+    digest = hashlib.sha256((prefix + old_body).encode("utf-8")).hexdigest()
+    schedule = "\n> [!sr|card-metadata]\n> <!--SR:!fsrs,2026-12-06,1,2,3,4,5,6,2.3-->"
+    legacy = f"{prefix}kindle_cards_checksum: {digest}\n{old_body.rstrip()}{schedule}\n"
+    note.write_text(legacy, encoding="utf-8", newline="\n")
+
+    updated = _single(vault)
+    assert updated.written_ids == ["alpha"]
+    assert list(result.folder.rglob("*.md")) == [note]
+    assert "<details><summary>Цитата из книги</summary>" in note.read_text(encoding="utf-8")
+    assert f"<strong>Перевод</strong><br>взгляд{schedule}\n" in note.read_text(encoding="utf-8")
+    assert _single(vault).unchanged_ids == ["alpha"]
 
 
 def test_reexport_adds_structured_examples_without_new_cards_or_schedule_changes(vault: Path) -> None:
@@ -125,8 +151,9 @@ def test_reexport_adds_structured_examples_without_new_cards_or_schedule_changes
     assert list(updated.folder.rglob("*.md")) == [note]
     text = note.read_text(encoding="utf-8")
     assert text.count("\n?\n") == 1 and text.count(schedule) == 1
-    assert "He caught a glimpse&#46; — Он успел заметить&#46;" in text
-    assert "A glimpse &#58;&#58; of light&#46; — Проблеск света&#46;" in text
+    assert "<br><br><strong>В этой цитате</strong><br>взгляд" in text
+    assert '<strong>Учебный пример</strong><br><em lang="en">He caught a glimpse&#46;</em><br>Он успел заметить&#46;' in text
+    assert '<strong>проблеск</strong><br><em lang="en">A glimpse &#58;&#58; of light&#46;</em><br>Проблеск света&#46;' in text
     assert _single(vault, entry).unchanged_ids == ["alpha"]
 
 

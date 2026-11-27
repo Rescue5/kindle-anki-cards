@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
+from kindle_vocab_app.atomic_files import replace_file
 from kindle_vocab_app.contracts import (
     BATCH_SIZE_DEFAULT,
     BATCH_SIZE_MAX,
@@ -46,6 +48,7 @@ class AppSettings:
     # Where `export_words` sends the short list (contracts.EXPORT_DESTINATIONS) and how many words at a time.
     export_destination: str = EXPORT_DESTINATION_DEFAULT
     export_batch_size: int = BATCH_SIZE_DEFAULT
+    show_full_book_coverage: bool = False
 
 
 def settings_path(workspace: Path) -> Path:
@@ -76,12 +79,18 @@ def save(workspace: Path, settings: AppSettings) -> None:
     payload = to_dict(settings)
     payload["version"] = SETTINGS_VERSION
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+    temporary: Path | None = None
+    try:
+        with NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False,
+            dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
+        ) as stream:
+            temporary = Path(stream.name)
+            json.dump(payload, stream, ensure_ascii=False, indent=2, sort_keys=True)
+        replace_file(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     logger.info("Saved settings path=%s", path)
 
 
@@ -103,6 +112,7 @@ def to_dict(settings: AppSettings) -> dict[str, Any]:
         "obsidian_backup_enabled": settings.obsidian_backup_enabled,
         "export_destination": settings.export_destination,
         "export_batch_size": settings.export_batch_size,
+        "show_full_book_coverage": settings.show_full_book_coverage,
     }
 
 
@@ -164,4 +174,5 @@ def from_dict(data: dict[str, Any]) -> AppSettings:
         obsidian_backup_enabled=bool(data.get("obsidian_backup_enabled", True)),
         export_destination=export_destination,
         export_batch_size=export_batch_size,
+        show_full_book_coverage=data.get("show_full_book_coverage") is True,
     )

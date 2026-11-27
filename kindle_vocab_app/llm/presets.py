@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 from kindle_vocab_app.llm import LLMError
 
-KEYRING_SERVICE = "kindle-cards"
+KEYRING_SERVICE = os.environ.get("KINDLE_CARDS_KEYRING_SERVICE") or "kindle-cards"
 ENV_API_KEY = "KINDLE_CARDS_LLM_API_KEY"
 
 

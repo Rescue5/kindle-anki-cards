@@ -39,15 +39,20 @@ _SENSE_FIELDS = ("meaning_ru", "example_en", "example_ru")
 
 SYSTEM_PROMPT = """You write vocabulary flashcards for a Russian-speaking adult who reads English books on Kindle.
 Each numbered item contains the word, its dictionary form, a part-of-speech guess, the current Russian meaning and zero or one selected book excerpt. The excerpt may be truncated.
+The part of speech and existing translation are fallible hints. First identify what the excerpt actually uses.
+If the lookup is a piece of a compound or idiom, explain the whole expression in the excerpt. Review the
+standalone lemma separately and do not treat the meaning of the full expression as a sense of that lemma.
+For example, "light" in "light-headed" is part of an expression meaning "испытывающий головокружение".
+Standalone "light" still has major meanings such as "свет", "лёгкий" and "зажигать".
 
 For every item, fill:
-- meaning_ru and meaning_action: keep a correct existing translation verbatim (kept); correct or supplement it only when needed (refined); supply a concise dictionary-form translation if none exists (added).
-- context_meaning_ru: Russian meaning of the word specifically in the selected excerpt; empty when the excerpt does not establish a sense.
+- meaning_ru and meaning_action: give a concise dictionary-form translation of the lemma covering its main everyday meanings. Keep the existing text verbatim (kept) only if it already covers them adequately. Refine it if it gives a wrong meaning or only a narrow sense of a common polysemous word. If none exists, supply one (added).
+- context_meaning_ru: Russian meaning specifically in the selected excerpt; name the full expression when the lookup is only part of one. Leave empty when the excerpt does not establish a sense.
 - context_quality: good if the excerpt teaches the sense, weak if it is fragmentary or hard to learn from, ambiguous if multiple senses fit, missing if there is no excerpt.
 - definition_en: short learner-friendly English definition of that sense, at most 15 words.
 - context_ru: translate only the supplied excerpt. Leave empty when none is supplied.
 - example_en and example_ru: for weak, ambiguous or missing context, write a new short example that clearly demonstrates a supported sense, then translate it. Leave both empty if a good excerpt suffices. Do not reuse a book excerpt.
-- senses: if examples_per_sense is true, return all substantially different major senses, each with its own meaning_ru, example_en and example_ru. Combine synonyms and near-equivalent nuances. Otherwise return an empty array.
+- senses: if examples_per_sense is true, list the substantially different common senses of the standalone lemma across parts of speech. If the lemma is commonly used as both a noun and a verb, include both. Also include its common adjectival, adverbial or other uses where applicable. Do this even if the existing translation is kept or the excerpt teaches a sense. Give each meaning_ru its own example_en using the lemma in that sense and matching example_ru. Combine near synonyms and omit obscure senses. Return a single sense when the lemma genuinely has only one common sense. If examples_per_sense is false, return an empty array.
 - note_ru: optional short Russian note when it truly helps: register (книжное, устаревшее, разговорное, грубое), part of a phrasal verb or idiom, or a false friend. Otherwise an empty string.
 
 If an item is a proper name, a typo or not an English word, leave meaning_ru empty and explain briefly in note_ru.
@@ -193,11 +198,14 @@ def candidates(
     *,
     ids: set[str] | None = None,
     retry_failed: bool = False,
+    recheck: bool = False,
     edits: Mapping[str, Mapping[str, Any]] | None = None,
     decisions: Mapping[str, Mapping[str, Any]] | None = None,
     examples_per_sense: bool = False,
 ) -> list[dict[str, Any]]:
     """New words first: the reader cares most about what they just looked up."""
+    if recheck and (ids is None or len(ids) != 1):
+        return []
     if ids is None:
         decisions = decisions or {}
         selected = [lexeme for lexeme in lexemes if needs_enrichment(
@@ -205,7 +213,9 @@ def candidates(
         )]
     else:
         edits = edits or {}
-        states = {"pending", "failed"} if retry_failed else {"pending"}
+        states = {"ready"} if recheck else {"pending"}
+        if retry_failed and not recheck:
+            states.add("failed")
         selected = [lexeme for lexeme in lexemes if lexeme["id"] in ids and enrichment_state(
             lexeme, edits.get(lexeme["id"]), examples_per_sense=examples_per_sense,
         ) in states]
@@ -239,18 +249,19 @@ class _WordInput:
 
 def _prepare_word(
     lexeme: Mapping[str, Any], edit: Mapping[str, Any] | None, examples_per_sense: bool,
+    *, recheck: bool = False,
 ) -> _WordInput:
     analysis = (lexeme.get("processing") or {}).get("analysis") or {}
-    card = card_fields.resolve(lexeme, edit)
     source = card_fields.resolve(lexeme, edit, include_enrichment=False)
-    occurrence = card.occurrence
+    current = source if recheck else card_fields.resolve(lexeme, edit)
+    occurrence = source.occurrence
     word = str(occurrence.get("word") or lexeme.get("display_form") or lexeme.get("lemma") or "")
     lemma = str(analysis.get("base_form") or lexeme.get("lemma") or "")
     pos = str(analysis.get("pos") or "")
     context = str(occurrence.get("context") or "")
     review = card_fields.review_fingerprint(lexeme, source)
     fingerprint = card_fields.context_fingerprint(json.dumps([review, examples_per_sense]))
-    return _WordInput(word, lemma, pos, card.meaning_ru, context, review, fingerprint)
+    return _WordInput(word, lemma, pos, current.meaning_ru, context, review, fingerprint)
 
 
 def _user_message(words: list[_WordInput], examples_per_sense: bool) -> str:
@@ -348,15 +359,17 @@ def _request_batch(
 
 def _save_batch(
     batch: list[dict[str, Any]], items: dict[int, dict[str, Any]], batch_error: str,
-    store: EnrichmentStore, provider: str, model: str, summary: EnrichmentSummary,
+    store: EnrichmentStore, provider: str, model: str, summary: EnrichmentSummary, *, recheck: bool,
 ) -> None:
     for number, lexeme in enumerate(batch, 1):
         payload = items.get(number)
         error = batch_error or "Модель пропустила это слово"
-        if payload is not None and not (payload["meaning_ru"] or payload["note_ru"]):
+        stored = lexeme.get("enrichment") or {}
+        translation_required = recheck and bool(stored.get("meaning_ru"))
+        if payload is not None and not (payload["meaning_ru"] or (payload["note_ru"] and not translation_required)):
             payload = None
             error = "Модель не дала перевод"
-        if payload is not None or (lexeme.get("enrichment") or {}).get("status") != "ready":
+        if payload is not None or stored.get("status") != "ready":
             store.save_enrichment(
                 str(lexeme.get("language") or "en"), str(lexeme.get("lemma") or ""),
                 status="ready" if payload is not None else "failed", provider=provider,
@@ -381,6 +394,7 @@ def enrich(
     max_parallel_batches: int = 1,
     edits: Mapping[str, Mapping[str, Any]] | None = None,
     examples_per_sense: bool = False,
+    recheck: bool = False,
 ) -> EnrichmentSummary:
     summary = EnrichmentSummary(requested=len(lexemes))
     if not lexemes:
@@ -399,7 +413,9 @@ def enrich(
             while (not summary.error and next_start < len(lexemes)
                    and len(pending) < max_parallel_batches and finished.empty()):
                 batch = lexemes[next_start : next_start + batch_size]
-                inputs = [_prepare_word(word, edits.get(word["id"]), examples_per_sense) for word in batch]
+                inputs = [
+                    _prepare_word(word, edits.get(word["id"]), examples_per_sense, recheck=recheck) for word in batch
+                ]
                 future = pool.submit(_request_batch, client, inputs, examples_per_sense)
                 pending[future] = batch
                 future.add_done_callback(finished.put)
@@ -420,7 +436,7 @@ def enrich(
             if error and error.transient:
                 summary.skipped += len(batch)
             else:
-                _save_batch(batch, items, str(error or ""), store, provider, client.model, summary)
+                _save_batch(batch, items, str(error or ""), store, provider, client.model, summary, recheck=recheck)
                 if progress:
                     progress(summary.enriched + summary.failed, summary.requested)
             consecutive_failures = 0 if items else consecutive_failures + 1

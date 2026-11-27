@@ -402,6 +402,76 @@ class EnrichmentTests(unittest.TestCase):
             previous = next(entry for entry in fake.calls[0]["items"] if entry["lemma"] == "glimpse")
             self.assertEqual(previous["current_meaning_ru"], "старый")
 
+    def test_recheck_ready_word_uses_dictionary_baseline_and_preserves_other_cards(self) -> None:
+        class ContextClient(FakeClient):
+            def complete_json(self, system: str, user: str, schema: dict) -> dict:
+                answer = super().complete_json(system, user, schema)
+                [item] = answer["items"]
+                item.update(meaning_action="refined", meaning_ru="свет; лёгкий; зажигать",
+                            context_meaning_ru="испытывать головокружение (light-headed)", senses=[
+                    {"meaning_ru": "свет", "example_en": "Light filled the room.", "example_ru": "Свет заполнил комнату."},
+                    {"meaning_ru": "лёгкий", "example_en": "This bag is light.", "example_ru": "Эта сумка лёгкая."},
+                    {"meaning_ru": "зажигать", "example_en": "Light a candle.", "example_ru": "Зажги свечу."},
+                ])
+                return answer
+
+        class NoteOnlyClient(FakeClient):
+            def complete_json(self, system: str, user: str, schema: dict) -> dict:
+                answer = super().complete_json(system, user, schema)
+                answer["items"][0].update(meaning_ru="", note_ru="Модель не уверена.")
+                return answer
+
+        def attach_dictionary(entries):
+            for entry in entries:
+                if entry["lemma"] == "light":
+                    entry["dictionary"] = {"meaning_ru": "зажигать"}
+
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            repository = repository_for(workspace)
+            target, other, pending = [_lexeme(lemma) for lemma in ("light", "glimpse", "dread")]
+            target["processing"]["analysis"]["pos"] = "v"
+            target["occurrences"][0]["context"] = "She felt light-headed after the climb."
+            catalog = vocab_cache.empty_catalog()
+            catalog["lexemes"] = [target, other, pending]
+            repository.save_catalog(catalog)
+            settings.save(workspace, settings.AppSettings(llm_enabled=True, llm_provider="openai", llm_examples_per_sense=True))
+            with (patch("kindle_vocab_app.tauri_bridge.offline_dictionary.attach", side_effect=attach_dictionary),
+                  patch.object(enrichment, "build_client", return_value=FakeClient()) as build):
+                initial = dispatch("enrich_lexemes", {"ids": [target["id"], other["id"]]}, workspace)
+                originals = {entry["id"]: entry.get("enrichment") for entry in initial["entries"]}
+                old_target = originals[target["id"]]
+                self.assertEqual(old_target["meaning_ru"], "перевод light")
+
+                build.reset_mock()
+                self.assertEqual(dispatch("enrich_lexemes", {"ids": [target["id"]]}, workspace)["requested"], 0)
+                for scope in ({}, {"ids": []}, {"ids": [target["id"], other["id"]]}, {"ids": [pending["id"]]}):
+                    with self.assertRaises(ValueError):
+                        dispatch("enrich_lexemes", {**scope, "recheck": True}, workspace)
+                build.assert_not_called()
+
+                build.return_value = NoteOnlyClient()
+                request = {"ids": [target["id"]], "recheck": True}
+                failed = dispatch("enrich_lexemes", request, workspace)
+                self.assertEqual(failed["failed"], 1)
+                self.assertEqual(next(entry["enrichment"] for entry in failed["entries"] if entry["id"] == target["id"]), old_target)
+
+                client = ContextClient()
+                build.return_value = client
+                checked = dispatch("enrich_lexemes", request, workspace)
+                self.assertEqual((checked["requested"], checked["enriched"]), (1, 1))
+                [sent] = client.calls[0]["items"]
+                self.assertEqual(len(client.calls), 1)
+                self.assertEqual((sent["lemma"], sent["pos"], sent["current_meaning_ru"]), ("light", "v", "зажигать"))
+                self.assertEqual(sent["sentences"], ["She felt light-headed after the climb."])
+                entries = {entry["id"]: entry for entry in checked["entries"]}
+                result = entries[target["id"]]["enrichment"]
+                self.assertEqual([sense["meaning_ru"] for sense in result["senses"]], ["свет", "лёгкий", "зажигать"])
+                self.assertEqual(result["context_meaning_ru"], "испытывать головокружение (light-headed)")
+                self.assertEqual(entries[target["id"]]["card"]["meaning_ru"], "свет; лёгкий; зажигать")
+                for word in (other, pending):
+                    self.assertEqual(entries[word["id"]].get("enrichment"), originals[word["id"]])
+
     def test_selected_quote_fingerprint_manual_precedence_and_failed_refresh(self) -> None:
         class SenseClient(FakeClient):
             def complete_json(self, system: str, user: str, schema: dict) -> dict:

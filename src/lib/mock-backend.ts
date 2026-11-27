@@ -836,17 +836,19 @@ export async function mockBackend<T>(action: string, payload: unknown): Promise<
     return { ok: true, model: "preview-model", seconds: 1.4, sample: { meaning_ru: "мельком увидеть; проблеск", definition_en: "a brief look" } } as T;
   }
   if (action === "enrich_lexemes") {
-    const request = payload as { ids?: string[]; retry_failed?: boolean; expected_count?: number };
+    const request = payload as { ids?: string[]; retry_failed?: boolean; expected_count?: number; recheck?: boolean };
     const chosen = request.ids === undefined ? undefined : new Set(request.ids);
+    if (request.recheck && chosen?.size !== 1) throw new Error("Для повторной проверки выберите одно слово");
     const ids = new Set(mockEntries.filter((entry) => {
       if (chosen) {
         const state = mockReviewState(entry);
-        return chosen.has(entry.id) && (state === "pending" || (request.retry_failed && state === "failed"));
+        return chosen.has(entry.id) && (request.recheck ? state === "ready" : state === "pending" || (request.retry_failed && state === "failed"));
       }
       return isEnrichable(entry) && !["known", "skip", "junk"].includes(decisions.get(entry.id)?.value ?? "")
         && (!entry.enrichment || (request.retry_failed && entry.enrichment.status === "failed"));
     }).map((entry) => entry.id));
-    if (request.expected_count !== undefined && request.expected_count !== ids.size) throw new Error("Состав слов изменился. Откройте список для подтверждения ещё раз.");
+    const expectedCount = request.expected_count ?? (request.recheck ? 1 : undefined);
+    if (expectedCount !== undefined && expectedCount !== ids.size) throw new Error("Состав слов изменился. Откройте список для подтверждения ещё раз.");
     mockEntries = mockEntries.map((entry) => {
       if (!ids.has(entry.id)) return entry;
       reviewedInputs.set(entry.id, reviewInput(entry));

@@ -522,18 +522,23 @@ def _llm_action(action: str, payload: dict[str, Any], workspace: Path, *, job_id
         if not isinstance(ids, list) or not all(isinstance(item, str) and item.strip() for item in ids):
             raise ValueError("Список слов для перевода должен содержать только непустые идентификаторы")
         requested = set(ids)
+    recheck = payload.get("recheck") is True
+    if recheck and (requested is None or len(requested) != 1):
+        raise ValueError("Для повторной проверки выберите одно слово")
     if not app_settings.llm_enabled and (requested is None or requested):
         raise ValueError("Включите перевод через ИИ в настройках")
     expected = payload.get("expected_count")
     if "expected_count" in payload and (type(expected) is not int or expected < 0):
         raise ValueError("Ожидаемое число слов для перевода должно быть целым неотрицательным числом")
+    if recheck and expected is None:
+        expected = 1
     repository = repository_for(workspace)
     catalog = repository.load_catalog()
     state = repository.load_reader_state()
     edits = state["card_edits"]
     offline_dictionary.attach(catalog["lexemes"])
     selected = enrichment.candidates(
-        catalog["lexemes"], ids=requested, retry_failed=payload.get("retry_failed") is True,
+        catalog["lexemes"], ids=requested, retry_failed=payload.get("retry_failed") is True, recheck=recheck,
         edits=edits, decisions=state["decisions"], examples_per_sense=app_settings.llm_examples_per_sense,
     )
     limit = int(payload.get("limit") or 0)
@@ -551,7 +556,7 @@ def _llm_action(action: str, payload: dict[str, Any], workspace: Path, *, job_id
         summary = enrichment.enrich(
             selected, client, repository, provider=provider,
             batch_size=preset.batch_size, max_parallel_batches=preset.max_parallel_batches,
-            edits=edits, examples_per_sense=app_settings.llm_examples_per_sense,
+            edits=edits, examples_per_sense=app_settings.llm_examples_per_sense, recheck=recheck,
             progress=lambda done, total: _emit_progress(job_id, "enriching", f"Обработано {done} из {total}", done, total),
         )
         catalog = repository.load_catalog()

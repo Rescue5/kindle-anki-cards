@@ -78,9 +78,42 @@ tell it to follow the brief file.
 
 How the team works:
 
+- **Project chats.** The project chat `Тимлид` coordinates development. Keep a
+  persistent chat per specialist in `kindle_app`. Send assignments, planning
+  questions, objections and reviews to the existing specialist chat, then read
+  its reply and record the decision in `Тимлид`. Use the Codex project chat
+  tools to find chats, send messages and collect replies. The role titles below
+  are the names shown to the owner in the sidebar.
+
+  | Role | Project chat | Default model | Reasoning |
+  | --- | --- | --- | --- |
+  | Product skeptic | Продакт-менеджер | `gpt-6.2-sol` | `medium` |
+  | User advocate | UX-исследователь | `gpt-6-luna` | `medium` |
+  | Backend engineer | Бэкенд-разработчик | `gpt-6.2-sol` | `medium` |
+  | Frontend engineer | Фронтенд-разработчик | `gpt-6.2-sol` | `medium` |
+  | Ranking engineer | Инженер ранжирования | `gpt-6.2-sol` | `medium` |
+  | UX clarity reviewer | UX-дизайнер | `gpt-6.1-terra` | `medium` |
+  | Design language reviewer | UI-дизайнер | `gpt-6.1-terra` | `medium` |
+  | QA engineer | QA-инженер | `gpt-6.2-sol` | `medium` |
+  | Installed application acceptance | QA-инженер по приёмке | `gpt-6.1-terra` | `low` |
+  | Release preparation and verification | Релиз-инженер | `gpt-6-luna` | `low` |
+  | Anki integration and Claude Design archive provenance | Инженер интеграции с Anki | `gpt-6.2-sol` | `medium` |
+  | Recovered Claude project history | Инженер по миграции данных | `gpt-6-luna` | `low` |
+
 - **Plan, build, review, verify, log.** The lead cuts a milestone into tasks
   with one owner each, fixes the contract between roles first (bridge payloads,
   function signatures), then starts the lanes.
+- **Planning is a stage in its own right.** After each milestone or lane step,
+  the lead opens a team meeting with the reader's goal, evidence from the
+  completed stage and unresolved questions. Invite the roles that own the
+  choices at stake. They first develop independent positions on the options,
+  including the cost of waiting and what evidence would change their view.
+  Then circulate specific objections between the participants and let them
+  respond before deciding. Record disagreements, the lead's decision and
+  rationale, scope, task owners, dependencies and observable acceptance
+  criteria in `docs/plan/meetings.md`. Append the outcome to `WORKLOG.md`.
+  Bring decisions reserved for the owner with a recommendation. This meeting
+  ends with an agreed plan before implementation begins.
 - **Lanes do not share files.** Two agents never edit the same file at once.
   Anything that crosses a boundary (a new bridge field, a new ranking output)
   goes through the lead as a contract change.
@@ -97,13 +130,9 @@ How the team works:
 - **Only the lead commits**, as the owner (no co-author or attribution lines),
   and only finished, checked work. Push, releases and anything public (posts,
   issues, store listings) need the owner's explicit go-ahead.
-- **Token budget.** Pick the cheapest model and effort that can do the job
-  well, set explicitly on every agent: Haiku or Sonnet at low/medium for
-  reading, searching, checking and copy; Sonnet at medium/high for ordinary
-  code; Opus 5.5 at high only for the hardest work (ranking model, data
-  migrations, tricky debugging). Opus 5.5 high is the ceiling — never above it,
-  and not for everyone. Keep prompts focused, ask for short reports, and resume
-  an agent with its context instead of starting a new one when possible.
+- **Subagent models.** Choose the model explicitly. Use `gpt-6.2-sol` for
+  Sol assignments and research specialists. Do not assign any Astra model to
+  subagents. Invite only the roles needed for the decision.
 - **The owner decides** product direction, anything that changes what readers
   are promised, new dependencies that grow the installer, dataset downloads,
   and everything public. Bring such questions with a recommendation.
@@ -258,6 +287,13 @@ The Tauri bridge currently supports these actions:
   and exact Open Library matches, and return the refreshed library and counts.
 - `load_library` / `load_cached`: return the SQLite library and durable queue
   status without touching Kindle or Obsidian.
+- `save_card_edit` accepts a lexeme ID and partial edits to `meaning_ru` and
+  `example_occurrence_id`. An empty field resets that override. SQLite validates
+  the selected occurrence before committing either field. The response contains
+  the updated entry used by the editor and the next export.
+- `set_decision` saves a reader decision or clears it with JSON `null`. It
+  returns the updated entry and current `shelves`, `newBatch`, `disputed` and
+  `again` summaries. A skipped word remains available under «Остальные».
 - `process_queue`: sequentially analyze the persistent SQLite queue and commit
   every completed lexeme before moving to the next one. The frontend starts it
   automatically while the application is open.

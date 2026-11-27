@@ -59,5 +59,4 @@ Invoke-CondaRun @("kindle-vocab-doctor")
 Write-Host ""
 Write-Host "Setup complete."
 Write-Host "Run:"
-Write-Host "  conda activate $EnvName"
-Write-Host "  kindle-vocab-app"
+Write-Host "  .\scripts\run-dev.ps1 -EnvName $EnvName"

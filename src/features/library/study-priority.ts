@@ -46,6 +46,13 @@ export function isRpV2Priority(source?: StudyPrioritySource): boolean {
   return source === "rp-v2-coverage" || source === "rp-v2-personal";
 }
 
+export function hasFullBookCoverage(entry: LexemeRecord, source?: StudyPrioritySource): boolean {
+  const priority = entry.study_priority;
+  if (!isRpV2Priority(source) || !priority || priority.provisional || priority.level === 10) return false;
+  if (source === "rp-v2-coverage" && priority.coverage_score === undefined) return priority.score === 1;
+  return priority.coverage_score === 1;
+}
+
 export function previewPriorityReason(priority: StudyPriority): string {
   return priority.personal_reason || priority.reason;
 }

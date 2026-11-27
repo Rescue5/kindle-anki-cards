@@ -20,21 +20,25 @@ def contextual_meaning(enrichment: Mapping[str, Any], card: card_fields.Resolved
     return _text(enrichment.get("context_meaning_ru"))
 
 
+def example_pair(enrichment: Mapping[str, Any]) -> tuple[str, str]:
+    return _text(enrichment.get("example_en")), _text(enrichment.get("example_ru"))
+
+
 def example(enrichment: Mapping[str, Any]) -> str:
-    source = _text(enrichment.get("example_en"))
+    source, translation = example_pair(enrichment)
     if not source:
         return ""
-    translation = _text(enrichment.get("example_ru"))
     return f"{source} — {translation}" if translation else source
 
 
-def sense_lines(enrichment: Mapping[str, Any], card: card_fields.ResolvedCard) -> list[str]:
+def sense_examples(enrichment: Mapping[str, Any], card: card_fields.ResolvedCard) -> list[tuple[str, str, str]]:
+    """Distinct meanings with their English example and its Russian translation."""
     senses = enrichment.get("senses")
     if not isinstance(senses, list):
         return []
     primary_meanings = {card.meaning_ru.casefold(), contextual_meaning(enrichment, card).casefold()}
     main_example = example(enrichment).casefold()
-    details: list[str] = []
+    details: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str, str]] = set()
     for sense in senses:
         if not isinstance(sense, Mapping) or not (meaning := _text(sense.get("meaning_ru"))):
@@ -42,16 +46,22 @@ def sense_lines(enrichment: Mapping[str, Any], card: card_fields.ResolvedCard) -
         sentence = example(sense)
         if meaning.casefold() in primary_meanings and (not sentence or sentence.casefold() == main_example):
             continue
-        key = (
-            meaning.casefold(),
-            _text(sense.get("example_en")).casefold(),
-            _text(sense.get("example_ru")).casefold(),
-        )
+        english, russian = example_pair(sense)
+        key = meaning.casefold(), english.casefold(), russian.casefold()
         if key not in seen:
             seen.add(key)
-            details.append(
-                f"Пример по значению: {meaning} — {sentence}" if sentence else f"Дополнительное значение: {meaning}"
-            )
+            details.append((meaning, english, russian))
+    return details
+
+
+def sense_lines(enrichment: Mapping[str, Any], card: card_fields.ResolvedCard) -> list[str]:
+    details = []
+    for meaning, english, russian in sense_examples(enrichment, card):
+        if english:
+            translation = f" — {russian}" if russian else ""
+            details.append(f"Пример по значению: {meaning} — {english}{translation}")
+        else:
+            details.append(f"Дополнительное значение: {meaning}")
     return details
 
 

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from kindle_vocab_app import study_details
+from kindle_vocab_app import card_fields, study_details
 from kindle_vocab_app.obsidian_sync import vault_operation_lock
 
 _PLUGIN = "obsidian-spaced-repetition"
@@ -259,6 +259,55 @@ def _note_name(spelling: str, stable_id: str) -> str:
     return f"{label}--kc-{stable_id}.md"
 
 
+def _card_front(spelling: str, card: card_fields.ResolvedCard, settings: _Settings) -> str:
+    front = f"<h2 lang=\"en\">{_literal(spelling, settings)}</h2>"
+    context = str(card.occurrence.get("context") or "").strip()
+    if not context:
+        return front
+    title = str(card.occurrence.get("book_title") or "").strip()
+    authors = str(card.occurrence.get("authors") or "").strip()
+    attribution = " · ".join(part for part in (title, authors) if part)
+    source = f"<footer><cite>{_literal(attribution, settings)}</cite></footer>" if attribution else ""
+    return (
+        f"{front}<details><summary>Цитата из книги</summary>"
+        f"<blockquote><p lang=\"en\">{_literal(context, settings)}</p>{source}</blockquote></details>"
+    )
+
+
+def _example_lines(english: str, russian: str, settings: _Settings) -> str:
+    if not english:
+        return ""
+    original = f"<em lang=\"en\">{_literal(english, settings)}</em>"
+    translation = f"<br>{_literal(russian, settings)}" if russian else ""
+    return original + translation
+
+
+def _card_back(card: card_fields.ResolvedCard, enrichment: Mapping[str, Any], settings: _Settings) -> str:
+    # Starting with inline HTML keeps the next-line FSRS metadata a separate Markdown callout.
+    parts = [f"<strong>Перевод</strong><br>{_literal(card.meaning_ru or '—', settings)}"]
+    if enrichment.get("prompt_version") != 2:
+        return parts[0]
+
+    meaning = study_details.contextual_meaning(enrichment, card)
+    translation = study_details.quote_translation(enrichment, card)
+    if meaning or translation:
+        title = "Во фрагменте цитаты" if enrichment.get("context_truncated") else "В этой цитате"
+        lines = [_literal(value, settings) for value in (meaning, translation) if value]
+        parts.append("<br>".join([f"<strong>{title}</strong>", *lines]))
+
+    english, russian = study_details.example_pair(enrichment)
+    generated = _example_lines(english, russian, settings)
+    if generated:
+        parts.append(f"<strong>Учебный пример</strong><br>{generated}")
+    if senses := study_details.sense_examples(enrichment, card):
+        parts.append("<strong>Примеры по значениям</strong>")
+        for label, english, russian in senses:
+            pair = _example_lines(english, russian, settings)
+            title = f"<strong>{_literal(label, settings)}</strong>"
+            parts.append(f"{title}<br>{pair}" if pair else title)
+    return "<br><br>".join(parts)
+
+
 def _prepare_notes(
     folder: Path,
     entries: Iterable[Mapping[str, Any]],
@@ -280,12 +329,9 @@ def _prepare_notes(
         seen.add(stable_id)
         card, enrichment = study_details.resolve(entry, edits.get(lexeme_id))
         spelling = str(entry.get("display_form") or entry.get("lemma") or "—")
-        front = _literal(spelling, settings)
-        back = _literal(card.meaning_ru or "—", settings)
-        if context := str(card.occurrence.get("context") or "").strip():
-            back += "<br>" + _literal(context, settings)
-        for detail in study_details.answer_details(enrichment, card):
-            back += "<br>" + _literal(detail, settings)
+        # Keep each side on a single source line for Spaced Repetition's answer metadata.
+        front = _card_front(spelling, card, settings)
+        back = _card_back(card, enrichment, settings)
         if any(marker in line for marker in settings.inline for line in (front, back)):
             raise ObsidianExportError("Разделитель Spaced Repetition встречается в тексте карточки Kindle Cards")
         if any(line in settings.reserved for line in (front, back)):

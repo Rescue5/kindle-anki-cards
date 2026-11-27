@@ -386,6 +386,8 @@ export type AppSettings = {
   llm_base_url: string;
   llm_auto_enrich: boolean;
   llm_examples_per_sense?: boolean;
+  /** Include exact 100% corpus coverage in the catalogue and new-word selection. */
+  show_full_book_coverage?: boolean;
   obsidian_sync_enabled: boolean;
   obsidian_vault_path: string;
   obsidian_cards_path: string;

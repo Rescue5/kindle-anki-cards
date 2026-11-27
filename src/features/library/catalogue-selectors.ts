@@ -1,6 +1,6 @@
 import type { BookOption, DecisionValue, LexemeRecord, StudyPrioritySource } from "@/types";
 import { filterLexemes } from "./domain";
-import { isRpV2Priority, studyPriority, studyPriorityComparator } from "./study-priority";
+import { hasFullBookCoverage, isRpV2Priority, studyPriority, studyPriorityComparator } from "./study-priority";
 
 export const CATALOGUE_PRIORITY_GROUPS = [
   { label: "1–3 · В первую очередь", levels: [1, 2, 3] },
@@ -40,9 +40,11 @@ export function selectCatalogueEntries(
   book: BookOption | undefined,
   filters: CatalogueFilters,
   source?: StudyPrioritySource,
+  showFullCoverage = false,
 ): LexemeRecord[] {
   const { levels, decision, recent, sort } = filters;
   const narrowed = entries.filter((entry) => (!recent || entry.freshness === "new")
+    && (showFullCoverage || !hasFullBookCoverage(entry, source))
     && matchesDecision(entry, decision) && (!levels.length || levels.includes(studyPriority(entry).level)));
   const priorityOrder = studyPriorityComparator(source);
   if (sort === "priority") return filterLexemes(narrowed, query, book, "all", priorityOrder);

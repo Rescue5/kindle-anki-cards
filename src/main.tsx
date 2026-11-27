@@ -7,6 +7,7 @@ import { LibraryWorkspace } from "@/features/library/library-workspace";
 import { useLibraryController } from "@/features/library/use-library-controller";
 import { useCatalogueFilters } from "@/features/library/use-catalogue-filters";
 import { translationState } from "@/features/library/domain";
+import { hasFullBookCoverage } from "@/features/library/study-priority";
 import { useLibraryProvider } from "@/features/llm/use-llm-config";
 import { HomeScreen } from "@/features/home/home-screen";
 import { FoxTour } from "@/features/onboarding/fox-tour";
@@ -106,10 +107,12 @@ function App() {
   const busy = controller.operation.status === "running";
   const batch = controller.ranking?.newBatch;
   const rankedIds = batch?.availableIds ?? batch?.ids;
-  const exportIds = React.useMemo(() => shortList(controller.entries, rankedIds ?? noExportIds).map((entry) => entry.id),
-    [controller.entries, rankedIds]);
-  const homeQueue = homeQueueState(controller.queueStatus, controller.operation);
   const prioritySource = controller.ranking?.studyPrioritySource;
+  const showFullCoverage = controller.settings.show_full_book_coverage === true;
+  const exportIds = React.useMemo(() => shortList(controller.entries, rankedIds ?? noExportIds)
+    .filter((entry) => showFullCoverage || !hasFullBookCoverage(entry, prioritySource)).map((entry) => entry.id),
+    [controller.entries, rankedIds, showFullCoverage, prioritySource]);
+  const homeQueue = homeQueueState(controller.queueStatus, controller.operation);
   const libraryWords = React.useMemo(() => libraryExportOrder(controller.entries, prioritySource), [controller.entries, prioritySource]);
   const destination = controller.settings.export_destination;
   const vaultPath = destination === "obsidian" ? controller.settings.obsidian_vault_path : "";

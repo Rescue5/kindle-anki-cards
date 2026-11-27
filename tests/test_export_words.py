@@ -1050,6 +1050,30 @@ class ErrorEnvelopeTests(unittest.TestCase):
 
 
 class SettingsTests(unittest.TestCase):
+    def test_save_recovers_from_a_brief_windows_file_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            settings.save(workspace, settings.AppSettings(theme="dark"))
+            path = settings.settings_path(workspace)
+            original_replace = Path.replace
+            attempts = 0
+
+            def replace(source: Path, target: Path) -> Path:
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    self.assertEqual(settings.load(workspace).theme, "dark")
+                    error = PermissionError("file briefly locked")
+                    error.winerror = 5
+                    raise error
+                return original_replace(source, target)
+
+            with patch.object(Path, "replace", autospec=True, side_effect=replace):
+                settings.save(workspace, settings.AppSettings(theme="light"))
+            self.assertGreaterEqual(attempts, 2)
+            self.assertEqual(settings.load(workspace).theme, "light")
+            self.assertEqual(list(path.parent.glob("*.tmp")), [])
+
     def test_defaults_and_round_trip(self) -> None:
         defaults = settings.to_dict(settings.AppSettings())
         self.assertEqual((defaults["export_destination"], defaults["export_batch_size"]), ("anki", 20))
@@ -1088,6 +1112,28 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(
                 (kept["theme"], kept["export_destination"], kept["export_batch_size"]), ("dark", "csv", 7)
             )
+
+    def test_full_book_coverage_setting_through_the_bridge(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            key = "show_full_book_coverage"
+            self.assertIs(dispatch("load_settings", {}, workspace)[key], False)
+            path = settings.settings_path(workspace)
+            path.parent.mkdir()
+            path.write_text(json.dumps({"version": 1, "theme": "dark"}), encoding="utf-8")
+            old = dispatch("load_settings", {}, workspace)
+            self.assertIs(old[key], False)
+            self.assertEqual(old["theme"], "dark")
+
+            dispatch("save_settings", {"settings": {key: True}}, workspace)
+            dispatch("save_settings", {"settings": {"theme": "light"}}, workspace)
+            self.assertIs(dispatch("load_settings", {}, workspace)[key], True)
+            self.assertIs(json.loads(path.read_text(encoding="utf-8"))[key], True)
+
+            for value in (False, "true", 1):
+                with self.subTest(value=value):
+                    dispatch("save_settings", {"settings": {key: value}}, workspace)
+                    self.assertIs(dispatch("load_settings", {}, workspace)[key], False)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ type Props = {
   readOnly: boolean;
   busy: boolean;
   llmEnabled: boolean;
-  onEnrich: (id: string, retryFailed: boolean) => void;
+  onEnrich: (id: string, mode: "check" | "retry" | "recheck") => void;
   headingRef: React.RefObject<HTMLHeadingElement>;
   onSave: (id: string, changes: CardChanges) => Promise<void>;
   onDecision: (id: string, decision: DecisionValue | null) => Promise<void>;
@@ -159,7 +159,7 @@ export function WordTranslationDetails({ entry, llmEnabled, disabled, onEnrich }
   entry: LexemeRecord;
   llmEnabled: boolean;
   disabled: boolean;
-  onEnrich: (id: string, retryFailed: boolean) => void;
+  onEnrich: Props["onEnrich"];
 }) {
   const enrichment = entry.enrichment;
   const state = translationState(entry);
@@ -198,7 +198,9 @@ export function WordTranslationDetails({ entry, llmEnabled, disabled, onEnrich }
         : enrichment?.status === "ready" ? "Можно проверить перевод по текущей цитате и настройкам."
         : llmEnabled ? "Перевода по контексту ещё нет." : "Перевод по контексту можно включить в настройках."}</p>
       {llmEnabled ? <Button type="button" variant="secondary" size="sm" disabled={disabled}
-        onClick={() => onEnrich(entry.id, failed)}>{failed ? "Повторить перевод слова" : "Перевести слово с ИИ"}</Button> : null}
+        onClick={() => onEnrich(entry.id, failed ? "retry" : "check")}>{failed ? "Повторить перевод слова" : "Перевести слово с ИИ"}</Button> : null}
     </>}
+    {state === "ready" && llmEnabled ? <Button type="button" variant="secondary" size="sm" disabled={disabled}
+      onClick={() => onEnrich(entry.id, "recheck")}>Перепроверить перевод</Button> : null}
   </div>;
 }

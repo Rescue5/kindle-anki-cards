@@ -22,9 +22,23 @@ Fast setup from the repository root:
 
 ```powershell
 .\scripts\setup-dev.ps1
-conda activate kindle_app
-kindle-vocab-app
+.\scripts\run-dev.ps1
 ```
+
+For subsequent runs on Windows, use `.\scripts\run-dev.ps1` from PowerShell.
+It opens **Kindle Cards (Dev)** from the current checkout and keeps its
+library and settings in `%LOCALAPPDATA%\Kindle Cards Dev\.app-data`.
+The first launch copies the installed library, or the old repository library
+if the installed profile is missing. Later launches reuse the development
+library. Changes made in the development library remain there across checkouts.
+Automatic AI translation starts disabled on the copied profile. API keys
+saved in the development app belong to that profile.
+For export testing, select a test vault or deck in the development settings.
+
+To try an empty profile, use
+`.\scripts\run-dev.ps1 -Workspace .\build\empty-dev-profile -EmptyProfile`.
+The first launch to a new path creates the profile. Closing the app ends the
+development run. Use the same command after changing or pulling code.
 
 On macOS/Linux, use:
 
@@ -92,9 +106,10 @@ for its provenance and setup. A missing or mismatched resource stops the local
 installer build. Public distribution of this specific candidate is pending review.
 
 The NSIS installer appears in `src-tauri/target/release/bundle/nsis/`. It
-installs per user and needs no administrator rights. Development runs
-(`kindle-vocab-app`, `npm run tauri dev`) keep using the conda Python and the
-repository `.app-data` folder.
+installs per user and needs no administrator rights. The Windows development
+script opens its persistent test profile. The lower-level commands
+`kindle-vocab-app` and `npm run tauri dev` still default to the repository
+`.app-data` folder.
 
 ## Runtime diagnostics
 

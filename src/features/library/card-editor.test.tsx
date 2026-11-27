@@ -88,10 +88,12 @@ describe("card editor states", () => {
     entry.enrichment_state = "ready";
     const render = () => renderToStaticMarkup(<WordTranslationDetails entry={entry} llmEnabled disabled={false} onEnrich={() => {}} />);
     expect(render()).toContain("ИИ подтвердил исходный перевод");
+    expect(render()).toContain("Перепроверить перевод");
     expect(render()).toContain("В этой цитате");
     expect(render()).toContain("Перевод фрагмента");
     expect(render()).toContain("Банк закрылся в пять.");
     entry.enrichment_state = "pending";
     expect(render()).not.toContain("В этой цитате");
+    expect(render()).not.toContain("Перепроверить перевод");
   });
 });

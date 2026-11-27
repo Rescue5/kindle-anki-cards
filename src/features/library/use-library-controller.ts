@@ -601,19 +601,20 @@ export function useLibraryController() {
 
   const enrichmentQueue = React.useMemo(() => autoQueue ?? enrichmentCounts(entries), [autoQueue, entries]);
   const enrichInFlightRef = React.useRef(false);
-  const lastEnrichIds = React.useRef<readonly string[]>();
+  const lastEnrichRequest = React.useRef<{ ids?: readonly string[]; recheck?: boolean }>({});
 
-  const enrichWords = React.useCallback(async (options: { ids?: readonly string[]; retryFailed?: boolean; exact?: boolean } = {}) => {
+  const enrichWords = React.useCallback(async (options: { ids?: readonly string[]; retryFailed?: boolean; exact?: boolean; recheck?: boolean } = {}) => {
     if (demoRef.current || options.ids?.length === 0 || pendingSettingsWrites.current > 0
       || enrichInFlightRef.current || operationRef.current.status === "running" || edits.isWriting()) return;
     enrichInFlightRef.current = true;
     const ids = options.ids ? [...new Set(options.ids)] : undefined;
-    lastEnrichIds.current = ids;
+    lastEnrichRequest.current = { ids, recheck: options.recheck };
     const id = begin("enrich", "Перевод по контексту", "Отправляем слова провайдеру ИИ");
     try {
       const version = edits.getVersion();
       const result = await callBackend<EnrichResult>("enrich_lexemes", {
-        job_id: id, ids, retry_failed: options.retryFailed ?? false, expected_count: options.exact ? ids?.length : undefined,
+        job_id: id, ids, recheck: options.recheck || undefined, retry_failed: options.retryFailed ?? false,
+        expected_count: options.exact || options.recheck ? ids?.length : undefined,
       });
       if (!edits.acceptsVersion(version) || demoRef.current) return;
       setEntries(result.entries);
@@ -659,7 +660,7 @@ export function useLibraryController() {
     if (kind === "kindle") return void syncKindle();
     if (kind === "covers") return void downloadCovers();
     if (kind === "processing") return void retryFailed();
-    if (kind === "enrich") return void enrichWords({ ids: lastEnrichIds.current, retryFailed: true });
+    if (kind === "enrich") return void enrichWords({ ...lastEnrichRequest.current, retryFailed: true });
   }, [downloadCovers, enrichWords, retryFailed, syncKindle]);
 
   const dismissOperation = React.useCallback(() => setOperation(idleOperation), []);

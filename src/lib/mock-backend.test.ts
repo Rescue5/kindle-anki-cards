@@ -35,6 +35,8 @@ describe("browser mock speaks the C0 contract", () => {
     const reviewed = (await load()).entries.filter((entry) => entry.enrichment_state === "ready").map((entry) => entry.id);
     expect(reviewed.sort()).toEqual(ids);
     expect((await load()).entries.find((entry) => entry.id === "lexeme-00:17")?.enrichment_state).toBe("ineligible");
+    await expect(callBackend("enrich_lexemes", { ids, recheck: true })).rejects.toThrow();
+    await expect(callBackend("enrich_lexemes", { ids: [ids[0]], recheck: true })).resolves.toMatchObject({ requested: 1, enriched: 1 });
   });
 
   it("carries every library-level and lexeme-level key, with the old fields beside them", async () => {

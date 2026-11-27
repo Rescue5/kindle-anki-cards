@@ -145,6 +145,9 @@ export function SettingsView({ settings, onSave, onOpenTour, onOpenWords, focusL
               </Select>
             </Field>
           </div>
+          <SwitchRow id="show-full-book-coverage" label="Показывать слова с охватом 100%"
+            hint="Когда выключено, каталог и подборка новых слов скрывают слова, встретившиеся в каждом произведении выборки."
+            checked={settings.show_full_book_coverage === true} onChange={(value) => update("show_full_book_coverage", value)} />
         </SettingsSection>
 
         <LlmSettingsSection settings={settings} update={update} persistPatch={persistPatch} focusOnMount={focusLlm}
