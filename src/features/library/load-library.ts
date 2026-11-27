@@ -8,7 +8,7 @@ export type ObsidianCheck =
 export function obsidianConfig(settings: AppSettings) {
   const vault = settings.obsidian_vault_path.trim();
   const cards = settings.obsidian_cards_path.trim();
-  return settings.obsidian_sync_enabled && vault && cards
+  return settings.export_destination !== "obsidian" && settings.obsidian_sync_enabled && vault && cards
     ? { vault_path: vault, cards_path: cards }
     : null;
 }

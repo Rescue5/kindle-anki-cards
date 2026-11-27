@@ -51,10 +51,12 @@ Does:
    each with a default answer, all skippable).
 5. **Lets the reader fix a card**: translation, which sentence from their book
    goes on it.
-6. **Exports with one button** to the remembered destination: Anki (through
-   AnkiConnect, otherwise an `.apkg` file) or CSV (covers Quizlet and every
-   other app). Obsidian keeps working for those who set it up but is not a
-   headline. Re-exporting uses the same Anki note GUID. Anki's import settings
+6. **Exports with one button** to the remembered destination. Anki receives
+   a deck through AnkiConnect or an `.apkg` file. Obsidian receives one
+   Markdown note per word in the reader's vault with priority decks for
+   Spaced Repetition. Quizlet and RemNote receive local files for their text
+   importers. A detailed TSV retains the full set of export columns.
+   Re-exporting uses the same Anki note GUID. Anki's import settings
    govern field updates. A newer translation or example can replace edits
    made in Anki. Excluding a word from a later export leaves it in Anki.
 7. **Says what did not stick**: words looked up again after their export are

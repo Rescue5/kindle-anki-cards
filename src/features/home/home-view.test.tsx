@@ -133,6 +133,21 @@ describe("Главная", () => {
     expect(missing).not.toContain("Открыть папку выгрузок");
   });
 
+  it("keeps the Obsidian conflict result and folder action even when the export folder is missing", () => {
+    const run = { destination: "obsidian", runId: "", exported: 0, path: "C:/Vault/Kindle Cards", pushed: 0,
+      message: "Записано 0 карточек. Файл с ручными правками оставлен как есть." } as const;
+    const markup = html({ exportUi: { kind: "done", run }, folderState: "missing" });
+    expect(markup).toContain(run.message);
+    expect(markup).toContain("Открыть папку карточек");
+  });
+
+  it("routes an unconfigured Obsidian export to settings", () => {
+    const markup = html({ destination: "obsidian", vaultPathError: "Укажите абсолютный путь." });
+    expect(markup).toContain("Настроить Obsidian");
+    expect(markup).toContain("Укажите абсолютный путь.");
+    expect(markup).not.toContain("Выгрузить 2 слова в Obsidian");
+  });
+
   it("asks to check Anki when the outcome is unknown and exposes the saved folder", () => {
     const markup = html({ folderState: "ready", exportUi: { kind: "error", message: "", code: "anki_import_unconfirmed" } });
     expect(markup).toContain("Проверьте, появились ли слова в Anki");

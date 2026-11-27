@@ -54,6 +54,7 @@ import {
 } from "@/types";
 import { isRpV2Priority, studyPriorityComparator } from "@/features/library/study-priority";
 import { BridgeError, defaultSettings } from "./backend";
+import { obsidianVaultPathError } from "./export-destinations";
 
 const SHELVES: Shelf[] = ["worth", "disputed", "not_worth", "junk", "known"];
 const DECISIONS: DecisionValue[] = ["known", "learn", "skip", "junk"];
@@ -271,6 +272,7 @@ let cardEdits = new Map<string, CardEdit>();
 let exportMarks = new Map<string, ExportMark>();
 let exportRuns: { runId: string; scope: string; ids: string[]; at: string; destination: ExportDestination }[] = [];
 let exportFolderAvailable = false;
+const obsidianFolders = new Set<string>();
 let folderChecks = 0;
 const cancelledJobs = new Set<string>();
 let mockFailureConsumed = false;
@@ -322,6 +324,7 @@ export function resetMockBackend(options: { scenario?: string; instant?: boolean
   exportMarks = new Map();
   exportRuns = [];
   exportFolderAvailable = savedFolder;
+  obsidianFolders.clear();
   folderChecks = 0;
   cancelledJobs.clear();
   mockFailureConsumed = false;
@@ -331,8 +334,8 @@ export function resetMockBackend(options: { scenario?: string; instant?: boolean
   mockSettings = {
     ...defaultSettings,
     obsidian_sync_enabled: true,
-    obsidian_vault_path: "preview",
-    export_destination: "anki",
+    obsidian_vault_path: scenario.startsWith("obsidian-export") ? "C:\\Demo Vault" : "",
+    export_destination: scenario.startsWith("obsidian-export") ? "obsidian" : "anki",
     export_batch_size: EXPORT_BATCH_SIZE_DEFAULT,
     ...(scenario === "showcase" ? { llm_enabled: true, llm_provider: "anthropic", llm_model: "claude-opus-5-5" } : {}),
   };
@@ -725,13 +728,32 @@ function exportWords(payload: unknown): ExportRun {
     exportFolderAvailable = true;
     fail(previewScenario() === "anki-unconfirmed" ? "anki_import_unconfirmed" : "anki_import_rejected");
   }
+  if (destination === "obsidian") {
+    const vault = mockSettings.obsidian_vault_path.trim();
+    const error = obsidianVaultPathError(vault);
+    if (error) fail("export_failed", error);
+    if (previewScenario() === "obsidian-export-invalid") fail("export_failed", "Папка хранилища недоступна.");
+    const path = /^[A-Za-z]:|^\\/.test(vault) ? vault.replace(/[\\/]+$/, "") + "\\Kindle Cards" : vault.replace(/\/+$/, "") + "/Kindle Cards";
+    const conflicts = previewScenario() === "obsidian-export-all-conflicts" ? ids.length : previewScenario() === "obsidian-export-conflicts" ? 1 : 0;
+    const writtenIds = ids.slice(0, ids.length - conflicts);
+    const at = new Date().toISOString();
+    const runId = writtenIds.length ? `run-${exportRuns.length + 1}` : "";
+    for (const id of writtenIds) markExported(id, at, 0, "obsidian");
+    if (runId) exportRuns.push({ runId, scope: request.scope, ids: writtenIds, at, destination });
+    obsidianFolders.add(vault);
+    const message = `Записано в Obsidian: ${writtenIds.length}. Уже в хранилище: 0. `
+      + (conflicts ? `Оставлены без изменений из-за конфликта: ${conflicts}. ` : "")
+      + "Откройте хранилище в Obsidian и включите плагин Spaced Repetition для повторения.";
+    return { destination, runId, exported: writtenIds.length, path, pushed: 0, message };
+  }
   const at = new Date().toISOString();
   for (const id of ids) markExported(id, at, 0, destination);
   const runId = `run-${exportRuns.length + 1}`;
   exportRuns.push({ runId, scope: request.scope, ids, at, destination });
   const pushed = destination === "anki" && mockConnectors().anki?.state === "connected" ? ids.length : 0;
-  const path = pushed || destination === "obsidian" ? null : destination === "csv" ? "preview/kindle-cards.tsv" : "preview/Kindle Cards.apkg";
-  if (destination === "anki" || destination === "csv") exportFolderAvailable = true;
+  const files = { anki: "Kindle Cards.apkg", csv: "kindle-cards.tsv", quizlet: "kindle-quizlet.tsv", remnote: "kindle-remnote.txt" };
+  const path = pushed ? null : `preview/${files[destination]}`;
+  if (path) exportFolderAvailable = true;
   return { destination, runId, exported: ids.length, path, pushed, message: pushed ? `Отправлено в Anki: ${pushed}` : `Слов в экспорте: ${ids.length}` };
 }
 
@@ -794,6 +816,8 @@ export async function mockBackend<T>(action: string, payload: unknown): Promise<
     return { path: fresh.length ? "preview/Kindle Cards.apkg" : "", exported: fresh.length, skipped: 0, pushed, message: !fresh.length ? "Нет новых карточек для Anki" : pushed ? `Отправлено в Anki: ${fresh.length}` : `Карточек в колоде: ${fresh.length}` } as T;
   }
   if (action === "open_path") return { opened: true } as T;
+  if (action === "open_obsidian_folder") return { opened: exportDestination() === "obsidian"
+    && obsidianFolders.has(mockSettings.obsidian_vault_path.trim()) } as T;
   if (action === "export_folder_status") {
     if (scenario === "folder-deleted-on-focus" && ++folderChecks > 1) exportFolderAvailable = false;
     return { available: exportFolderAvailable } as T;

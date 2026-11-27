@@ -308,7 +308,7 @@ class FileExportTests(_Workspace):
         self.assertEqual(self.failure().code, "export_failed")
         self.assertEqual(_runs(self.workspace), [])
 
-    def test_obsidian_is_not_an_export_destination(self) -> None:
+    def test_obsidian_requires_a_configured_vault(self) -> None:
         self.library(worth_words(2))
         _use(self.workspace, "obsidian")
         error = self.failure()
@@ -319,6 +319,46 @@ class FileExportTests(_Workspace):
 
 
 class ExportFolderTests(_Workspace):
+    def test_obsidian_opens_only_the_managed_folder_in_the_current_vault(self) -> None:
+        self.library(worth_words(1))
+        vault = self.workspace / "test vault"
+        (vault / ".obsidian").mkdir(parents=True)
+        settings.save(self.workspace, settings.AppSettings(export_destination="obsidian", obsidian_vault_path=str(vault)))
+        with patch("kindle_vocab_app.tauri_bridge._open_local_path") as opener:
+            self.assertFalse(dispatch("open_obsidian_folder", {}, self.workspace)["opened"])
+            self.assertEqual(self.export()["exported"], 1)
+            self.assertTrue(dispatch("open_obsidian_folder", {"path": str(self.workspace)}, self.workspace)["opened"])
+            opener.assert_called_once_with(vault / "Kindle Cards")
+            _use(self.workspace, "csv")
+            self.assertFalse(dispatch("open_obsidian_folder", {}, self.workspace)["opened"])
+
+    def test_legacy_cards_remain_in_place_and_a_repeat_creates_no_duplicate(self) -> None:
+        self.library([word("elm")])
+        vault = self.workspace / "vault"
+        (vault / ".obsidian").mkdir(parents=True)
+        old_dir = vault / "cards" / "Book Vocab"
+        old_dir.mkdir(parents=True)
+        old_card = old_dir / "04 - Priority 7.md"
+        original = "**elm**\n?\n**elm — вяз**\n".encode()
+        old_card.write_bytes(original)
+        settings.save(self.workspace, settings.AppSettings(export_destination="obsidian", obsidian_vault_path=str(vault)))
+        result = self.export(scope="library", ids=[lid("elm")])
+        self.assertEqual(result["exported"], 1)
+        self.assertIsNone(result["path"])
+        self.assertEqual(_runs(self.workspace)[0][:3], ("obsidian", "again", 1))
+        self.assertEqual(list(vault.rglob("*.md")), [old_card])
+        with self.assertRaisesRegex(ValueError, "Главной"):
+            dispatch("sync_obsidian", {}, self.workspace)
+        self.assertEqual(old_card.read_bytes(), original)
+
+    def test_legacy_bridge_refuses_paths_outside_the_vault(self) -> None:
+        vault = self.workspace / "vault"
+        vault.mkdir()
+        for action in ("load_obsidian", "sync_obsidian"):
+            for relative in ("../foreign", str(self.workspace), ".obsidian/plugins", "Kindle Cards"):
+                with self.subTest(action=action, relative=relative), self.assertRaises(ValueError):
+                    dispatch(action, {"vault_path": str(vault), "cards_path": relative}, self.workspace)
+
     def test_status_requires_a_nonempty_finished_file(self) -> None:
         folder = export_cards.exports_dir(self.workspace)
         self.assertEqual(dispatch("export_folder_status", {}, self.workspace), {"available": False})
@@ -1020,7 +1060,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_invalid_values_are_refused_in_russian(self) -> None:
         for key, value in (
-            ("export_destination", "quizlet"),
+            ("export_destination", "unknown-app"),
             ("export_batch_size", 4),
             ("export_batch_size", 101),
             ("export_batch_size", True),

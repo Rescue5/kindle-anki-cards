@@ -82,8 +82,14 @@ the library in the per-user app data folder
 ```powershell
 conda activate kindle_app
 python -m pip install "pyinstaller>=6,<7"
-.\scripts\build-installer.ps1
+.\scripts\build-installer.ps1 -RankingModel .app-data\models\rp-v2-expanded.sqlite
 ```
+
+The private 1.0 candidate uses the verified expanded SQLite and includes its
+[source notice](../packaging/ranking-model-notices.txt). The model stays outside
+Git. See the [model import instructions](plan/personalized-book-priority.md)
+for its provenance and setup. A missing or mismatched resource stops the local
+installer build. Public distribution of this specific candidate is pending review.
 
 The NSIS installer appears in `src-tauri/target/release/bundle/nsis/`. It
 installs per user and needs no administrator rights. Development runs

@@ -4,6 +4,7 @@ import { ERROR_TEXTS, type ErrorCode, type ExportRun, type LexemeRecord, type Li
 import { partOfSpeechShort, ruCount } from "@/features/reading/reading-domain";
 import { russianMeaning } from "@/features/library/domain";
 import { isRpV2Priority, studyPriorityComparator, studyPriority } from "@/features/library/study-priority";
+import type { ExportDestination } from "@/types";
 
 /** The short-list parts of a library answer, or null when the bridge does not send them (an older one). */
 export function rankingOf(result: LibraryResult): LibraryRanking | null {
@@ -28,8 +29,14 @@ export function wordsLabel(count: number): string {
 }
 
 /** Number of selected words, including those beyond the preview. */
-export function exportButtonLabel(count: number): string {
-  return `Выгрузить ${wordsLabel(count)}`;
+export function exportButtonLabel(count: number, destination?: ExportDestination): string {
+  const words = wordsLabel(count);
+  if (destination === "quizlet") return `Сохранить ${words} для Quizlet`;
+  if (destination === "remnote") return `Сохранить ${words} для RemNote`;
+  if (destination === "csv") return `Сохранить ${words} в TSV`;
+  if (destination === "obsidian") return `Выгрузить ${words} в Obsidian`;
+  if (destination === "anki") return `Выгрузить ${words} в Anki`;
+  return `Выгрузить ${words}`;
 }
 
 export const PRIORITY_LEVELS = Array.from({ length: 10 }, (_, index) => index + 1);
@@ -165,7 +172,9 @@ export function exportReducer(state: ExportUi, event: ExportEvent): ExportUi {
       return state.kind === "running" ? state : { kind: "running" };
     case "success":
       if (state.kind !== "running") return state;
-      return event.run.exported > 0 ? { kind: "done", run: event.run } : { kind: "empty" };
+      return event.run.destination === "obsidian" || event.run.exported > 0
+        ? { kind: "done", run: event.run }
+        : { kind: "empty" };
     case "failure":
       if (state.kind !== "running") return state;
       return event.code === "nothing_to_export" ? { kind: "empty" } : { kind: "error", message: event.message, ...(event.code ? { code: event.code } : {}) };
@@ -177,14 +186,20 @@ export function exportReducer(state: ExportUi, event: ExportEvent): ExportUi {
 /** «Готово: 5 слов в Anki» for a push, «… в файле» when a file was written. */
 export function exportDoneText(run: ExportRun): string {
   const words = wordsLabel(run.exported);
+  if (run.destination === "obsidian") return run.message || `Готово: ${words} в Obsidian`;
   if (run.path) return `Готово: ${words} в файле`;
-  if (run.destination === "obsidian") return `Готово: ${words} в Obsidian`;
   return `Готово: ${words} в Anki`;
 }
 
 /** A line under «Готово» only when the reader still has a step to take: an Anki file waits to be opened. */
 export function exportDoneHint(run: ExportRun): string {
-  return run.path && run.destination === "anki" ? "Откройте колоду и подтвердите импорт в Anki" : "";
+  if (!run.path) return "";
+  switch (run.destination) {
+    case "anki": return "Откройте колоду и подтвердите импорт в Anki";
+    case "quizlet": return "Откройте файл, скопируйте текст и вставьте его в поле импорта Quizlet.";
+    case "remnote": return "Откройте файл, скопируйте текст и вставьте его в документ RemNote.";
+    default: return "";
+  }
 }
 
 /** «Не получилось: <причина>.» — the reason without the bridge's generic prefix, as one sentence. */

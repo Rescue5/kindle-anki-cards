@@ -29,6 +29,10 @@ class ProviderPreset:
         # within the timeout and show progress sooner.
         return 2 if self.local else 8
 
+    @property
+    def max_parallel_batches(self) -> int:
+        return 4 if self.id == "openai" else 1
+
 
 PRESETS: dict[str, ProviderPreset] = {
     preset.id: preset

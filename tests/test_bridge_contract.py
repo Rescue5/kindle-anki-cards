@@ -175,7 +175,7 @@ class ConstantsTests(unittest.TestCase):
 
     def test_batch_size_bounds(self):
         self.assertEqual((contracts.BATCH_SIZE_MIN, contracts.BATCH_SIZE_DEFAULT, contracts.BATCH_SIZE_MAX), (5, 20, 100))
-        self.assertEqual(contracts.EXPORT_DESTINATIONS, ("anki", "csv", "obsidian"))
+        self.assertEqual(contracts.EXPORT_DESTINATIONS, ("anki", "csv", "obsidian", "quizlet", "remnote"))
         self.assertIn(contracts.EXPORT_DESTINATION_DEFAULT, contracts.EXPORT_DESTINATIONS)
 
 

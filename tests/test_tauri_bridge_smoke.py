@@ -286,6 +286,7 @@ class BridgeSmokeTests(unittest.TestCase):
             }
             repository_for(workspace).save_catalog(catalog)
             vault = workspace / "vault"
+            vault.mkdir()
 
             result = dispatch(
                 "sync_obsidian",

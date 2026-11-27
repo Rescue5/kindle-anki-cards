@@ -147,8 +147,12 @@ def open_model(workspace: Path) -> Iterator[BookCoverage | None]:
     if getattr(sys, "frozen", False):
         directories.append(Path(sys.executable).parent / "models")
 
-    versions = ((EXPANDED_MODEL_FILENAME, EXPANDED_SOURCE_SHA256), (MODEL_FILENAME, {SOURCE_SHA256}))
-    for candidate, accepted in ((folder / name, hashes) for name, hashes in versions for folder in directories):
+    # The bundled expanded table defines the ranking on both fresh and upgraded installations.
+    candidates = [
+        *((folder / EXPANDED_MODEL_FILENAME, EXPANDED_SOURCE_SHA256) for folder in reversed(directories)),
+        *((folder / MODEL_FILENAME, {SOURCE_SHA256}) for folder in directories),
+    ]
+    for candidate, accepted in candidates:
         if not candidate.is_file():
             continue
         connection = None

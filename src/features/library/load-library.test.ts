@@ -30,6 +30,7 @@ describe("library Obsidian reconciliation", () => {
   it("waits for both paths and the integration switch", () => {
     expect(obsidianConfig({ ...defaultSettings, obsidian_sync_enabled: true, obsidian_vault_path: "vault" })).toBeNull();
     expect(obsidianConfig({ ...defaultSettings, obsidian_vault_path: "vault", obsidian_cards_path: "cards" })).toBeNull();
+    expect(obsidianConfig({ ...defaultSettings, export_destination: "obsidian", obsidian_sync_enabled: true, obsidian_vault_path: "C:/vault", obsidian_cards_path: "old-cards" })).toBeNull();
   });
 
   it("updates Obsidian evidence without replacing a newer catalog, eligibility, or export state", () => {

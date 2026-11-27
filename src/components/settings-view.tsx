@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { PageHead } from "@/components/page-head";
+import { PencilLink } from "@/components/ui/pencil-controls";
 import { PencilRule } from "@/components/sketch/sketch";
-import { obsidianConfig, type ObsidianCheck } from "@/features/library/load-library";
-import { EXPORT_BATCH_SIZE_DEFAULT, type AppSettings, type Operation } from "@/types";
+import { exportDestinationLabels, isExportDestination, obsidianVaultPathError } from "@/lib/export-destinations";
+import { EXPORT_BATCH_SIZE_DEFAULT, type AppSettings } from "@/types";
 
 type SettingsSectionProps = {
   title: string;
@@ -64,16 +65,12 @@ function Field({ label, hint, children }: FieldProps) {
 type SettingsViewProps = {
   settings: AppSettings;
   onSave: (patch: Partial<AppSettings>) => Promise<void>;
+  onOpenTour: () => void;
   saving: boolean;
-  demo: boolean;
   busy: boolean;
-  obsidianCheck: ObsidianCheck;
-  operation: Operation;
-  onCheckObsidian: () => void;
-  onSyncObsidian: () => void;
 };
 
-export function SettingsView({ settings, onSave, saving, demo, busy, obsidianCheck, operation, onCheckObsidian, onSyncObsidian }: SettingsViewProps) {
+export function SettingsView({ settings, onSave, onOpenTour, saving, busy }: SettingsViewProps) {
   const [saveError, setSaveError] = React.useState("");
   const latestSave = React.useRef(0);
   const batchSize = settings.export_batch_size ?? EXPORT_BATCH_SIZE_DEFAULT;
@@ -99,20 +96,20 @@ export function SettingsView({ settings, onSave, saving, demo, busy, obsidianChe
     void persist(patch);
   }
 
-  const obsidianRunning = operation.kind === "obsidian" && operation.status === "running";
-  const obsidianDisabled = !settings.obsidian_sync_enabled || !obsidianConfig(settings);
-  const obsidianResult = operation.kind === "obsidian" && (operation.status === "completed" || operation.status === "error")
-    ? (operation.error || operation.message)
-    : "";
+  const destination = settings.export_destination ?? "anki";
+  const vaultPath = settings.obsidian_vault_path;
+  const exportFieldId = React.useId();
+  const vaultPathError = destination === "obsidian" ? obsidianVaultPathError(vaultPath) : null;
 
   return (
     <main className="reading-page app-scrollbar">
       <div className="screen-page settings-page">
-        <PageHead title="Настройки" lede="Внешний вид, экспорт, перевод через ИИ и Obsidian.">
+        <PageHead title="Настройки" lede="Внешний вид, выгрузка слов и перевод через ИИ.">
           {saving ? <span className="home-note">сохраняем…</span> : saveError ? <span className="screen-error-note" role="alert">Ошибка сохранения: {saveError}</span> : <span className="reading-count">Настройки сохраняются автоматически</span>}
         </PageHead>
 
         <SettingsSection title="Общие" description="Выберите освещение и настройте выгрузку слов с главной.">
+          <div><PencilLink onClick={onOpenTour}>Пройти обучение с лисом</PencilLink></div>
           <div className="settings-grid">
             <Field label="Тема">
               <Select value={settings.theme} onChange={(event) => update("theme", event.target.value as AppSettings["theme"])}>
@@ -122,12 +119,24 @@ export function SettingsView({ settings, onSave, saving, demo, busy, obsidianChe
               </Select>
             </Field>
             <Field label="Куда выгружать слова" hint="Выбор действует на следующие выгрузки.">
-              <Select value={settings.export_destination ?? "anki"} onChange={(event) => update("export_destination", event.target.value === "csv" ? "csv" : "anki")}>
-                {settings.export_destination === "obsidian" ? <option value="obsidian" disabled>Выберите Anki или файл</option> : null}
-                <option value="anki">Anki</option>
-                <option value="csv">Файл TSV для Quizlet и таблиц</option>
+              <Select value={destination} disabled={busy} onChange={(event) => {
+                const value = event.target.value;
+                if (isExportDestination(value)) update("export_destination", value);
+              }}>
+                {Object.entries(exportDestinationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </Select>
             </Field>
+            {destination === "obsidian" ? (
+              <Field label="Папка хранилища Obsidian" hint="Укажите абсолютный путь к корню хранилища.">
+                <Input key={vaultPath} defaultValue={vaultPath} disabled={busy} aria-invalid={Boolean(vaultPathError)}
+                  aria-describedby={vaultPathError ? exportFieldId : undefined}
+                  onBlur={(event) => {
+                    const value = event.target.value.trim();
+                    if (value !== vaultPath) update("obsidian_vault_path", value);
+                  }} placeholder="Например, C:\Notes" />
+                {vaultPathError ? <span id={exportFieldId} className="screen-error-note">{vaultPathError}</span> : null}
+              </Field>
+            ) : null}
             <Field label="Порция новых слов по умолчанию" hint="На Главной можно указать другое число или выбрать всю библиотеку.">
               <Select value={batchSize} onChange={(event) => update("export_batch_size", Number(event.target.value))}>
                 {batchSizes.map((size) => <option key={size} value={size}>{size}</option>)}
@@ -138,45 +147,6 @@ export function SettingsView({ settings, onSave, saving, demo, busy, obsidianChe
 
         <LlmSettingsSection settings={settings} update={update} persistPatch={persistPatch} />
 
-        <SettingsSection title="Obsidian" description="Приложение сверяет существующие карточки. По кнопке синхронизации добавляет подходящие слова из библиотеки.">
-          <SwitchRow id="obsidian-enabled-switch" label="Синхронизация с Obsidian" hint="Добавлять подходящие слова из библиотеки в Obsidian." checked={settings.obsidian_sync_enabled} disabled={obsidianRunning} onChange={(value) => update("obsidian_sync_enabled", value)} />
-          <div className="settings-grid">
-            <Field label="Путь к хранилищу Obsidian" hint="Абсолютный путь до папки vault">
-              <Input key={settings.obsidian_vault_path} defaultValue={settings.obsidian_vault_path} disabled={obsidianRunning} onBlur={(event) => {
-                const value = event.target.value.trim();
-                if (value !== settings.obsidian_vault_path) update("obsidian_vault_path", value);
-              }} placeholder="Путь к папке Obsidian" />
-            </Field>
-            <Field label="Папка для карточек" hint="Папка внутри vault">
-              <Input key={settings.obsidian_cards_path} defaultValue={settings.obsidian_cards_path} disabled={obsidianRunning} onBlur={(event) => {
-                const value = event.target.value.trim();
-                if (value !== settings.obsidian_cards_path) update("obsidian_cards_path", value);
-              }} placeholder="Kindle Cards" />
-            </Field>
-          </div>
-          <SwitchRow id="obsidian-backup-switch" label="Создавать резервную копию" hint="Перед синхронизацией сохранить текущее состояние папки карточек." checked={settings.obsidian_backup_enabled} disabled={obsidianRunning} onChange={(value) => update("obsidian_backup_enabled", value)} />
-          {settings.obsidian_sync_enabled ? (
-            <div>
-              <Button type="button" variant="secondary" size="sm" onClick={onSyncObsidian} disabled={demo || busy || saving || obsidianDisabled || obsidianCheck.status !== "ready"}>
-                {obsidianRunning ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
-                {obsidianRunning ? "Синхронизируем…" : "Синхронизировать с Obsidian"}
-              </Button>
-              {obsidianCheck.status === "error" ? (
-                <>
-                  <p className="screen-error-note" role="alert">{obsidianCheck.message}</p>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => onCheckObsidian()} disabled={demo || busy || saving}>Повторить проверку папки</Button>
-                </>
-              ) : (
-                <p className={operation.kind === "obsidian" && operation.status === "error" ? "screen-error-note" : "settings-field-hint"} role={operation.kind === "obsidian" && operation.status === "error" ? "alert" : "status"}>
-                  {demo ? "Закройте пример на главной, чтобы синхронизировать свою библиотеку."
-                    : obsidianDisabled ? "Укажите хранилище и папку карточек."
-                      : obsidianCheck.status === "checking" ? "Сверяем существующие карточки…"
-                        : obsidianResult || (obsidianCheck.status === "ready" ? "Папка карточек доступна." : "")}
-                </p>
-              )}
-            </div>
-          ) : null}
-        </SettingsSection>
       </div>
     </main>
   );
@@ -203,7 +173,7 @@ function LlmSettingsSection({ settings, update, persistPatch }: LlmSettingsSecti
   }
 
   return (
-    <SettingsSection title="Перевод через ИИ" description="Без ИИ значения берутся из встроенного Викисловаря. ИИ переводит слово именно в том смысле, что в книге, и добавляет определение и пример. Облачному провайдеру уходят только слово и предложения из книги; локальные модели работают без интернета.">
+    <SettingsSection title="Перевод через ИИ" description="Без ИИ значения берутся из встроенного Викисловаря. Для перевода по контексту облачный провайдер получает форму слова из книги, словарную форму, предполагаемую часть речи, номер слова в запросе и до двух фрагментов предложений по 400 символов каждый. Локальные модели работают без интернета.">
       <SwitchRow id="llm-enabled-switch" label="Переводить слова по контексту" hint="Нужен ключ облачного провайдера или локальная модель в LM Studio или Ollama." checked={settings.llm_enabled} onChange={(value) => update("llm_enabled", value)} />
 
       {llm.configError ? <p className="screen-error-note">Не удалось загрузить провайдеров: {llm.configError}</p> : null}
@@ -276,7 +246,7 @@ function LlmSettingsSection({ settings, update, persistPatch }: LlmSettingsSecti
         </p>
       </div>
 
-      <SwitchRow id="llm-auto-switch" label="Переводить новые слова автоматически" hint="Иначе — кнопкой «Перевести» на экране слов. Каждое слово отправляется провайдеру только один раз." checked={settings.llm_auto_enrich} onChange={(value) => update("llm_auto_enrich", value)} disabled={!settings.llm_enabled} />
+      <SwitchRow id="llm-auto-switch" label="Переводить новые слова автоматически" hint="Перевод также можно запустить кнопкой «Перевести» на экране слов. Готовый перевод сохраняется. После сбоя запрос может повториться." checked={settings.llm_auto_enrich} onChange={(value) => update("llm_auto_enrich", value)} disabled={!settings.llm_enabled} />
     </SettingsSection>
   );
 }

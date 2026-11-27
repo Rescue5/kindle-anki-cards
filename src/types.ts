@@ -152,7 +152,7 @@ export type StudyPriority = {
   personal_reason?: string;
 };
 export type MeaningSource = "edited" | "llm" | "dictionary" | "none";
-export type ExportDestination = "anki" | "csv" | "obsidian";
+export type ExportDestination = "anki" | "csv" | "quizlet" | "remnote" | "obsidian";
 export type ExportScope = "new" | "again" | "library";
 
 export type ReasonCode =
@@ -294,7 +294,7 @@ export type ExportRun = {
   destination: ExportDestination;
   runId: string;
   exported: number;
-  /** The written file; null for a push or a vault write. */
+  /** Written file or managed Obsidian folder; null if there is nothing to open. */
   path: string | null;
   /** Cards pushed to Anki, 0 otherwise. */
   pushed: number;

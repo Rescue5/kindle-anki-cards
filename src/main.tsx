@@ -2,9 +2,12 @@ import * as React from "react";
 import ReactDOM from "react-dom/client";
 import { Home, Library, Settings } from "lucide-react";
 import { SettingsView } from "@/components/settings-view";
+import { obsidianVaultPathError } from "@/lib/export-destinations";
 import { LibraryWorkspace } from "@/features/library/library-workspace";
 import { useLibraryController } from "@/features/library/use-library-controller";
 import { HomeScreen } from "@/features/home/home-screen";
+import { FoxTour } from "@/features/onboarding/fox-tour";
+import { useFoxTour } from "@/features/onboarding/use-fox-tour";
 import { homeQueueState, libraryExportOrder, shortList } from "@/features/home/home-domain";
 import { useHomeExport } from "@/features/home/use-home-export";
 import { navViewOf, parseView, type NavView, type View } from "@/features/shell/views";
@@ -31,6 +34,7 @@ function App() {
   const controller = useLibraryController();
   // `?view=` opens a screen directly; used for browser previews and README screenshots.
   const [view, setView] = React.useState<View>(() => parseView(window.location.search));
+  const tour = useFoxTour(controller.initialLibraryEmpty, view === "home" && !controller.demo);
   const [batchLexemeId, setBatchLexemeId] = React.useState<string>();
   const returnFocus = React.useRef<string>();
   const draftDirty = React.useRef(false);
@@ -88,11 +92,14 @@ function App() {
   const homeQueue = homeQueueState(controller.queueStatus, controller.operation);
   const prioritySource = controller.ranking?.studyPrioritySource;
   const libraryWords = React.useMemo(() => libraryExportOrder(controller.entries, prioritySource), [controller.entries, prioritySource]);
+  const destination = controller.settings.export_destination;
+  const vaultPath = destination === "obsidian" ? controller.settings.obsidian_vault_path : "";
+  const vaultPathError = destination === "obsidian" ? obsidianVaultPathError(vaultPath) : null;
   const exporter = useHomeExport({
     ids: exportIds,
     libraryWords,
     defaultCount: controller.settings.export_batch_size ?? 20,
-    blocked: controller.settingsSaving || busy || homeQueue === "working",
+    blocked: controller.settingsSaving || busy || homeQueue === "working" || Boolean(vaultPathError),
     reload: controller.loadLibrary,
     active: view === "home" && !controller.demo,
   });
@@ -101,13 +108,15 @@ function App() {
   const homeShowsProgress = view === "home" && !loading && !controller.demo && controller.entries.length > 0
     && homeQueue === "working" && (busy ? controller.operation.kind === "processing" : controller.operation.status !== "error");
   const { dismiss } = exporter;
+  const exporting = exporter.state.kind === "running";
+  React.useEffect(() => dismiss(), [dismiss, destination, vaultPath]);
   React.useEffect(() => {
     if (controller.operation.status === "running" && controller.operation.kind === "kindle") dismiss();
   }, [dismiss, controller.operation.kind, controller.operation.status]);
   // The sconce rides to the entry that holds the current view (Спорные and Экспорт belong to Слова).
   const activeIndex = navigation.findIndex((item) => item.view === navViewOf(view));
   const wordCount = controller.entries.length;
-  const status = busy
+  const status = exporting ? "Выгружаю слова…" : busy
     ? controller.operation.message || controller.operation.title
     : controller.operation.status === "error"
       ? controller.operation.error || controller.operation.message || controller.operation.title
@@ -168,10 +177,11 @@ function App() {
 
       <div className="reading-app-main">
         <div className="reading-view-frame">
-          {view === "home" ? <HomeScreen controller={controller} exporter={exporter} onOpenWord={openBatchWord} onOpenLibrary={() => navigate("words")} /> : null}
+          {view === "home" ? <HomeScreen controller={controller} exporter={exporter} onOpenWord={openBatchWord} onOpenLibrary={() => navigate("words")}
+            onOpenSettings={() => navigate("settings")} vaultPathError={vaultPathError} tourOpen={tour.open} /> : null}
           {/* Until Спорные and Экспорт ship, their views open the library workspace. */}
           {view === "words" || view === "triage" || view === "export" ? (
-            <LibraryWorkspace controller={controller} batchLexemeId={batchLexemeId}
+            <LibraryWorkspace controller={controller} batchLexemeId={batchLexemeId} exporting={exporting}
               onBackToBatch={batchLexemeId ? backToBatch : undefined} onDraftChange={reportDraft} />
           ) : null}
           {view === "settings" && loading ? <main className="reading-page app-scrollbar"><p className="screen-page" role="status">Загружаю настройки…</p></main> : null}
@@ -179,13 +189,9 @@ function App() {
             <SettingsView
               settings={controller.settings}
               onSave={controller.saveSettings}
+              onOpenTour={tour.start}
               saving={controller.settingsSaving}
-              demo={controller.demo}
-              busy={busy || exporter.state.kind === "running"}
-              obsidianCheck={controller.obsidianCheck}
-              operation={controller.operation}
-              onCheckObsidian={controller.checkObsidian}
-              onSyncObsidian={() => void controller.syncObsidian()}
+              busy={busy || exporting}
             />
           ) : null}
         </div>
@@ -193,12 +199,13 @@ function App() {
         <div className="paper-grain" aria-hidden="true" />
         {!homeShowsProgress ? (
           <div className="reading-status" role="status">
-            <span className={busy ? "reading-status-dot is-busy" : "reading-status-dot"} />{status}
-            {controller.operation.status === "error" && controller.operation.kind !== "obsidian" && !homeHandlesProcessing
+            <span className={busy || exporting ? "reading-status-dot is-busy" : "reading-status-dot"} />{status}
+            {!exporting && controller.operation.status === "error" && controller.operation.kind !== "obsidian" && !homeHandlesProcessing
               ? <button type="button" onClick={controller.retry}>Повторить</button> : null}
           </div>
         ) : null}
       </div>
+      <FoxTour open={tour.open} onDismiss={tour.dismiss} />
     </div>
   );
 }

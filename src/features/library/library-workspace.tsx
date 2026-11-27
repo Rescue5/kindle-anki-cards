@@ -15,7 +15,7 @@ import "./library-workspace.css";
 
 type Controller = ReturnType<typeof useLibraryController>;
 
-type Props = { controller: Controller; batchLexemeId?: string; onBackToBatch?: () => void; onDraftChange?: (dirty: boolean, pending: boolean) => void };
+type Props = { controller: Controller; batchLexemeId?: string; exporting?: boolean; onBackToBatch?: () => void; onDraftChange?: (dirty: boolean, pending: boolean) => void };
 
 const PRIORITY_GROUPS = [
   { label: "1–3 · В первую очередь", levels: [1, 2, 3] },
@@ -50,7 +50,7 @@ function PriorityMenu({ value, onChange }: { value: PriorityFilter; onChange: (v
   </DropdownMenu.Root>;
 }
 
-export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controller, batchLexemeId, onBackToBatch, onDraftChange }: Props) {
+export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controller, batchLexemeId, exporting, onBackToBatch, onDraftChange }: Props) {
   const [priorityFilter, setPriorityFilter] = React.useState<PriorityFilter>("all");
   const [selectedId, setSelectedId] = React.useState(batchLexemeId ?? "");
   const [inspectorOpen, setInspectorOpen] = React.useState(Boolean(batchLexemeId));
@@ -60,7 +60,8 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const focusEditor = React.useRef(Boolean(batchLexemeId));
-  const busy = controller.operation.status === "running";
+  const operating = controller.operation.status === "running";
+  const busy = operating || Boolean(exporting);
   const selectedBook = controller.books.find((book) => book.key === controller.selectedBookKey);
   const prioritySource = controller.ranking?.studyPrioritySource;
   const entries = React.useMemo(() => priorityEntries(controller.entries, controller.query, selectedBook, priorityFilter, prioritySource),
@@ -140,11 +141,11 @@ export const LibraryWorkspace = React.memo(function LibraryWorkspace({ controlle
             <ImportFileButton disabled={busy || controller.demo} onFile={(file) => void controller.importReaderFile(file)}>Загрузить файл</ImportFileButton>
             {controller.queueStatus.failed > 0 ? <Button variant="secondary" size="sm" disabled={busy || controller.demo} onClick={() => void controller.retryFailed()}>Повторить обработку</Button> : null}
             {controller.settings.llm_enabled && (controller.enrichmentQueue.pending > 0 || controller.enrichmentQueue.failed > 0) ? <Button variant="secondary" size="sm" disabled={busy || controller.demo} onClick={() => void controller.enrichWords({ retryFailed: controller.enrichmentQueue.pending === 0 })}>{controller.enrichmentQueue.pending > 0 ? "Перевести слова" : "Повторить перевод"}</Button> : null}
-            {busy ? <Button variant="ghost" size="sm" onClick={() => void controller.cancel()}>Отменить</Button> : null}
+            {operating ? <Button variant="ghost" size="sm" onClick={() => void controller.cancel()}>Отменить</Button> : null}
           </div>
         </details>
         {controller.operation.status === "error" ? <p role="alert" className="words-error">{controller.operation.error || controller.operation.message}</p> : null}
-        {busy ? <p className="words-meta" role="status">{controller.operation.message || "Обработка…"}</p> : null}
+        {operating ? <p className="words-meta" role="status">{controller.operation.message || "Обработка…"}</p> : null}
         {controller.queueStatus.failed > 0 ? <p className="words-error">Некоторые слова не удалось обработать. Повтор доступен в разделе «Загрузка и обработка».</p> : null}
       </header>
       <WordList entries={entries} selectedId={selectedId} onSelect={selectWord} loading={controller.loading} disabled={pending}

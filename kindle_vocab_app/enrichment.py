@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
+from queue import SimpleQueue
 from typing import Any, Protocol
 
 from kindle_vocab_app import card_fields
@@ -31,7 +33,7 @@ FIELDS = ("meaning_ru", "definition_en", "context_ru", "example_en", "example_ru
 _FIELD_LIMITS = {"meaning_ru": 120, "definition_en": 200, "context_ru": 600, "example_en": 200, "example_ru": 240, "note_ru": 200}
 
 SYSTEM_PROMPT = """You write vocabulary flashcards for a Russian-speaking adult who reads English books on Kindle.
-Each input item is a word the reader looked up, with its dictionary form, a part-of-speech guess and one or two sentences from the book.
+Each numbered item contains a word the reader looked up, its dictionary form, a part-of-speech guess and up to two excerpts from the book. An excerpt may be truncated.
 
 For every item, first decide which sense the word has in the book sentence, then fill:
 - meaning_ru: concise Russian translation of exactly that sense, 1-4 words, in dictionary form (infinitive for verbs, singular nominative for nouns) even if the book uses another form; separate close alternatives with "; ".
@@ -94,7 +96,7 @@ class EnrichmentSummary:
     enriched_ids: list[str] = field(default_factory=list)
 
 
-def build_client(provider: str, model: str, base_url: str = "") -> CompletionClient:
+def build_client(provider: str, model: str, base_url: str = "", *, parallel: bool = False) -> CompletionClient:
     preset = preset_for(provider)
     api_key = get_api_key(provider) if preset.needs_key else ""
     if preset.needs_key and not api_key:
@@ -111,7 +113,7 @@ def build_client(provider: str, model: str, base_url: str = "") -> CompletionCli
         model=model or preset.default_model,
         # A slow local model would only be asked the same question again.
         timeout=600.0 if preset.local else 120.0,
-        max_retries=0 if preset.local else 2,
+        max_retries=0 if preset.local or parallel else 2,
     )
 
 
@@ -161,7 +163,6 @@ def _prompt_items(batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "word": str(primary.get("word") or lexeme.get("display_form") or lexeme.get("lemma") or ""),
                 "lemma": str(analysis.get("base_form") or lexeme.get("lemma") or ""),
                 "pos": str(analysis.get("pos") or ""),
-                "book": str(primary.get("book_title") or ""),
                 "sentences": card_fields.enrichment_sentences(lexeme, CONTEXTS_PER_WORD),
             }
         )
@@ -190,6 +191,40 @@ def parse_items(data: dict[str, Any], batch_size: int) -> dict[int, dict[str, st
     return result
 
 
+def _request_batch(client: CompletionClient, batch: list[dict[str, Any]]) -> dict[int, dict[str, str]]:
+    prompt_items = _prompt_items(batch)
+    message = json.dumps({"items": prompt_items}, ensure_ascii=False)
+    items = parse_items(client.complete_json(SYSTEM_PROMPT, message, SCHEMA), len(batch))
+    for number, payload in items.items():
+        if payload["context_ru"]:
+            sentences = prompt_items[number - 1]["sentences"]
+            payload["context_source_sha256"] = card_fields.context_fingerprint(sentences[0]) if sentences else ""
+    return items
+
+
+def _save_batch(
+    batch: list[dict[str, Any]], items: dict[int, dict[str, str]], batch_error: str,
+    store: EnrichmentStore, provider: str, model: str, summary: EnrichmentSummary,
+) -> None:
+    for number, lexeme in enumerate(batch, 1):
+        payload = items.get(number)
+        error = batch_error or "Модель пропустила это слово"
+        if payload is not None and not (payload["meaning_ru"] or payload["note_ru"]):
+            payload = None
+            error = "Модель не дала перевод"
+        store.save_enrichment(
+            str(lexeme.get("language") or "en"), str(lexeme.get("lemma") or ""),
+            status="ready" if payload is not None else "failed", provider=provider,
+            model=model, prompt_version=PROMPT_VERSION, payload=payload,
+            error="" if payload is not None else error,
+        )
+        if payload is None:
+            summary.failed += 1
+        else:
+            summary.enriched += 1
+            summary.enriched_ids.append(str(lexeme.get("id") or ""))
+
+
 def enrich(
     lexemes: list[dict[str, Any]],
     client: CompletionClient,
@@ -198,64 +233,54 @@ def enrich(
     provider: str,
     progress: Callable[[int, int], None] | None = None,
     batch_size: int = BATCH_SIZE,
+    max_parallel_batches: int = 1,
 ) -> EnrichmentSummary:
     summary = EnrichmentSummary(requested=len(lexemes))
+    if not lexemes:
+        return summary
+    if batch_size < 1 or max_parallel_batches < 1:
+        raise ValueError("Batch size and concurrency must be positive")
     consecutive_failures = 0
-    for start in range(0, len(lexemes), batch_size):
-        batch = lexemes[start : start + batch_size]
-        summary.batches += 1
-        prompt_items = _prompt_items(batch)
-        try:
-            message = json.dumps({"items": prompt_items}, ensure_ascii=False)
-            items = parse_items(client.complete_json(SYSTEM_PROMPT, message, SCHEMA), len(batch))
-            batch_error = ""
-        except LLMError as exc:
-            if exc.fatal:
-                summary.error = str(exc)
-                logger.warning("Enrichment stopped by a fatal provider error: %s", exc)
+    next_start = 0
+    pending = {}
+    finished: SimpleQueue[Future[dict[int, dict[str, str]]]] = SimpleQueue()
+    with ThreadPoolExecutor(max_workers=max_parallel_batches) as pool:
+        while True:
+            # Drain available replies before admitting more work (one may be a quota error).
+            while (not summary.error and next_start < len(lexemes)
+                   and len(pending) < max_parallel_batches and finished.empty()):
+                batch = lexemes[next_start : next_start + batch_size]
+                future = pool.submit(_request_batch, client, batch)
+                pending[future] = batch
+                future.add_done_callback(finished.put)
+                next_start += len(batch)
+                summary.batches += 1
+            if not pending:
                 break
-            if exc.transient:
-                # Nothing is known about these words; leave them for the next run.
-                consecutive_failures += 1
-                summary.skipped += len(batch)
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILED_BATCHES:
-                    summary.error = f"{exc}. Попробуйте позже или выберите модель быстрее"
-                    break
+            future = finished.get()
+            batch = pending.pop(future)
+            error = None
+            try:
+                items = future.result()
+            except LLMError as exc:
+                items, error = {}, exc
+            if error and error.fatal:
+                summary.error = summary.error or str(error)
                 continue
-            items, batch_error = {}, str(exc)
-
-        for number, lexeme in enumerate(batch, 1):
-            payload = items.get(number)
-            if payload is not None and not (payload["meaning_ru"] or payload["note_ru"]):
-                payload = None
-                error = "Модель не дала перевод"
+            if error and error.transient:
+                summary.skipped += len(batch)
             else:
-                error = batch_error or "Модель пропустила это слово"
-            if payload is not None and payload["context_ru"]:
-                sentences = prompt_items[number - 1]["sentences"]
-                payload["context_source_sha256"] = card_fields.context_fingerprint(sentences[0]) if sentences else ""
-            store.save_enrichment(
-                str(lexeme.get("language") or "en"),
-                str(lexeme.get("lemma") or ""),
-                status="ready" if payload is not None else "failed",
-                provider=provider,
-                model=client.model,
-                prompt_version=PROMPT_VERSION,
-                payload=payload,
-                error="" if payload is not None else error,
-            )
-            if payload is not None:
-                summary.enriched += 1
-                summary.enriched_ids.append(str(lexeme.get("id") or ""))
-            else:
-                summary.failed += 1
-
-        consecutive_failures = consecutive_failures + 1 if not items else 0
-        if progress:
-            progress(min(start + batch_size, len(lexemes)), len(lexemes))
-        if consecutive_failures >= MAX_CONSECUTIVE_FAILED_BATCHES:
-            summary.error = batch_error or "Модель несколько раз подряд не вернула переводы"
-            break
+                _save_batch(batch, items, str(error or ""), store, provider, client.model, summary)
+                if progress:
+                    progress(summary.enriched + summary.failed, summary.requested)
+            consecutive_failures = 0 if items else consecutive_failures + 1
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILED_BATCHES and not summary.error:
+                summary.error = str(error or "Модель несколько раз подряд не вернула переводы")
+    if summary.skipped and not summary.error:
+        summary.error = "Некоторые запросы не завершились. Оставшиеся слова можно перевести повторно."
+    # Results arrive out of order. Preserve the caller's ordering of successful IDs.
+    saved_ids = set(summary.enriched_ids)
+    summary.enriched_ids = [str(word.get("id") or "") for word in lexemes if str(word.get("id") or "") in saved_ids]
     return summary
 
 
@@ -265,7 +290,7 @@ SAMPLE_LEXEME: dict[str, Any] = {
     "display_form": "glimpse",
     "language": "en",
     "occurrences": [
-        {"word": "glimpse", "context": "For a moment he caught a glimpse of the city below.", "book_title": "Sample"}
+        {"word": "glimpse", "context": "For a moment he caught a glimpse of the city below."}
     ],
     "processing": {"analysis": {"base_form": "glimpse", "pos": "n"}},
 }

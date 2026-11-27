@@ -18,7 +18,7 @@ from library_fixture import build_v3_library, lid
 
 from kindle_vocab_app import library_state, vocab_cache
 from kindle_vocab_app.contracts import ERROR_TEXTS, MEANING_MAX_LENGTH
-from kindle_vocab_app.library_repository import repository_for
+from kindle_vocab_app.library_repository import SCHEMA_VERSION, repository_for
 from kindle_vocab_app.library_state import LibraryStateError
 
 
@@ -519,7 +519,7 @@ class ReviewCardsMigrationTests(unittest.TestCase):
             self.assertEqual(len(before), 3)
 
             repository = repository_for(workspace)
-            self.assertEqual(_rows(path, "SELECT MAX(version) FROM schema_migrations"), [(4,)])
+            self.assertEqual(_rows(path, "SELECT MAX(version) FROM schema_migrations"), [(SCHEMA_VERSION,)])
             self.assertEqual(_rows(path, "SELECT * FROM review_cards ORDER BY lexeme_id"), before)
 
             repository.save_catalog(repository.load_catalog())

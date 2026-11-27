@@ -92,7 +92,7 @@ export function useHomeExport({ ids, libraryWords, defaultCount, blocked, reload
         job_id: jobId(), scope: mode === "library" ? "library" : "new", ids: selectedIds,
         ...(mode === "library" ? { levels } : {}),
       });
-      if (run.path && !openingFolder.current) setFolderState("ready");
+      if (run.path && run.destination !== "obsidian" && !openingFolder.current) setFolderState("ready");
       // A failed reload does not undo an export that went through.
       await reload().catch(() => undefined);
       dispatch({ type: "success", run });
@@ -107,10 +107,13 @@ export function useHomeExport({ ids, libraryWords, defaultCount, blocked, reload
     }
   }, [active, blocked, selectedIds, levels, mode, refreshFolder, reload]);
 
-  const openResult = React.useCallback(async (path: string) => {
+  const openResult = React.useCallback(async (run: ExportRun) => {
+    if (!run.path) return;
     setOpenState("opening-file");
     try {
-      const result = await callBackend<{ opened: boolean }>("open_path", { path, reveal: false });
+      const result = run.destination === "obsidian"
+        ? await callBackend<{ opened: boolean }>("open_obsidian_folder", {})
+        : await callBackend<{ opened: boolean }>("open_path", { path: run.path, reveal: false });
       if (!result.opened) throw new Error();
       setOpenState("idle");
     } catch {

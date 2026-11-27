@@ -8,11 +8,14 @@ import type { useHomeExport } from "./use-home-export";
 type Controller = ReturnType<typeof useLibraryController>;
 
 /** Главная: connects the library controller to the screen. What is said and when lives in home-domain.ts. */
-export function HomeScreen({ controller, exporter, onOpenWord, onOpenLibrary }: {
+export function HomeScreen({ controller, exporter, onOpenWord, onOpenLibrary, onOpenSettings, vaultPathError, tourOpen }: {
   controller: Controller;
   exporter: ReturnType<typeof useHomeExport>;
   onOpenWord: (id: string) => void;
   onOpenLibrary: () => void;
+  onOpenSettings: () => void;
+  vaultPathError: string | null;
+  tourOpen: boolean;
 }) {
   const { entries, ranking, loading, demo, operation, queueStatus, connectors, settings, settingsSaving } = controller;
   const words = React.useMemo(() => shortList(entries, exporter.selectedIds.slice(0, 5)), [entries, exporter.selectedIds]);
@@ -34,13 +37,15 @@ export function HomeScreen({ controller, exporter, onOpenWord, onOpenLibrary }: 
       onOpenLibrary={onOpenLibrary}
       onFindReader={() => void controller.findReader()}
       findingReader={controller.findingReader}
-      quiet={operation.status === "error" || queue === "stopped"}
+      quiet={tourOpen || operation.status === "error" || queue === "stopped"}
       sinceLine={sinceLine}
       processingProgress={!demo && queue === "working" ? homeProcessingProgress(operation) : null}
       roughNote={rankingNote(ranking)}
       demo={demo}
       exportUi={exporter.state}
-      destination={settings.export_destination}
+      destination={settings.export_destination ?? "anki"}
+      vaultPathError={vaultPathError}
+      onOpenSettings={onOpenSettings}
       openState={exporter.openState}
       folderState={exporter.folderState}
       exportBlocked={exportBlocked}
@@ -48,7 +53,7 @@ export function HomeScreen({ controller, exporter, onOpenWord, onOpenLibrary }: 
       reader={{ state: connectors.kindle.state, name: readerName(connectors.kindle) }}
       onExport={() => void exporter.start()}
       onOpenWord={onOpenWord}
-      onOpenResult={(path) => void exporter.openResult(path)}
+      onOpenResult={(run) => void exporter.openResult(run)}
       onOpenFolder={() => void exporter.openFolder()}
       onSync={() => void controller.syncKindle()}
       onImportFile={(file) => void controller.importReaderFile(file)}

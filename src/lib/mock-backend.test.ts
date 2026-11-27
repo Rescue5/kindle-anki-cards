@@ -176,6 +176,26 @@ describe("browser mock speaks the C0 contract", () => {
     await expectError(callBackend("export_words", { scope: "library", ids, levels: [] }), "bad_levels");
   });
 
+  it.each([
+    ["quizlet", /.tsv$/],
+    ["remnote", /.txt$/],
+  ] as const)("writes the selected file for %s", async (destination, extension) => {
+    await callBackend("save_settings", { settings: { export_destination: destination } });
+    const run = await callBackend<ExportRun>("export_words", { scope: "new" });
+    expect(run).toMatchObject({ destination, path: expect.stringMatching(extension), pushed: 0 });
+    expect(await callBackend("export_folder_status", {})).toEqual({ available: true });
+  });
+
+  it("reports an Obsidian conflict without counting it as exported or creating a local export file", async () => {
+    resetMockBackend({ scenario: "obsidian-export-all-conflicts", instant: true });
+    const { entries } = await load();
+    const run = await callBackend<ExportRun>("export_words", { scope: "library", ids: [entries[0].id] });
+    expect(run).toMatchObject({ destination: "obsidian", exported: 0, runId: "", path: expect.any(String) });
+    expect(run.message).toContain("Оставлены без изменений из-за конфликта: 1");
+    expect(await callBackend("export_folder_status", {})).toEqual({ available: false });
+    expect(await callBackend("open_obsidian_folder", {})).toEqual({ opened: true });
+  });
+
   it("serves the details the lean list leaves out", async () => {
     const details = await callBackend<LexemeDetails>("load_lexeme_details", { lexeme_id: "lexeme-admit" });
     expect(details).toMatchObject({ lexeme_id: "lexeme-admit" });

@@ -22,8 +22,8 @@ class KindlePresenceTests(unittest.TestCase):
 
     def test_unrelated_volume_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            unrelated_root = Path(temporary) / "Backup"
-            unrelated_root.mkdir()
+            unrelated_root = Path(temporary) / "kindle-project" / "Backup"
+            unrelated_root.mkdir(parents=True)
 
             self.assertIsNone(find_kindle_presence([unrelated_root]))
 

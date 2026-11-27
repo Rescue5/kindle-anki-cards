@@ -10,9 +10,12 @@ Usage (from the repository root, in the project's Python environment):
 
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +27,37 @@ DIST = BUILD / "kindle-bridge"
 NLTK_PACKAGES = ["wordnet", "averaged_perceptron_tagger_eng"]
 # wordfreq ships frequency lists for ~40 languages; the optimizer queries English only.
 WORDFREQ_KEEP = ("_en.msgpack.gz",)
+EXPANDED_MODEL_SHA256 = "a24e16fa43a22ab3cdb871b2bc16971997fe97ab1a35ce18ee53119090d96f75"
+EXPANDED_SOURCE_SHA256 = "60bc1a8f30a8d41bc527a1ba5747508b030faf2e58df213bb341f490b59e15db"
+
+
+def configure_build(output_dir: Path) -> None:
+    global BUILD, DIST
+    BUILD = output_dir.resolve()
+    DIST = BUILD / "kindle-bridge"
+
+
+def include_expanded_model(model: Path, notice: Path) -> None:
+    model = model.resolve()
+    notice = notice.resolve()
+    if not model.is_file() or hashlib.sha256(model.read_bytes()).hexdigest() != EXPANDED_MODEL_SHA256:
+        raise SystemExit("Expanded model is missing or has an unexpected SHA-256")
+    if not notice.is_file() or not notice.read_text(encoding="utf-8").strip():
+        raise SystemExit("A non-empty ranking model notice is required when bundling the model")
+    try:
+        with sqlite3.connect(f"{model.as_uri()}?mode=ro", uri=True) as connection:
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            source = connection.execute("SELECT source_sha256 FROM provenance").fetchone()[0]
+            connection.execute("SELECT share FROM coverage LIMIT 1").fetchone()
+            connection.execute("SELECT spelling, headword FROM aliases LIMIT 1").fetchone()
+    except sqlite3.Error as exc:
+        raise SystemExit(f"Expanded model SQLite validation failed: {exc}") from exc
+    if version != 1 or source != EXPANDED_SOURCE_SHA256:
+        raise SystemExit("Expanded model provenance or schema does not match the pinned source")
+    target = DIST / "models"
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(model, target / "rp-v2-expanded.sqlite")
+    shutil.copy2(notice, DIST / "ranking-model-notices.txt")
 
 
 def run(*args: str) -> None:
@@ -150,9 +184,35 @@ def smoke_test() -> None:
     print("smoke save_card_edit: UTF-8 preserved after restart", flush=True)
 
 
-if __name__ == "__main__":
+def _assert_no_model_in_bridge() -> None:
+    model = DIST / "models" / "rp-v2-expanded.sqlite"
+    if model.exists():
+        raise SystemExit("Public bridge build must not contain the private expanded RP-V2 model")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", type=Path, default=BUILD, help="isolated bridge build directory")
+    parser.add_argument("--expanded-model", type=Path, help="opt in to bundling a pinned expanded RP-V2 SQLite model")
+    parser.add_argument("--model-notice", type=Path, help="required attribution notice for --expanded-model")
+    parser.add_argument("--public-release", action="store_true", help="assert the bridge is built without the private expanded model")
+    args = parser.parse_args()
+    if args.public_release and args.expanded_model:
+        parser.error("--public-release cannot be combined with --expanded-model")
+    if bool(args.expanded_model) != bool(args.model_notice):
+        parser.error("--expanded-model and --model-notice must be supplied together")
+    configure_build(args.output_dir)
     build_executable()
     prune()
     download_nltk_data()
+    if args.expanded_model:
+        include_expanded_model(args.expanded_model, args.model_notice)
+    if args.public_release:
+        _assert_no_model_in_bridge()
+        print("Public release guard: private expanded RP-V2 model is excluded", flush=True)
     smoke_test()
     print(f"Bridge ready: {DIST}")
+
+
+if __name__ == "__main__":
+    main()

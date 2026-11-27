@@ -62,7 +62,7 @@ def find_kindle_presence(roots: Iterable[Path] | None = None) -> KindlePresence 
     candidates = list(roots) if roots is not None else mounted_volume_roots()
     for root in _unique_existing(candidates):
         label = _volume_label(root)
-        if not _looks_like_kindle_identity(label, str(root)):
+        if not _looks_like_kindle_identity(label, root.name):
             continue
         return KindlePresence(
             label=f"Kindle · {label or root.anchor or 'USB'}",

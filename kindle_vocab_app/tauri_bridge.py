@@ -43,6 +43,7 @@ from kindle_vocab_app.llm import presets as llm_presets
 from kindle_vocab_app.logging_config import configure_logging, get_logger
 from kindle_vocab_app.tsv_schema import OPTIMIZED_TSV_HEADER
 from kindle_vocab_app.vocab_optimizer import _candidate_from_entry, analyze_entries_once
+from kindle_vocab_app.workspace_lock import enrichment_run_lock
 
 logger = get_logger(__name__)
 PROGRESS_PREFIX = "KINDLE_PROGRESS "
@@ -106,6 +107,9 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
 
     if action == "open_export_folder":
         return _open_export_folder(workspace)
+
+    if action == "open_obsidian_folder":
+        return _open_obsidian_folder(workspace)
 
     if action == "load_review":
         review = repository_for(workspace).load_review(limit=payload.get("limit", 20))
@@ -228,6 +232,9 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         repository_for(workspace).save_catalog(catalog)
         return {"path": str(output), "exported": exported}
 
+    if action == "enrich_lexemes":
+        with enrichment_run_lock(workspace):
+            return _with_ranking(_llm_action(action, payload, workspace, job_id=job_id), workspace)
     if action in _LLM_ACTIONS:
         return _with_ranking(_llm_action(action, payload, workspace, job_id=job_id), workspace)
 
@@ -283,7 +290,7 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         cards_path = str(payload.get("cards_path") or app_settings.obsidian_cards_path)
         if not vault_path or not cards_path:
             raise ValueError("vault_path and cards_path are required")
-        cards_dir = Path(vault_path) / cards_path
+        cards_dir = obsidian_sync.legacy_cards_dir(Path(vault_path), cards_path)
         if not cards_dir.is_dir():
             raise ValueError("Папка карточек Obsidian не найдена или путь не является папкой")
         repository = repository_for(workspace)
@@ -306,49 +313,57 @@ def dispatch(action: str, payload: dict[str, Any], workspace: Path) -> dict[str,
         backup_enabled = bool(payload.get("backup_enabled", app_settings.obsidian_backup_enabled))
         if not vault_path or not cards_path:
             raise ValueError("vault_path and cards_path are required")
-        repository = repository_for(workspace)
-        catalog = _load_catalog_with_sources(workspace, reconcile_kindle=False, reconcile_obsidian=False)
-        cards_dir = Path(vault_path) / cards_path
-        backups_dir = workspace / ".app-data" / "obsidian-backups"
-        before_count = _reconcile_obsidian(catalog, cards_dir)
-        entries = [
-            _lexeme_as_entry(item)
-            for item in catalog["lexemes"]
-            if (item.get("destinations") or {}).get("obsidian", {}).get("eligible")
-            and (item.get("destinations") or {}).get("obsidian", {}).get("state") == "missing"
-        ]
-        _emit_progress(job_id, "reconciling", f"Проверяем очередь: {len(entries)}", 0, max(len(entries), 1))
-        result = obsidian_sync.append_cards(
-            cards_dir, entries, backups_dir, backup_enabled=backup_enabled
-        )
-        after_count = _reconcile_obsidian(catalog, cards_dir)
-        if after_count - before_count != int(result.get("added") or 0):
-            raise RuntimeError("Проверка Obsidian не подтвердила количество добавленных карточек")
-        failed_by_id = {
-            str(item.get("id") or ""): item
-            for item in result.get("items") or []
-            if item.get("outcome") == "failed"
-        }
-        for index, lexeme in enumerate(catalog["lexemes"], 1):
-            failed = failed_by_id.get(str(lexeme.get("id") or ""))
-            if failed:
-                lexeme["destinations"]["obsidian"].update(
-                    {"state": "failed", "reason": failed.get("reason") or "sync_failed"}
-                )
-            _emit_progress(job_id, "syncing", f"Проверено {index} из {len(catalog['lexemes'])}", index, len(catalog["lexemes"]), lexeme_id=str(lexeme.get("id") or ""))
-        repository.save_obsidian_evidence(catalog["lexemes"])
-        repository.record_sync_run(
-            "obsidian",
-            "completed",
-            added=int(result.get("added") or 0),
-            skipped=int(result.get("skipped") or 0),
-        )
-        result["entries"] = repository.load_catalog()["lexemes"]
-        result["queue_status"] = repository.queue_status()
-        _emit_progress(job_id, "completed", "Синхронизация Obsidian завершена", len(entries), max(len(entries), 1))
-        return _with_ranking(result, workspace)
+        vault = Path(vault_path)
+        with obsidian_sync.vault_operation_lock(vault):
+            if app_settings.export_destination == "obsidian" or (vault / "Kindle Cards" / ".kindle-cards-owner").exists():
+                raise ValueError("Для этого хранилища используйте выгрузку с Главной")
+            cards_dir = obsidian_sync.legacy_cards_dir(vault, cards_path)
+            return _sync_legacy_obsidian(workspace, cards_dir, backup_enabled, job_id)
 
     raise ValueError(f"Unsupported bridge action: {action}")
+
+
+def _sync_legacy_obsidian(workspace: Path, cards_dir: Path, backup_enabled: bool, job_id: str) -> dict[str, Any]:
+    repository = repository_for(workspace)
+    catalog = _load_catalog_with_sources(workspace, reconcile_kindle=False, reconcile_obsidian=False)
+    backups_dir = workspace / ".app-data" / "obsidian-backups"
+    before_count = _reconcile_obsidian(catalog, cards_dir)
+    entries = [
+        _lexeme_as_entry(item)
+        for item in catalog["lexemes"]
+        if (item.get("destinations") or {}).get("obsidian", {}).get("eligible")
+        and (item.get("destinations") or {}).get("obsidian", {}).get("state") == "missing"
+    ]
+    _emit_progress(job_id, "reconciling", f"Проверяем очередь: {len(entries)}", 0, max(len(entries), 1))
+    result = obsidian_sync.append_cards(
+        cards_dir, entries, backups_dir, backup_enabled=backup_enabled
+    )
+    after_count = _reconcile_obsidian(catalog, cards_dir)
+    if after_count - before_count != int(result.get("added") or 0):
+        raise RuntimeError("Проверка Obsidian не подтвердила количество добавленных карточек")
+    failed_by_id = {
+        str(item.get("id") or ""): item
+        for item in result.get("items") or []
+        if item.get("outcome") == "failed"
+    }
+    for index, lexeme in enumerate(catalog["lexemes"], 1):
+        failed = failed_by_id.get(str(lexeme.get("id") or ""))
+        if failed:
+            lexeme["destinations"]["obsidian"].update(
+                {"state": "failed", "reason": failed.get("reason") or "sync_failed"}
+            )
+        _emit_progress(job_id, "syncing", f"Проверено {index} из {len(catalog['lexemes'])}", index, len(catalog["lexemes"]), lexeme_id=str(lexeme.get("id") or ""))
+    repository.save_obsidian_evidence(catalog["lexemes"])
+    repository.record_sync_run(
+        "obsidian",
+        "completed",
+        added=int(result.get("added") or 0),
+        skipped=int(result.get("skipped") or 0),
+    )
+    result["entries"] = repository.load_catalog()["lexemes"]
+    result["queue_status"] = repository.queue_status()
+    _emit_progress(job_id, "completed", "Синхронизация Obsidian завершена", len(entries), max(len(entries), 1))
+    return _with_ranking(result, workspace)
 
 
 def _process_queued_lexemes(
@@ -512,21 +527,26 @@ def _llm_action(action: str, payload: dict[str, Any], workspace: Path, *, job_id
     limit = int(payload.get("limit") or 0)
     if limit > 0:
         selected = selected[:limit]
-    client = enrichment.build_client(provider, model, base_url)
     _emit_progress(job_id, "preparing", f"Слов для перевода: {len(selected)}", 0, max(len(selected), 1))
-    summary = enrichment.enrich(
-        selected,
-        client,
-        repository,
-        provider=provider,
-        batch_size=llm_presets.preset_for(provider).batch_size,
-        progress=lambda done, total: _emit_progress(job_id, "enriching", f"Переведено {done} из {total}", done, total),
+    summary = enrichment.EnrichmentSummary()
+    if selected:
+        preset = llm_presets.preset_for(provider)
+        parallel = preset.max_parallel_batches > 1 and len(selected) > preset.batch_size
+        client = enrichment.build_client(provider, model, base_url, parallel=parallel)
+        summary = enrichment.enrich(
+            selected, client, repository, provider=provider,
+            batch_size=preset.batch_size, max_parallel_batches=preset.max_parallel_batches,
+            progress=lambda done, total: _emit_progress(job_id, "enriching", f"Обработано {done} из {total}", done, total),
+        )
+        catalog = repository.load_catalog()
+    processed = summary.enriched + summary.failed
+    _emit_progress(
+        job_id, "stopped" if summary.error else "completed",
+        "Перевод остановлен" if summary.error else "Перевод завершён", processed, max(len(selected), 1),
     )
-    catalog = repository.load_catalog()
-    _emit_progress(job_id, "completed", "Перевод завершён", len(selected), max(len(selected), 1))
     message = f"Переведено: {summary.enriched}; без перевода: {summary.failed}"
-    if summary.skipped:
-        message += f"; отложено: {summary.skipped}"
+    if summary.requested > processed:
+        message += f"; отложено: {summary.requested - processed}"
     return {
         "requested": summary.requested,
         "enriched": summary.enriched,
@@ -611,6 +631,20 @@ def _open_export_path(path: Path, workspace: Path, *, reveal: bool) -> dict[str,
     if exports not in target.parents or not target.is_file():
         raise ValueError("Можно открыть только файл из папки экспорта приложения")
     _open_local_path(target, reveal=reveal)
+    return {"opened": True}
+
+
+def _open_obsidian_folder(workspace: Path) -> dict[str, Any]:
+    from kindle_vocab_app.obsidian_export import managed_folder
+
+    current = settings.load(workspace)
+    vault = Path(current.obsidian_vault_path.strip())
+    if current.export_destination != "obsidian" or not vault.is_absolute():
+        return {"opened": False}
+    try:
+        _open_local_path(managed_folder(vault))
+    except (ValueError, OSError):
+        return {"opened": False}
     return {"opened": True}
 
 
@@ -709,12 +743,13 @@ def _load_catalog_with_sources(workspace: Path, *, reconcile_kindle: bool = True
     if reconcile_obsidian:
         app_settings = settings.load(workspace)
         if (
-            app_settings.obsidian_sync_enabled
+            app_settings.export_destination != "obsidian"
+            and app_settings.obsidian_sync_enabled
             and app_settings.obsidian_vault_path
             and app_settings.obsidian_cards_path
         ):
-            cards_dir = Path(app_settings.obsidian_vault_path) / app_settings.obsidian_cards_path
             try:
+                cards_dir = obsidian_sync.legacy_cards_dir(Path(app_settings.obsidian_vault_path), app_settings.obsidian_cards_path)
                 _reconcile_obsidian(catalog, cards_dir)
                 repository.save_obsidian_evidence(catalog["lexemes"])
             except Exception:
@@ -739,11 +774,17 @@ def _connector_status(workspace: Path, *, probe_kindle: bool) -> dict[str, Any]:
     }
     if signature is not None:
         kindle["signature"] = signature
-    cards_dir = Path(app_settings.obsidian_vault_path) / app_settings.obsidian_cards_path if app_settings.obsidian_vault_path else None
-    configured = bool(app_settings.obsidian_sync_enabled and cards_dir)
     obsidian_state = "disabled"
-    if configured:
-        obsidian_state = "connected" if cards_dir and cards_dir.exists() else "error"
+    if app_settings.obsidian_vault_path:
+        vault = Path(app_settings.obsidian_vault_path)
+        if app_settings.export_destination == "obsidian":
+            obsidian_state = "connected" if vault.is_absolute() and vault.is_dir() else "error"
+        elif app_settings.obsidian_sync_enabled:
+            try:
+                cards_dir = obsidian_sync.legacy_cards_dir(vault, app_settings.obsidian_cards_path)
+                obsidian_state = "connected" if cards_dir.is_dir() else "error"
+            except (ValueError, OSError):
+                obsidian_state = "error"
     anki = anki_connect.status() if probe_kindle else {"state": "unknown", "label": "Anki"}
     anki["checked_at"] = vocab_cache.utc_now()
     return {

@@ -28,7 +28,7 @@ from kindle_vocab_app.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 BACKUP_DIRNAME = "backups"
 BACKUPS_KEPT = 3
 # Other starts wait this long for the one that is copying and migrating.
@@ -301,6 +301,42 @@ def _to_v4(connection: sqlite3.Connection) -> None:
     _backfill_export_history(connection, utc_now())
 
 
+def _to_v5(connection: sqlite3.Connection) -> None:
+    # Move both tables together so foreign keys stay on and dropping the old
+    # parent cannot cascade into the history we are keeping.
+    connection.execute("""CREATE TABLE export_runs_v5(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        destination TEXT NOT NULL CHECK(destination IN ('anki','csv','obsidian','quizlet','remnote')),
+        scope TEXT NOT NULL CHECK(scope IN ('new','again','migrated')),
+        created_at TEXT NOT NULL, word_count INTEGER NOT NULL, path TEXT NOT NULL DEFAULT ''
+    )""")
+    connection.execute("""CREATE TABLE export_items_v5(
+        run_id INTEGER NOT NULL REFERENCES export_runs_v5(id) ON DELETE CASCADE,
+        lexeme_id TEXT NOT NULL, language TEXT NOT NULL, canonical_key TEXT NOT NULL,
+        is_repeat INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(run_id, lexeme_id)
+    )""")
+    connection.execute("""
+        INSERT INTO export_runs_v5(id, destination, scope, created_at, word_count, path)
+        SELECT id, destination, scope, created_at, word_count, path FROM export_runs
+    """)
+    connection.execute("""
+        INSERT INTO export_items_v5(run_id, lexeme_id, language, canonical_key, is_repeat)
+        SELECT run_id, lexeme_id, language, canonical_key, is_repeat FROM export_items
+    """)
+    # AUTOINCREMENT also remembers IDs of deleted runs, including an empty history.
+    connection.execute("DELETE FROM sqlite_sequence WHERE name = 'export_runs_v5'")
+    connection.execute("""
+        INSERT INTO sqlite_sequence(name, seq)
+        SELECT 'export_runs_v5', seq FROM sqlite_sequence WHERE name = 'export_runs'
+    """)
+    connection.execute("DROP TABLE export_items")
+    connection.execute("DROP TABLE export_runs")
+    connection.execute("ALTER TABLE export_runs_v5 RENAME TO export_runs")
+    connection.execute("ALTER TABLE export_items_v5 RENAME TO export_items")
+    connection.execute("CREATE INDEX idx_export_items_lexeme ON export_items(lexeme_id)")
+
+
 def _backfill_export_history(connection: sqlite3.Connection, now: str) -> None:
     """Turn the old per-lexeme export state into `migrated` export runs.
 
@@ -346,6 +382,7 @@ def _backfill_export_history(connection: sqlite3.Connection, now: str) -> None:
 _STEPS: tuple[tuple[int, Callable[[sqlite3.Connection], None]], ...] = (
     (3, _baseline),
     (4, _to_v4),
+    (5, _to_v5),
 )
 
 

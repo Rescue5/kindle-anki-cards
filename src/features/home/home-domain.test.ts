@@ -256,6 +256,11 @@ describe("export states", () => {
     expect(exportDoneText(run({ destination: "obsidian", exported: 2, pushed: 0 }))).toBe("Готово: 2 слова в Obsidian");
   });
 
+  it("keeps an Obsidian result with zero writes and an empty run ID", () => {
+    const result = run({ destination: "obsidian", exported: 0, runId: "", message: "Конфликт: файл оставлен без изменений." });
+    expect(exportReducer({ kind: "running" }, { type: "success", run: result })).toEqual({ kind: "done", run: result });
+  });
+
   it("adds a hint only when an Anki file waits to be opened", () => {
     expect(exportDoneHint(run())).toBe("");
     expect(exportDoneHint(run({ path: "a.apkg", pushed: 0 }))).not.toBe("");

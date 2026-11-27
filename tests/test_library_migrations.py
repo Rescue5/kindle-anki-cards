@@ -87,7 +87,30 @@ def _export_history(path: Path) -> dict[tuple[str, str], set[str]]:
     return runs
 
 
-class SchemaV4MigrationTests(unittest.TestCase):
+def _build_v4_with_export_history(workspace: Path) -> Path:
+    path = build_v3_library(workspace)
+    with closing(library_migrations.open_connection(path)) as connection, connection:
+        library_migrations._to_v4(connection)
+        connection.execute("INSERT INTO schema_migrations VALUES (4, 'v4')")
+        connection.execute(
+            "INSERT INTO export_runs VALUES (40, 'csv', 'again', '2026-11-20', 1, 'words.tsv')"
+        )
+        connection.execute(
+            "INSERT INTO export_items VALUES (40, 'old-lexeme-id', 'en', 'old-form', 1)"
+        )
+        connection.execute("INSERT INTO export_runs VALUES (50, 'anki', 'new', '2026-11-21', 0, '')")
+        connection.execute("DELETE FROM export_runs WHERE id = 50")
+    return path
+
+
+def _raw_export_history(path: Path) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
+    return (
+        _read(path, "SELECT * FROM export_runs ORDER BY id"),
+        _read(path, "SELECT * FROM export_items ORDER BY run_id, lexeme_id"),
+    )
+
+
+class LibraryMigrationTests(unittest.TestCase):
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
         self.workspace = Path(self._temporary.name)
@@ -102,7 +125,7 @@ class SchemaV4MigrationTests(unittest.TestCase):
 
         repository_for(self.workspace)
 
-        self.assertEqual(_version(path), 4)
+        self.assertEqual(_version(path), 5)
         self.assertEqual(_snapshot(path), before)  # review_cards and analyses untouched
         self.assertTrue(set(V4_TABLES) <= _tables(path))
         self.assertNotIn("legacy_review_cards", _tables(path))
@@ -160,9 +183,77 @@ class SchemaV4MigrationTests(unittest.TestCase):
         self.assertEqual((_snapshot(path), _export_history(path)), after_first)
         self.assertEqual(
             _read(path, "SELECT version FROM schema_migrations ORDER BY version"),
-            [(1,), (2,), (3,), (4,)],
+            [(1,), (2,), (3,), (5,)],
         )
         self.assertEqual(len(_backups(self.workspace)), 1)
+
+    def test_v4_export_history_survives_first_and_repeated_start_in_new_processes(self) -> None:
+        path = _build_v4_with_export_history(self.workspace)
+        before = _raw_export_history(path)
+        script = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "from kindle_vocab_app.library_repository import repository_for\n"
+            "repository_for(Path(sys.argv[1]))\n"
+        )
+        for _ in range(2):
+            process = subprocess.run(
+                [sys.executable, "-B", "-c", script, str(self.workspace)],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                timeout=180,
+                check=False,
+            )
+            self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", "replace")[-2000:])
+            self.assertEqual(_version(path), 5)
+            self.assertEqual(_raw_export_history(path), before)
+        [backup] = _backups(self.workspace)
+        self.assertEqual(_version(backup), 4)
+        self.assertEqual(_raw_export_history(backup), before)
+        self.assertEqual(_read(path, "PRAGMA foreign_key_check"), [])
+        self.assertIn("idx_export_items_lexeme", {row[1] for row in _read(path, "PRAGMA index_list(export_items)")})
+
+        repository = repository_for(self.workspace)
+        quizlet = repository.record_export_run("quizlet", [lid("tarn")])
+        remnote = repository.record_export_run("remnote", [lid("tarn")])
+        self.assertEqual((quizlet, remnote), (51, 52))
+        runs, items = _raw_export_history(path)
+        self.assertEqual(runs[:-2], before[0])
+        self.assertEqual(items[:-2], before[1])
+        self.assertEqual([row[1] for row in runs[-2:]], ["quizlet", "remnote"])
+        with closing(library_migrations.open_connection(path)) as connection, connection:
+            with self.assertRaises(sqlite3.IntegrityError):
+                connection.execute("INSERT INTO export_items VALUES (99, 'missing-run', 'en', 'word', 0)")
+            connection.execute("DELETE FROM export_runs WHERE id = ?", (quizlet,))
+        self.assertEqual(_raw_export_history(path)[1][:-1], before[1])
+        self.assertEqual(_read(path, "PRAGMA foreign_key_check"), [])
+
+    def test_v5_failure_rolls_back_the_rebuild_and_leaves_v4_history_intact(self) -> None:
+        path = _build_v4_with_export_history(self.workspace)
+        before = _raw_export_history(path)
+        original = library_migrations._apply_steps
+
+        def fail_after_rebuild(connection: sqlite3.Connection, current: int) -> None:
+            original(connection, current)
+            connection.execute("INSERT INTO export_runs VALUES (NULL, 'quizlet', 'new', 't', 0, '')")
+            raise RuntimeError("failure after export history rebuild")
+
+        with mock.patch.object(library_migrations, "_apply_steps", fail_after_rebuild), self.assertRaisesRegex(
+            ValueError, "копия сохранена"
+        ):
+            repository_for(self.workspace)
+
+        self.assertEqual(_version(path), 4)
+        self.assertEqual(_raw_export_history(path), before)
+        self.assertEqual(_read(path, "PRAGMA foreign_key_check"), [])
+        self.assertEqual(_read(path, "SELECT seq FROM sqlite_sequence WHERE name = 'export_runs'"), [(50,)])
+        self.assertFalse({"export_runs_v5", "export_items_v5"} & _tables(path))
+        with closing(library_migrations.open_connection(path)) as connection, self.assertRaises(sqlite3.IntegrityError):
+            connection.execute("INSERT INTO export_runs VALUES (NULL, 'quizlet', 'new', 't', 0, '')")
+
+        repository_for(self.workspace)
+        self.assertEqual(_version(path), 5)
+        self.assertEqual(_raw_export_history(path), before)
 
     def test_keeps_the_newest_three_backups(self) -> None:
         build_v3_library(self.workspace)
@@ -207,7 +298,7 @@ class SchemaV4MigrationTests(unittest.TestCase):
             for future in futures:
                 future.result(timeout=120)  # re-raises any thread's error here
 
-        self.assertEqual(_version(path), 4)
+        self.assertEqual(_version(path), 5)
         self.assertEqual(_snapshot(path), before)
         self.assertEqual(_read(path, "SELECT COUNT(*) FROM export_runs"), [(4,)])
         self.assertEqual(_read(path, "SELECT COUNT(*) FROM export_items"), [(6,)])
@@ -247,7 +338,7 @@ class SchemaV4MigrationTests(unittest.TestCase):
 
         for process, (_, stderr) in zip(processes, results):
             self.assertEqual(process.returncode, 0, stderr.decode("utf-8", "replace")[-2000:])
-        self.assertEqual(_version(path), 4)
+        self.assertEqual(_version(path), 5)
         self.assertEqual(_snapshot(path), before)
         self.assertEqual(_read(path, "SELECT COUNT(*) FROM export_runs"), [(4,)])
         self.assertEqual(_read(path, "SELECT COUNT(*) FROM export_items"), [(6,)])
@@ -271,7 +362,7 @@ class SchemaV4MigrationTests(unittest.TestCase):
         self.assertEqual(len(_backups(self.workspace)), 1)
 
         repository_for(self.workspace)  # the next start completes the migration
-        self.assertEqual(_version(path), 4)
+        self.assertEqual(_version(path), 5)
         self.assertEqual(_snapshot(path), before)
 
     def test_backup_failure_stops_before_any_write(self) -> None:
@@ -317,19 +408,22 @@ class SchemaV4MigrationTests(unittest.TestCase):
 
         repository_for(self.workspace)
 
-        self.assertEqual(_version(path), 4)
+        self.assertEqual(_version(path), 5)
         self.assertTrue({"review_cards", "enrichments", *V4_TABLES} <= _tables(path))
         self.assertEqual(_snapshot_v1(path), kept)
         self.assertIn(".v1.", _backups(self.workspace)[0].name)
 
-    def test_fresh_database_goes_straight_to_v4_without_backup(self) -> None:
-        repository_for(self.workspace)
+    def test_fresh_database_goes_straight_to_v5_without_backup(self) -> None:
+        repository = repository_for(self.workspace)
         path = self.workspace / ".app-data" / "kindle_cards.sqlite3"
 
-        self.assertEqual(_read(path, "SELECT version FROM schema_migrations"), [(4,)])
+        self.assertEqual(_read(path, "SELECT version FROM schema_migrations"), [(5,)])
         self.assertTrue(set(V4_TABLES) | {"lexemes", "review_cards"} <= _tables(path))
         self.assertFalse((self.workspace / ".app-data" / "backups").exists())
         self.assertEqual(_read(path, "PRAGMA journal_mode")[0][0].casefold(), "wal")
+        self.assertEqual(repository.record_export_run("quizlet", []), 1)
+        self.assertEqual(repository.record_export_run("remnote", []), 2)
+        self.assertEqual(_read(path, "SELECT destination FROM export_runs ORDER BY id"), [("quizlet",), ("remnote",)])
 
     def test_legacy_json_never_replaces_an_existing_sqlite_library(self) -> None:
         path = build_v3_library(self.workspace)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from threading import Lock
 from typing import Any
 
 from kindle_vocab_app.llm import LLMError
@@ -28,12 +29,15 @@ class OpenAICompatibleClient:
         self._client = OpenAI(base_url=base_url, api_key=api_key or "not-needed", timeout=timeout, max_retries=max_retries)
         self.model = model
         self._mode_index = 0
+        self._mode_lock = Lock()
 
     def complete_json(self, system: str, user: str, schema: dict[str, Any]) -> dict[str, Any]:
         import openai
 
         while True:
-            mode = _RESPONSE_MODES[self._mode_index]
+            with self._mode_lock:
+                mode_index = self._mode_index
+            mode = _RESPONSE_MODES[mode_index]
             try:
                 response = self._client.chat.completions.create(
                     model=self.model,
@@ -41,9 +45,10 @@ class OpenAICompatibleClient:
                     **_response_format(mode, schema),
                 )
             except openai.BadRequestError as exc:
-                if self._mode_index < len(_RESPONSE_MODES) - 1 and _mentions_response_format(exc):
+                if mode_index < len(_RESPONSE_MODES) - 1 and _mentions_response_format(exc):
+                    with self._mode_lock:
+                        self._mode_index = max(self._mode_index, mode_index + 1)
                     logger.info("Provider rejected response mode=%s; trying a simpler one", mode)
-                    self._mode_index += 1
                     continue
                 raise LLMError(f"Провайдер отклонил запрос: {_short(exc)}") from exc
             except openai.AuthenticationError as exc:
@@ -59,6 +64,8 @@ class OpenAICompatibleClient:
             except openai.APIConnectionError as exc:
                 raise LLMError("Нет соединения с провайдером. Для локальной модели запустите сервер", fatal=True) from exc
             except openai.APIStatusError as exc:
+                if exc.status_code in (408, 409) or 500 <= exc.status_code < 600:
+                    raise LLMError(f"Провайдер временно недоступен ({exc.status_code})", transient=True) from exc
                 raise LLMError(f"Ошибка провайдера ({exc.status_code}): {_short(exc)}") from exc
             content = (response.choices[0].message.content or "") if response.choices else ""
             return parse_json_object(content)

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Check, ChevronRight, Loader2, RefreshCw, Upload } from "lucide-react";
-import type { AppSettings, ConnectorState, LexemeRecord, StudyPrioritySource } from "@/types";
+import type { AppSettings, ConnectorState, ExportRun, LexemeRecord, StudyPrioritySource } from "@/types";
 import { isRpV2Priority, previewPriorityReason, studyPriority } from "@/features/library/study-priority";
 import type { ExportFolderState, OpenResultState } from "./use-home-export";
 import type { HomeProcessingProgress } from "./home-domain";
@@ -65,7 +65,9 @@ export type HomeViewProps = {
   reader?: { state: ConnectorState; name: string };
   onExport: () => void;
   onOpenWord: (id: string) => void;
-  onOpenResult: (path: string) => void;
+  onOpenResult: (run: ExportRun) => void;
+  vaultPathError?: string | null;
+  onOpenSettings?: () => void;
   onOpenFolder: () => void;
   onSync: () => void;
   onImportFile: (file: File) => void;
@@ -127,11 +129,11 @@ function DeskSkeleton() {
 function ListDesk(props: HomeViewProps) {
   const { mode, exportUi, demo, sinceLine, listChanging, words } = props;
   const running = exportUi.kind === "running";
-  const savedFileMissing = exportUi.kind === "done" && Boolean(exportUi.run.path) && props.folderState === "missing";
+  const savedFileMissing = exportUi.kind === "done" && exportUi.run.destination !== "obsidian" && Boolean(exportUi.run.path) && props.folderState === "missing";
   const showEmpty = mode === "empty" && !demo && (exportUi.kind !== "done" || savedFileMissing) && exportUi.kind !== "error" && !running;
   const unconfirmed = !demo && exportUi.kind === "error" && exportUi.code === "anki_import_unconfirmed";
   const count = props.quantity?.count ?? words.length;
-  const actionLabel = exportUi.kind === "error" ? "Попробовать снова" : exportButtonLabel(count);
+  const actionLabel = exportUi.kind === "error" ? "Попробовать снова" : exportButtonLabel(count, props.destination);
   const showControls = mode === "list" || mode === "processing-stopped" && Boolean(props.quantity);
   return (
     <>
@@ -162,6 +164,8 @@ function ListDesk(props: HomeViewProps) {
         <div className="home-actions">
           {demo ? (
             <PencilButton look="lit" size="lg" onClick={props.onExitDemo}>Закрыть пример</PencilButton>
+          ) : props.vaultPathError ? (
+            <PencilButton look="lit" size="lg" onClick={props.onOpenSettings} aria-describedby="home-vault-error">Настроить Obsidian</PencilButton>
           ) : (
             <PencilButton look="lit" size="lg" loading={running} disabled={listChanging || running || props.exportBlocked || !count}
               aria-describedby={props.processingProgress && listChanging ? "home-processing-note" : undefined} onClick={props.onExport}>
@@ -170,10 +174,14 @@ function ListDesk(props: HomeViewProps) {
           )}
         </div>
       ) : null}
-      {mode === "list" && !demo && !running && exportUi.kind === "idle" ? (
+      {showControls && !demo && props.vaultPathError ? (
+        <p id="home-vault-error" className="home-export-hint">{props.vaultPathError}</p>
+      ) : mode === "list" && !demo && !running && exportUi.kind === "idle" ? (
         <p className="home-export-hint">
-          {props.destination === "csv" ? "Файл TSV для Quizlet или таблицы."
-            : props.destination === "obsidian" ? "Для этой выгрузки выберите Anki или TSV в настройках."
+          {props.destination === "csv" ? "Подробная таблица со словами, переводами и примерами."
+            : props.destination === "quizlet" ? "Текстовый файл для импорта в Quizlet."
+            : props.destination === "remnote" ? "Текстовый файл для вставки в RemNote."
+            : props.destination === "obsidian" ? "Карточки сохранятся в папке внутри хранилища."
             : props.quantity?.mode === "library"
               ? "При повторной выгрузке перевод и пример могут заменить ваши правки в Anki. Если Anki закрыт, сохранится колода .apkg."
               : "В Anki или в файл колоды, если Anki закрыт."}
@@ -236,13 +244,16 @@ function DeskStatusLine({ exportUi, openState, folderState, demo, listChanging, 
     const { run } = status;
     const { path } = run;
     const hint = exportDoneHint(run);
+    const obsidian = run.destination === "obsidian";
+    const canOpen = Boolean(path) && (obsidian || folderState !== "missing");
+    const openLabel = obsidian ? "Открыть папку карточек" : run.destination === "anki" ? "Открыть в Anki" : "Открыть файл";
     body = (
       <>
-        <span className="home-status-line"><Check aria-hidden="true" />{exportDoneText(run)}</span>
-        {path && run.destination === "anki" && folderState !== "missing" ? (
-          <PencilLink loading={openState === "opening-file"} disabled={folderState === "opening"} onClick={() => onOpenResult(path)}>Открыть в Anki</PencilLink>
+        <span className="home-status-line">{run.exported > 0 ? <Check aria-hidden="true" /> : null}{exportDoneText(run)}</span>
+        {canOpen ? (
+          <PencilLink loading={openState === "opening-file"} disabled={folderState === "opening"} onClick={() => onOpenResult(run)}>{openLabel}</PencilLink>
         ) : null}
-        {openState === "failed-file" && folderState !== "missing" ? <span className="home-status-hint">Колода не открылась. Проверьте файл в папке выгрузок.</span> : null}
+        {openState === "failed-file" && canOpen ? <span className="home-status-hint">{obsidian ? "Не удалось открыть папку карточек." : run.destination === "anki" ? "Колода не открылась. Проверьте файл в папке выгрузок." : "Не удалось открыть файл. Проверьте папку выгрузок."}</span> : null}
         {hint && folderState !== "missing" && openState !== "failed-file" ? <span className="home-status-hint">{hint}</span> : null}
       </>
     );

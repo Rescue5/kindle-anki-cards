@@ -75,7 +75,7 @@ __all__ = [
 # --- constants --------------------------------------------------------------------------------
 
 # Settings keys `export_destination` and `export_batch_size` (validated in settings.py by B6).
-EXPORT_DESTINATIONS = ("anki", "csv", "obsidian")
+EXPORT_DESTINATIONS = ("anki", "csv", "obsidian", "quizlet", "remnote")
 EXPORT_DESTINATION_DEFAULT = "anki"
 BATCH_SIZE_DEFAULT = 20
 BATCH_SIZE_MIN = 5
@@ -129,7 +129,7 @@ DecisionValue = Literal["known", "learn", "skip", "junk"]
 LeanValue = Literal["learn", "skip", "junk"]
 RankingMode = Literal["learning", "full"]
 MeaningSource = Literal["edited", "llm", "dictionary", "none"]
-ExportDestination = Literal["anki", "csv", "obsidian"]
+ExportDestination = Literal["anki", "csv", "obsidian", "quizlet", "remnote"]
 ExportScope = Literal["new", "again", "library"]
 ExportStateValue = Literal["exported", "not_exported"]
 ErrorCode = Literal[
@@ -273,6 +273,7 @@ class LibraryPayloadV4(TypedDict):
 #                     Import errors preserve the saved package and leave its words in the batch.
 # export_folder_status {}                                          -> {available: bool}
 # open_export_folder   {}                                          -> {opened: bool}
+# open_obsidian_folder {}                                          -> {opened: bool}
 # load_lexeme_details {lexeme_id}                                  -> LexemeDetails
 # Settings: export_destination (EXPORT_DESTINATIONS, default "anki"), export_batch_size (5..100,
 # default 20). The destination is never sent by the UI with an export; it is read from settings.
@@ -313,7 +314,7 @@ class ExportRun(TypedDict):
     destination: ExportDestination
     runId: str
     exported: int
-    path: str | None  # the written file, None for a push or a vault write
+    path: str | None  # file or managed vault folder when there is an artifact to open
     pushed: int  # cards pushed to Anki, 0 otherwise
     message: str  # Russian summary the UI shows
 

@@ -963,6 +963,150 @@ book covers, and verify synchronization against the physical device.
   self-contained desktop package is separate work. Close OpenMTP while Kindle
   Cards owns the MTP connection.
 
+## 2026-10-16 - Codex subagent setup_audit - Windows prerequisites and Kindle workflow
+
+### Цель
+
+Проверить готовность Windows к запуску Tauri и доступный сценарий подключения Kindle без установки ПО, запуска серверов и чтения личной библиотеки.
+
+### Проверки и решения
+
+- Прочитаны AGENTS.md, WORKLOG.md, README.md, setup-dev.ps1 и код точек входа, UI, bridge и Windows Kindle connector.
+- Windows preflight подтвердил Windows x64, PowerShell 5.1 и активное окружение base. В ambient PATH отсутствуют Cargo/Rust; настройку проектного conda-окружения выполняет основной агент.
+- Через vswhere найдены Visual Studio 18 Community и VC.Tools.x86.x64. Проверено наличие MSVC link.exe/cl.exe версий 14.44 и 14.50, Windows SDK 10.0.26100.0 и VsDevCmd.bat.
+- Обнаружен установленный WebView2 Runtime. Ambient link.exe указывает на Scoop shim; при проблемах линковки рекомендовано использовать VsDevCmd, а не менять глобальный PATH.
+- Подтверждены оба Windows пути: mounted volume и Shell.Application MTP/WPD. Пассивное обнаружение не обходит содержимое устройства; полная синхронизация копирует vocab.db в локальный cache.
+- В UI доступны «Проверить Kindle», «Синхронизировать Kindle», «Книги», «Слова», фильтры, Anki/Quizlet export и «Повторение». Очередь новых лексем обрабатывается автоматически.
+- В текущем UI не найден ручной file picker для vocab.db, хотя README перечисляет такую возможность; для первичного сценария использовать USB Kindle и Tauri. Browser preview использует mock data.
+
+### Изменённые файлы и ограничения
+
+- Изменён только WORKLOG.md: добавлена эта запись. Установки, серверы и чтение личных баз не выполнялись.
+- Окончательную проверку сборки и запуск Tauri выполняет основной агент. Физический Kindle в этом аудите не проверялся.
+- Коммит не создавался.
+
+## 2026-10-16 - Codex subagent setup_audit - Close SQLite handles on Windows
+
+### Цель и причина
+
+Устранить выявленные основным агентом ошибки первого Windows запуска unittest: открытые sqlite3.Connection удерживали временные файлы, а POSIX macOS worker test импортировал отсутствующий в Windows fcntl.
+
+### Изменения
+
+- В kindle_vocab_app/kindle_db.py четыре read-only подключения validate_vocab_db/list_books/fetch_entries закрываются через contextlib.closing до замены cache или выхода из функции. SQLite connection context самостоятельно не закрывает файл.
+- В tests/test_kindle_mtp.py fixture явно закрывает SQLite connection; transaction context сохранён. Только worker timeout/JSON test, которому требуется fcntl, пропускается на Windows. Остальные platform-independent MTP проверки выполняются.
+- В tests/test_review.py прямые SQLite подключения явно закрываются; запись версии схемы сохраняет прежнюю транзакционную семантику.
+- Изменений MTP протокола, схемы базы и правил обработки слов нет. Личные данные не использовались.
+
+### Проверки и ограничения
+
+- conda run -n kindle_app python -m unittest discover -s tests -p test_review.py -v: 4 passed.
+- conda run -n kindle_app python -m unittest discover -s tests -p test_kindle_mtp.py -v: 5 passed, 1 skipped (Windows/fcntl).
+- Первый повтор MTP suite после исправления завершился WinError 145 при удалении временного cache; последующая проверка нашла cache пустым. Изолированный valid-download test и повтор всего MTP suite затем прошли без дополнительной правки; причина единичной задержки удаления каталога не подтверждена.
+- git diff --check проходит с предупреждением о преобразовании LF/CRLF для WORKLOG.md.
+- Общий suite и запуск desktop проверяет основной агент. Коммит не создавался.
+
+## 2026-10-16 - Codex - Initialize Windows checkout and launch Kindle Cards
+
+### Цель и выполненная настройка
+
+- Развернут origin/main из запрошенного SSH remote в исходно пустой Git workspace; локальная main отслеживает origin/main.
+- Использовано существующее conda-окружение kindle_app: Python 3.11, Node 26.4.0, Rust/Cargo 1.96.1, pywin32 и ресурсы NLTK уже установлены. Editable Python package перепривязан к текущему клону без переустановки зависимостей.
+- npm ci установил 227 пакетов по lockfile; production frontend и native debug executable собраны. API key для локального режима не требуется.
+- Приложение запущено штатным kindle-vocab-app; подтверждены отвечающее окно Kindle Cards, HTTP 200 dev server и успешные локальные bridge requests/load_review. Создана пустая SQLite библиотека в ignored app data.
+- Исправление закрытия SQLite handles и платформенного теста выполнено отдельным агентом и описано выше. Других изменений функциональности нет.
+
+### Проверки и ограничения
+
+- npm run build: passed. npm test: 10 passed. cargo build --locked: passed. kindle-vocab-doctor: все проверки OK.
+- Первый frontend build в sandbox не смог прочитать родительские каталоги через esbuild; тот же build вне sandbox прошёл.
+- Общий Python suite запускает 50 tests; один POSIX/fcntl test корректно skipped. После исправления SQLite остались непостоянные WinError 145 только при cleanup TemporaryDirectory, в разных тестах, как внутри, так и вне sandbox. Полный suite поэтому не объявляется прошедшим. Целевые MTP и review suites прошли у отдельного агента.
+- Временная папка внутри workspace дала дополнительный ложный Kindle presence в тесте, поскольку полный путь содержит kindle_app; это не исправлялось в рамках инициализации. Повтор с внешней папкой без kindle в пути устранил этот assertion, сохранив непостоянную cleanup ошибку.
+- Реальный USB перенос не проверен: подключённое устройство не подтверждено. Browser preview использует mock data; работать с устройством следует в открытом Tauri окне.
+- Штатный повторный запуск: conda run --no-capture-output -n kindle_app kindle-vocab-app. Коммит не создавался; личные данные и runtime artifacts игнорируются Git.
+
+## 2026-10-16 - Codex subagent obsidian_match_audit - Аудит проверки присутствия в Obsidian
+
+### Цель и выводы
+
+- Прочитаны AGENTS.md и WORKLOG.md, проверены read_cards/parser, bridge reconciliation, UI counters и сохранение настроек. Личные базы и содержимое vault не читались.
+- Найден источник устаревшего статуса: UI не вызывает load_obsidian; load_library, sync_kindle и обработка очереди загружают каталог с reconcile_obsidian=False. Настройки сохраняются без read-only сверки, connector_status проверяет существование каталога. Поэтому eligible лексемы получают missing без свежей проверки файлов.
+- Выявлены отдельные ограничения matching: индекс Obsidian содержит только base_form, не исходное word; extractor трактует внутренний ASCII дефис как разделитель; нормализация dedup в append_cards слабее bridge normalization. Parser читает только файлы фиксированного Priority шаблона непосредственно в cards_dir.
+- Счётчик UI считает eligible + state=missing, а не все слова, фактически отсутствующие в vault. Для достоверной диагностики нужна read-only сверка с правильным каталогом.
+
+### Изменения, проверки и ограничения
+
+- Изменён только WORKLOG.md: добавлена эта запись. Производственный код и тесты не менялись; runtime checks и доступ к пользовательскому vault оставлены основному агенту.
+- Проверены исходники и текущие smoke tests. Рекомендованы regression cases: начальная/после настроек сверка без append, сохранение полного hyphenated lemma, совпадение по форме карточки, единая нормализация punctuation/apostrophes.
+- Число действительных несовпадений по коду определить нельзя; его независимо проверяет основной агент. Коммит не создавался.
+
+## 2026-10-16 - Codex subagent obsidian_match_audit - Исправление точного matching и защиты сверки
+
+### Цель и изменения
+
+- По поручению основного агента устранены подтверждённые ограничения backend matching без доступа к личным данным, без frontend изменений и без изменения load_library semantics.
+- В obsidian_sync.py добавлен общий набор точных aliases карточки (word, stem, analysis.base_form), использованный и reconciliation, и append dedup. Нормализация делегирована vocab_cache.normalize_lemma, UTF-8 reader принимает BOM. Парсер сохраняет внутренний ASCII дефис в лемме.
+- В tauri_bridge.py load_obsidian отклоняет отсутствующий каталог и путь к файлу до открытия repository; прежние destination evidence не изменяются при такой ошибке. Reconciliation использует тот же индекс aliases, что append dedup.
+- Добавлены синтетические tests в test_obsidian_sync_smoke.py и test_tauri_bridge_smoke.py: hyphenated heading, punctuation/apostrophes, BOM, alias match, отсутствие дубликатов/изменения существующих файлов, invalid-directory сохранение SQLite evidence.
+
+### Проверки и ограничения
+
+- Windows skill preflight подтвердил PowerShell 5.1, Windows x64 и Python 3.11 из проектного conda environment; suites запускались напрямую этим interpreter.
+- Obsidian smoke suite: 7 passed. Bridge smoke suite: 11 passed. git diff --check: passed; только ранее известные LF/CRLF warnings.
+- Личная SQLite библиотека, vault и настройки не читались и не менялись. Live подсчёт, UI refresh и интеграцию выполняет основной агент. Коммит не создавался.
+
+## 2026-10-16 - Codex - Verify live Obsidian presence and refresh stale counts
+
+### Цель и доказательства
+
+- Проверена указанная пользователем папка карточек только на чтение. Сохранённые настройки указывают на правильный каталог; интеграция включена. Все восемь Priority markdown файлов читаются, 1049 разделителей карточек соответствуют 1049 разобранным карточкам; пустых заголовков нет.
+- Начальное состояние SQLite: 1768 лексем, 1750 ready/eligible, 18 rejected. Все eligible имели missing, last_checked_at отсутствовал у всех. Независимая read-only сверка дала 941 совпадение старым алгоритмом, ещё три подтверждены по исходной форме карточки и корректному разбору дефисов.
+- Итог после исправления и штатной сверки открытым приложением: 944 synced, 806 missing, 18 not_applicable. Повторное чтение SQLite и независимая сверка в памяти дали те же числа. Новые карточки в пользовательский Obsidian не записывались; sync_obsidian для личного vault не вызывался.
+
+### Изменения и решения
+
+- Backend matching, нормализация, hyphen/BOM и invalid-directory guard исправлены отдельным агентом; детали выше.
+- Новый load-library.ts загружает настройки и SQLite параллельно, затем вызывает существующий read-only load_obsidian только для настроенного включённого vault. Backend load_library остаётся быстрым чтением без внешней сверки.
+- Контроллер использует эту последовательность при старте, после Kindle sync, после обработки очереди и повторе проверки. После успешного сохранения Obsidian настроек SettingsView обновляет библиотеку через тот же callback; посторонние настройки не вызывают дополнительную сверку.
+- При недоступной папке сохраняются cached entries, connector и операция показывают ошибку; Retry повторяет чтение, а не sync_obsidian/append. В browser mock добавлен load_obsidian response.
+- Добавлены три frontend regression tests на проверку перед показом библиотеки, disabled integration и сохранение evidence/error без экспорта.
+
+### Проверки
+
+- npm run build: passed; npm test: 13 passed. Backend focused suites: 7 Obsidian + 11 bridge passed. git diff --check: passed с ранее известными LF/CRLF warnings.
+- Browser plugin not available. Использован bundled Playwright с уже установленным Edge; bundled Chromium отсутствует, новые browser dependencies не устанавливались. URL localhost:1420, viewport 1320x840, только встроенные demo данные.
+- Browser identity/meaningful render/no framework overlay/console health: passed. Проверены фильтр Не в Obsidian, повторная сверка после process_queue и сохранения папки, ошибка недоступности и Retry без sync_obsidian. Скриншоты и временный QA script сохранены вне repository.
+- Начальные QA attempts исправляли только инструмент проверки: HMR query в URL требовал wildcard route, ожидание должно учитывать окончание загрузки, locator фильтра требовал exact match. Production failure при этих попытках не найден.
+- Полный Python suite не повторялся: проверены затронутые contracts; прежние нестабильные Windows TemporaryDirectory cleanup ошибки остаются отдельным известным ограничением. Mobile и native UI automation не выполнялись; native bridge подтверждён live SQLite состоянием и load_obsidian logs.
+- Данные слов и полные пользовательские пути не записаны в work log. Коммит не создавался.
+
+## 2026-11-20 — Codex — Проверка экспорта Claude для Kindle Cards
+
+- Цель: найти переписку и материалы разработки Kindle Cards в пользовательском экспорте и сопоставить их с текущим кодом.
+- Проверены структуры четырёх ZIP. В архиве чатов три записи по два сообщения с пустыми text/content. В памяти есть краткая сводка проекта. В архиве дизайна найдены два проекта с 20 и 6 версиями и исходными HTML-макетами.
+- По исходникам подтверждены шесть разделов приложения, локальное расписание повторений в SQLite и экспорт; отдельно в макетах описаны ручной разбор спорных слов, правка карточек и аналитика повторных поисков после экспорта.
+- Изменён только WORKLOG.md. Архивы прочитаны без распаковки, прототипы не запускались. Работоспособность приложения в этом обзоре не перепроверялась. Историю обсуждений восстановить по данным этого экспорта не удалось. Коммит не создавался.
+
+## 2026-11-20 — Codex subagent archives — Восстановление материалов Claude Design
+
+- Цель: перенести материалы проекта Kindle Cards из приложенных экспортов Claude и сохранить происхождение файлов.
+- В recovery/claude-export сохранены все 138 файлов project/ двух артефактов, карточка памяти о Kindle Cards и одно целевое упоминание из другой заметки. Индекс включает 26 версий, даты, активные версии, размеры и SHA-256; README описывает экраны и ограничения.
+- Сверены SHA-256 и размеры с оригинальными манифестами и с записанными файлами. Проверены 14 локальных ссылок из README. В 20 версиях «Библиотеки чтения» 13 разных снимков project/, в 6 версиях Night Reading их 5 с учётом версии без файлов project/. git diff --check для журнала проходит с предупреждением LF/CRLF.
+- Из чатов нечего перенести: три записи по два пустых сообщения, связь единственного указателя на файл с Kindle не установлена. Данные аккаунта, общие файлы среды дизайна и шаблонные инструкции не переносились.
+- HTML сохранён без изменения байтов и не запускался. Для части макетов экспорт не содержит support.js; автономный просмотр не подтверждён. Код приложения не менялся, коммит не создавался.
+
+## 2026-11-20 — Codex subagent claude_local — Восстановление локальных материалов Claude
+
+- Цель: восстановить историю именно Kindle Cards из локальных проектных папок Claude Code и Claude Desktop. Найдена актуальная копия Anki Cards и три перекрывающихся журнала разработки. Результаты сохранены в recovery/claude-local.
+- Извлечены 298 уникальных реплик, 3 сводки, 28 последних текстовых отчётов субагентов, 39 уведомлений о задачах, 8 файлов памяти и 284 исторических текстовых снимка по 133 путям. Индексы связывают записи с исходными строками. Резервные версии хранятся с расширением .snapshot.
+- Восстановлены решение от 3 ноября о переносе обучения во внешние приложения, контекст рейтинга v2, дизайн «Кабинет» и состояние подготовки 0.4.0 по журналу. Описания ролей найдены в исходной копии. Исторические команды и указания не запускались.
+- Проверены индексы и существование всех снимков. Поиск типовых токенов, закрытых ссылок и полноформатных пользовательских путей в результате без совпадений. Личная база, вложения и сырые логи не переносились. Служебная область MSIX недоступна в песочнице. Функциональные тесты не нужны, код приложения не менялся. Коммит не создавался.
+
+
+## 2026-11-20 — Codex — История из найденной рабочей копии
+
+Ниже добавлены ранее отсутствовавшие записи из WORKLOG.md исходного проекта. Порядок внутри источника сохранён.
+
 ## 2026-10-30 - Claude - Read-only project audit
 
 ### Goal
@@ -1815,3 +1959,1848 @@ a path that does not depend on USB detection.
 - Risks: new reason code `known_again` and `decided_at` are a contract
   addition for the bridge; consumers must not assume score 1.0 for "learn".
   Nothing committed.
+- Committed as fb8f1b6 (not pushed): ranking v2, PRODUCT.md, plan, concept, README, team briefs.
+
+- Pushed b9a404d and fb8f1b6 to origin/main after ruff, pytest (157 passed, 1 skipped), npm test and npm run build passed.
+
+## 2026-11-19 — Lead: team meeting after M1
+
+- Goal: the owner asked that the team meets after every stage and plans the
+  next stage and the app's direction. Rule added to the "Team" section of
+  `AGENTS.md`.
+- Meeting: six read-only views (product-skeptic opus/medium; ranking,
+  backend, frontend sonnet/medium; user-advocate sonnet/low; qa haiku/medium).
+  Outcome recorded in `docs/plan/meetings.md`; `docs/plan/m1-m2.md` points to
+  it from "Lanes and order".
+- Decisions: M1 not closed until a non-author (synthetic newcomer) library
+  passes; ranking lane runs in parallel with backend (generator, ablations,
+  too_basic recall); thin path first (B1+B2 → freshness → B3a → B3b → B4 →
+  B6a–c → B5 → B7; F0 → F2 → F6+F5 → F3 → F4 → F7); `review_cards` untouched
+  in v4; disputed capped at 7 inside the new batch; `PendantLamp` cut; no
+  interim 0.3.1; contract answers for backend (now, lookup time,
+  reading_books, proper_noun from warnings only, exported_at incl. migrated,
+  decision snapshot, settings defaults).
+- Files: `AGENTS.md`, `docs/plan/meetings.md`, `docs/plan/m1-m2.md`,
+  `WORKLOG.md`.
+- Not verified: the reports were written from the plan, mostly without reading
+  code line by line; contract answers are checked when B1–B4 start.
+- Owner question: free open-source installer signing (recommend yes).
+
+## 2026-11-19 - Claude (backend-engineer) - B1 schema v4 runner, B2 bulk catalog, freshness fix
+
+- Goal: plan items B1+B2 and the freshness fix, per `docs/plan/m1-m2.md` as
+  changed by the meeting after M1.
+- B1: new `kindle_vocab_app/library_migrations.py` replaces the idempotent
+  `_initialize`/`_create_schema`. Reads the version without writing; if < 4
+  and the file has tables, copies it with the backup API to
+  `.app-data/backups/kindle_cards.v<old>.<utc>.sqlite3` (journal DELETE,
+  `integrity_check` + lexeme count verified, newest 3 kept, exclusive file
+  claim so parallel starts never share a name) before any write; then
+  `BEGIN IMMEDIATE`, re-reads the version, runs statements one by one, writes
+  the version row, commits; on failure rolls back and raises «Не удалось
+  обновить библиотеку; копия сохранена» (backup failure: «...; библиотека не
+  изменена», nothing written). v4 adds `word_decisions`, `card_edits`,
+  `export_runs`, `export_items` as in the plan, and backfills `migrated` runs
+  grouped by (destination, timestamp) from `destinations` (anki/quizlet
+  exported -> anki/csv, obsidian synced). A lost timestamp becomes the
+  migration time. `review_cards`, `analyses`, `destinations` untouched; no
+  decisions seeded; lexemes never deleted.
+- Also: legacy JSON migration no longer runs when SQLite already has lexemes
+  (before, a missing marker row would have replaced the library from JSON).
+- B2: `load_catalog` runs 7 whole-table queries instead of ~4 per lexeme.
+  Golden payload of `load_catalog` and bridge `load_library` captured on the
+  old code (`tests/fixtures/library_v3_golden.json`) and matched after.
+- Freshness: `merge_kindle` demotes the previous `new` batch only when the
+  sync adds a lexeme.
+- Real-size check on a scratch copy (deleted afterwards): 1961 lexemes before
+  and after, occurrences unchanged, 20 export runs / 1022 items (all
+  obsidian), backup verified ok, first start with migration 0.15 s, next
+  start 0.007 s; old and new `load_catalog` identical, 0.084 s -> 0.075 s.
+- Tests: `tests/test_library_migrations.py` (data survives, backup before
+  writes, idempotent, keep 3, threads and two processes, rollback, backup
+  failure, fresh DB, legacy guard, golden, query count),
+  `tests/library_fixture.py` (frozen v3 DDL, synthetic rows),
+  `tests/test_vocab_catalog.py` (freshness). Ruff on the CI list plus new
+  files clean. Full pytest: 169 passed, 1 skipped, 2 failed in the ranking
+  lane's uncommitted work (`test_ranking_eval` DatabaseTests: no column
+  `word`; `test_ranking` REASON_CODES `thin_evidence`), not touched here.
+  Bridge `load_demo` / `load_library` on a temp workspace: clean JSON.
+- Files: `kindle_vocab_app/library_migrations.py` (new, add to CI ruff list),
+  `kindle_vocab_app/library_repository.py`, `kindle_vocab_app/vocab_cache.py`,
+  tests above, `tests/fixtures/library_v3_golden.json`.
+- Not verified: migration on a library from before SQLite with real JSON;
+  behaviour when the disk is full during backup. Nothing committed.
+
+## 2026-11-19 - Claude (backend-engineer) - B1/B2 code-review fixes
+
+- Backup race: the copy is now made after `BEGIN IMMEDIATE` and the version
+  re-read, through a second reader connection (the locking connection cannot
+  be a backup source: SQLite returns LOCKED and Python retries forever), so
+  concurrent starts queue and only the one that still finds an old schema
+  copies it. Six threads and four processes: exactly one real v3 backup.
+- A failed or unverifiable copy is deleted; `list_backups` ignores empty and
+  header-less files, so they never count toward keep-3.
+- `load_catalog` reads all 7 queries in one read transaction (snapshot);
+  tested with a commit from another connection between two queries.
+- Legacy JSON: marker and "library has words" are re-checked inside the
+  `BEGIN IMMEDIATE` transaction that replaces the catalog.
+- History check: schema v1 -> v2 added `review_cards`, v2 -> v3 added
+  `enrichments`; no ALTERs or column changes ever existed, so the v3
+  baseline (`CREATE ... IF NOT EXISTS`) covers v1/v2; tested from v1.
+- Lead confirmed: a lost export timestamp becomes the migration time.
+- Checks: CI ruff list + new files clean; full pytest 178 passed, 1 skipped;
+  real-size scratch copy unchanged numbers (1961 lexemes, 20 runs / 1022
+  items, backup ok, 0.15 s); bridge `load_demo`/`load_library` clean JSON.
+- Files: `kindle_vocab_app/library_migrations.py`,
+  `kindle_vocab_app/library_repository.py`, `tests/test_library_migrations.py`.
+  Nothing committed.
+
+## 2026-11-19 - Claude (ranking-engineer) - M1 closing check: newcomer replay, synthetic newcomer, ablations
+
+- Goal: does ranking v2 hold for a reader who is not the author (meeting
+  decision 1)? Measured on a copy of the real library (aggregates only;
+  nothing printed or logged but numbers) and on a synthetic newcomer library.
+- Instrument (`ranking_eval.py`, additions only; the default report and
+  `ranking_v2` are unchanged, so the headline numbers did not move: v2 AUC
+  0.653 / lift@50 2.8 over the 2 comparable rounds, current_score 0.559 / 1.0):
+  `--reader-file` (KOReader/Kobo/Kindle file instead of the library),
+  `--newcomer [--first-books N --first-days D --step-days --start-days]`,
+  `--ablation [--include-rejected]`, `--too-basic`. Metrics over several
+  cutoffs are the mean per cutoff, bootstrap resamples words inside each cutoff
+  and gives paired differences (same words for both rankers). The loader now
+  reads export times from `destinations` (tolerates a library without them) and
+  derives a proper-noun flag from each occurrence word + context (capitalised
+  away from the sentence start, unknown to WordNet; every pre-cutoff lookup
+  must look like a name). Both reach the ranking only through
+  `v2_variant(exports=, proper_nouns=)`.
+- Newcomer replay, real library (9 books; the first book is only 17 days, so
+  "first book" is meaningless; I used the two long books and time cuts). Weekly
+  cutoffs from day 14, window 21 days, lift@50, v2 vs current_score:
+  one long book, first 56 days (1227 lookups, 3 cutoffs): AUC 0.614
+  [0.57-0.66] vs 0.540 [0.50-0.58], lift 1.93 [1.40-2.77] vs 0.84 [0.54-1.18];
+  two books, first 56 days (1349 lookups): AUC 0.594 [0.56-0.63] vs 0.598
+  [0.57-0.63] (tie), lift 1.56 [1.27-1.99] vs 1.18 [0.94-1.44];
+  two books, first 84 days (1789 lookups, 7 cutoffs): AUC 0.634 [0.61-0.66] vs
+  0.582 [0.56-0.60], lift@50 1.77 [1.40-2.20] vs 0.95 [0.77-1.10], lift@20 2.18
+  [1.48-3.08] vs 0.95; whole library, first 84 days (5 books): AUC 0.633
+  [0.60-0.66] vs 0.571, lift@50 1.64 [1.23-1.89] vs 1.12, lift@20 1.99
+  [1.28-2.55]. It COLLAPSES with less: whole library first 56 days (1378
+  lookups, 3 cutoffs) AUC 0.602 [0.55-0.68] vs 0.548, lift@50 1.10 [0.55-1.57]
+  vs 1.03; first 42 days (760 lookups, window 14): AUC 0.577 [0.47-0.67] vs
+  0.572, lift@50 1.38 [0.70-2.00] vs 1.39. So: v2 is never significantly worse
+  than the current score and beats it at the top from about 8 weeks / 1000+
+  lookups; below about 6 weeks / ~750 lookups no ranking shown here is
+  distinguishable from chance at the top (plain "number of lookups" is as good).
+  The author reads ~14 lookups a day; a typical newcomer has fewer, so the
+  threshold in calendar time is longer for them.
+- First-sync shelves on the real replays (all words looked up in the window,
+  now = last lookup): worth 31-56%, not_worth 14-60%, disputed 3-10%, but 31%
+  disputed for one book at 29 days. Cause: single lookups 5-10 days old score
+  inside [0.19, 0.22) (recency alone puts them there), and a first sync has many
+  of them at once. The product caps disputed at 7 per batch, so the reader does
+  not see the pile; the shelf count itself is large. Not changed (thresholds
+  must not be tuned to one library).
+- Synthetic newcomer (`ranking_synthetic.py`, seed 20261119): 475 lookups, 360
+  words (320 invented pseudo-words, 30 common words, names and glued words as
+  rejected junk), 2 books, 89 days, planted sticky words that come back within
+  weeks and across books. Written as a KOReader `vocabulary_builder.sqlite3`
+  and a Kobo `KoboReader.sqlite` and read back with `reader_sources`
+  (read-only). Window 21 days, 7 cutoffs: v2 AUC 0.700 [0.63-0.76] vs
+  current_score 0.507, lift@50 1.94 [1.5-2.5] vs 0.94, lift@20 2.15; first
+  sync worth 123 / disputed 39 (10.8%) / not_worth 198. Five other seeds: v2
+  AUC 0.72-0.81, lift@50 1.99-2.58, current 0.8-1.15. The plant matches the
+  model's own assumptions (recency alone scores AUC 0.73 here), so this is a
+  regression guard for the path import -> evaluate -> shelves, not evidence of
+  generalisation; the real replay above is the evidence.
+- UNVERIFIED, from memory: real KOReader keeps each word once (UNIQUE on
+  `word`) and Kobo's WordList one row per word and book. If so, a KOReader or
+  single-book Kobo newcomer has NO repeat-lookup signal at all (the synthetic
+  `repeats=False` files show it: nothing comes back, so nothing can be
+  evaluated), and ranking leans on recency, frequency band and junk. Worth
+  checking on a real KOReader file before promising a ranking to those readers.
+- Ablations on the real library (4 monthly cutoffs, rejected words included,
+  lift@20/50, paired difference against v2 without the feature, 95% interval):
+  after_export (export evidence = the one Obsidian reconcile of 2026-07-14,
+  2044 of 3590 word-cutoffs have it, 202 were looked up again after it, 47 of
+  them came back = 23% vs 12.8% base): old weight 2.0 AUC -0.001 [-0.002,
+  +0.000], lift@50 -0.15 [-0.47, +0.22]; weight 1.0 AUC -0.001 [-0.002, +0.001],
+  lift@20 -0.02 [-0.47, +0.62], lift@50 -0.12 [-0.47, +0.26]; 0.5 and 3.0 the
+  same. Nine weekly cutoffs after the reconcile (908 of 12607 looked up
+  again after it, 217 came back = 24% vs 11%): AUC -0.001 [-0.002, 0.000],
+  lift@50 +0.06 [-0.20, +0.37]. In the noise: the word is already ranked high by its repeat and
+  recency. Decision: after_export 2.0 -> 1.0 (neutral in the metrics, and the
+  measured odds ratio of 2.1-2.4 is log 0.7-0.9, so 2.0 over-claimed); this is
+  the only DEFAULT_WEIGHTS change. proper_noun: 7 of 3590 word-cutoffs carry
+  it (0 came back), effect on every metric is exactly 0.000 at weights -0.75,
+  -1.5, -3; the library cannot show it helps or hurts. Weight left at -1.5; the
+  meeting rule says a feature with no gain goes, so recommend the backend does
+  NOT build plumbing for it (WordFacts.proper_noun stays, defaults False).
+- too_basic recall (4 cutoffs, flagged words incl. rejected): 45 flagged
+  word-cutoffs; 37 land on not_worth (2 worth, 1 disputed, 5 junk); 3 of the 37
+  came back = 8.1% [2.8-21.3] vs 12.8% [11.7-13.9] for the other 3545 words:
+  no sign that hiding them costs the reader anything (n is small).
+- Every not_worth word carries a negative reason: the grid test found words
+  that did not (single lookup, mid-frequency band, lookup 33-54 days old: only
+  the bias is against them). `rank` now appends `thin_evidence` (weight 0.0, "искали
+  один раз, других признаков нет" / "мало признаков, что слово вам нужно"),
+  only on not_worth and only when no negative contribution exists; scores are
+  unchanged and still decompose. New reason code in `REASON_CODES` (contract
+  addition for the bridge and the UI). A reader's own "не учить" is its own reason.
+- Tests: `tests/test_ranking_synthetic.py` (new, 13: determinism, newcomer
+  shape, both files import and agree, repeats=False has nothing to evaluate,
+  `--reader-file` command, lift@50 > 1.5 with an interval above chance, v2 beats
+  current with the lower bound > 0, shelves worth/disputed/not_worth each >= 5%
+  and disputed <= 25%, no lookups after a cutoff in features);
+  `tests/test_ranking_eval.py` (+11: restrict/step cutoffs, paired deltas,
+  too_basic counting, export times and proper nouns from a library, older
+  schemas load, ablation); `tests/test_ranking.py` (+3: negative reason grid,
+  wording, decomposition). CI ruff list + `ranking_synthetic.py` + the three
+  test files clean; full pytest 203 passed, 1 skipped.
+- Files: `kindle_vocab_app/ranking.py`, `kindle_vocab_app/ranking_eval.py`,
+  `kindle_vocab_app/ranking_synthetic.py` (new, NOT yet in the ci.yml ruff
+  list: lead to add), the three test files.
+- Risks: newcomer evidence is one author's reading at two paces, 1-7 cutoffs per
+  scenario with overlapping windows (the intervals ignore that, so they are a
+  little optimistic); the export signal is a proxy (one reconcile date), not
+  real exports; the loader reads `destinations` only, not the new
+  `export_runs`/`export_items` (add when real runs exist; a migrated run is
+  stamped with the migration time, so it will never look "looked up again
+  after export"); the pace dependence of the 8-week threshold. Nothing committed.
+
+## 2026-11-19 — Lead: stage "B1+B2 and ranking for newcomers" integrated
+
+- Backend (opus/high): schema v4 runner `library_migrations.py`, bulk
+  `load_catalog`, freshness fix. Code review found a backup race, junk backup
+  files eating retention, non-snapshot catalog reads and a legacy-import guard
+  outside the replace transaction; all fixed with tests. Contract answer:
+  an old export without a timestamp gets the migration time.
+- QA (sonnet/medium) on a copy of the real library through the bridge: v3→v4,
+  one verified backup, all table counts equal, 4 concurrent starts fine,
+  second start makes no backup; no defects. Not covered: non-empty
+  `review_cards`, full disk, packaged app.
+- Ranking (sonnet/high): newcomer replay, synthetic library, ablations,
+  too_basic recall, `thin_evidence` reason; `after_export` 2.0 → 1.0;
+  `proper_noun` measured as zero effect (backend will not wire it). M1 holds
+  from ~8 weeks of history and collapses at 6 weeks. Code review: one Windows
+  log-handle leak in `tests/test_ranking_synthetic.py`, fixed by the lead.
+- Verified by the lead: KOReader keeps one row per word
+  (`reader_sources.py` reads `vocabulary` by word), so KOReader/Kobo readers
+  have no repeat-lookup signal. First topic for the next meeting.
+- CI ruff list: added `library_migrations.py`, `ranking_synthetic.py`.
+- Checks: ruff clean; pytest 203 passed, 1 skipped; npm test 25 passed;
+  npm run build ok. cargo check not run (no Rust change).
+
+## 2026-11-19 — Lead: team meeting after "B1+B2 and ranking for newcomers"
+
+- Six read-only views (skeptic opus/medium; ranking sonnet/medium; backend,
+  frontend, advocate sonnet/low; qa haiku/low). Outcome in
+  `docs/plan/meetings.md`, pointer in `docs/plan/m1-m2.md`.
+- Decisions: honest first-weeks promise (short list, no personal-ranking
+  claim, one line about rough order); library-wide ranking mode
+  learning|full; check whether KOReader updates a row on re-lookup; disputed
+  cap 5; lean list payload; next stage C0 contract then B3a+B3b, F0+F2 and
+  ranking mode in parallel; B4 after.
+- README: two lines made true for 0.3.0 (KOReader note, "usually finds").
+- Owner questions: reword the M1 criterion, fiction frequency list, installer
+  signing (recommendations recorded).
+- Not committed yet.
+
+## 2026-11-19 — Backend: C0 bridge contract draft (contracts only)
+
+- Goal: a contract the lead can approve so B3/B4 and the frontend build in
+  parallel. No bridge, UI, ranking or docs behaviour changed.
+- Added `kindle_vocab_app/contracts.py`: TypedDicts and literals for
+  `ranking`, `decision`, `card`, `export`, `is_new`, library-level
+  `rankingVersion`, `rankingMode`, `historyDays`, `repeatSignal`, `shelves`,
+  `newBatch`, `disputed`, `again`; action shapes for `set_decision`,
+  `save_card_edit`, `export_preview`, `export_words`, `load_lexeme_details`;
+  `ERROR_CODES` with Russian `ERROR_TEXTS` and `error_response`; settings
+  bounds (`export_destination`, `export_batch_size` 5..100, default 20);
+  `validate_library`, a pure validator the bridge tests can reuse. Literals
+  are tied to `ranking.py` (`SHELVES`, `REASON_CODES`, `RANKING_MODES`,
+  `DECISIONS`, `RANKING_VERSION`) by tests.
+- `src/types.ts`: additions only. New lexeme fields are optional on
+  `LexemeRecord` (old mock and screens keep compiling); `LexemeRecordV4` and
+  `LibraryResultV4` make them required; `AppSettings` gets optional
+  `export_destination`, `export_batch_size`.
+- Key case follows the existing payload: lexeme-level and request keys
+  snake_case, library-level and result aggregates camelCase (`runId`,
+  `blockedReason`, `disputedLeft`).
+- Shared fixtures `tests/fixtures/bridge_library_v4.json` (10 invented words,
+  every shelf, a decision, an edited card, an exported word with `again`,
+  two disputed, one unprocessed; mode full) and
+  `bridge_library_v4_learning.json` (repeatSignal false, again unavailable).
+- Tests: `tests/test_bridge_contract.py` (22: fixtures valid, validator
+  catches 12 kinds of breakage, literals equal ranking.py, `types.ts`
+  unions and constants equal contracts.py); `src/lib/bridge-contract.test.ts`
+  (6; the fixture is cast to `LibraryResultV4`, key lists typed with `keyof`).
+- Checks: ruff clean on contracts.py and the new test; full pytest 233
+  passed, 1 skipped; npm test 31 passed; npm run build ok. Cargo not run.
+- Open for the lead: see the report (disputedLeft duplicate, camelCase
+  `runId`, `meaning_ru: ""` clears an edit, newBatch order, error codes
+  beyond the five named). `contracts.py` is not yet in the ci.yml ruff list.
+- Nothing committed.
+- C0 revised per lead: `newBatch` = `{count, ids}` worth words only (disputed live in `disputed.ids`, not in the batch); `set_decision` returns `{entry, shelves, newBatch, disputed, again}` (no `rankings`, no `disputedLeft`); fixtures and tests updated; pytest 240 passed, npm test 31, build ok.
+
+## 2026-11-19 — Ranking engineer: library-wide ranking mode `learning | full`, no-repeats replay, KOReader re-lookups
+
+- Goal (meeting decisions 2 and 3): a library-wide mode for readers whose
+  source keeps no repeat lookups or whose history is short; measure it as
+  "not worse than frequency or the plain lookup count"; find out whether
+  KOReader updates a row on a repeated lookup.
+- Code (`ranking.py`): `RANKING_MODES`, `FULL_MODE_MIN_DAYS = 56`,
+  `library_mode(history_days, repeat_signal, min_days=56) -> "full"|"learning"`,
+  `rank(facts, now, weights=DEFAULT_WEIGHTS, mode="full")`, `Ranking.mode`
+  (new field, default "full"). In `learning` the score and the reasons drop
+  `repeat_lookups`, `several_books` and `after_export`; the frequency band,
+  `reading_now`, recency, junk evidence, the negative-reason rule and the
+  reader's decisions are unchanged; `known_again` stays as a weight-0.0 note.
+  No weight, threshold or REASON_CODES change; `mode="full"` is the old
+  behaviour. The short list in learning mode is the top N by `score` (ties:
+  the backend breaks them by lexeme id); no separate sort key was needed.
+- Instrument (`ranking_eval.py`): `collapse_repeats(library)` (first lookup per
+  word), `build_examples(..., outcome=)` (features from one library, "came
+  back" label from another), `blind_report(features, outcome, ...)`,
+  `ranking_learning` in BASELINES, `shelf_counts(..., mode=)`, CLI flag
+  `--no-repeats` (`--first-days`, `--step-days`, `--start-days` apply). Proxy:
+  the rankers see only first lookups, the label is "looked up again in the
+  window" in the same library with its repeats. WEAK EVIDENCE: a source that
+  keeps no repeats never gets that label, and the proxy borrows it from a
+  reader who did repeat words.
+- Numbers, real library copy (2820 lookups, 163 days, 9 books, one reader; weekly
+  cutoffs from day 14, 21-day window; mean over cutoffs, 95% intervals;
+  `learning` = ranking v2 without repeat/books/export, features from first
+  lookups only; lift = precision@k over the base rate):
+
+  | history | cutoffs | ranker | AUC | lift@20 | lift@50 |
+  | --- | --- | --- | --- | --- | --- |
+  | 56 d | 3 | learning | 0.597 [0.544..0.657] | 0.73 [0.18..1.67] | 1.62 [1.07..2.17] |
+  | | | frequency | 0.543 [0.479..0.595] | 1.03 [0.29..1.66] | 0.96 [0.51..1.41] |
+  | | | lookups (all tied) | 0.500 | 1.00 | 1.00 |
+  | 70 d | 5 | learning | 0.612 [0.578..0.649] | 0.98 [0.44..1.67] | 1.55 [1.16..2.01] |
+  | | | frequency | 0.561 [0.520..0.591] | 1.03 [0.44..1.43] | 1.07 [0.67..1.30] |
+  | 84 d | 7 | learning | 0.629 [0.593..0.660] | 1.37 [0.72..1.94] | 1.72 [1.33..2.17] |
+  | | | frequency | 0.568 [0.539..0.592] | 0.86 [0.37..1.36] | 0.96 [0.62..1.22] |
+
+  Paired learning - frequency: 56 d AUC +0.054 [-0.013..+0.126], lift@20
+  -0.29 [-1.16..+0.78], lift@50 +0.66 [-0.16..+1.31]; 70 d +0.051
+  [+0.005..+0.098], -0.05 [-0.77..+1.06], +0.48 [+0.02..+1.11]; 84 d +0.061
+  [+0.021..+0.098], +0.51 [-0.33..+1.24], +0.76 [+0.34..+1.28]. Versus the
+  lookup count at 84 d: AUC +0.129 [+0.093..+0.160], lift@20 +0.37
+  [-0.28..+0.94], lift@50 +0.72 [+0.33..+1.17]. Reading: not worse than either
+  at the top; clearly better over the whole list and at 50; at the top 20 the
+  difference is inside the noise (17-95 words came back per cutoff). At 42 days
+  (one cutoff, 17 of 150 came back) there is nothing to say: AUC 0.48 for
+  learning, 0.53 for frequency, intervals +-0.12.
+- Synthetic library (`repeats=False`, label from the same library with
+  repeats, 21-day window, 8 cutoffs, default seed): learning AUC 0.652
+  [0.576..0.707], lift@20 2.91 [1.88..3.84], lift@50 1.99 [1.57..2.36];
+  frequency 0.499 / 0.53 / 0.97; lookups 0.500 / 1.0 / 1.0; plain recency
+  0.663 (learning - recency AUC -0.011 [-0.058..+0.029]). Mean over 5 seeds
+  AUC 0.703 vs frequency 0.534. First 42 days only: 0.635 vs 0.577, one cutoff
+  (intervals cross zero). The planted process rewards recency, so this is a
+  regression fixture, not evidence.
+- Before / after: on a source without repeats the old v2 and `learning` give the
+  SAME order (nothing to count), so the numbers do not move; what changes is
+  that the contract names the mode and the reasons are guaranteed free of
+  repeat claims. On the Kindle-shaped real library with repeats kept,
+  `learning` vs v2: AUC +0.002 [-0.019..+0.019] (56 d), +0.010 [-0.004..+0.022]
+  (70 d), +0.011 [+0.001..+0.024] (84 d); lift@20 -0.38, -0.72, -0.52 (all
+  intervals cross zero, v2 ahead in point estimate); lift@50 +0.50, +0.13,
+  +0.05. Horizon 14 days agrees (56 d AUC +0.006, 70 d +0.007).
+  SURPRISE for the lead: on this one library the repeat signal does not make
+  the whole-list order better than band + reading + recency at any history
+  length measured (at most a lift@20 edge inside the noise). "full" is
+  therefore not proven better than "learning"; it rests on the prior from the
+  earlier meeting (v2 beats the old score from ~8 weeks).
+- Threshold: `FULL_MODE_MIN_DAYS = 56` (8 weeks), kept from the previous
+  replay (v2 held from ~8 weeks, collapsed at 6). The new numbers do not
+  separate 56 from 70 or 84 (differences in the noise), so no better number
+  exists in this library; and the choice is cheap: the two orders differ by
+  <= 0.011 AUC. Not tuned to this round.
+- Shelves in learning mode (thresholds unchanged): at the first cutoffs nearly
+  every word is fresh and in the book being read, so `worth` is 90% of the
+  list (135 of 150 at day 14, 17 of them came back = 13% vs 11% base; not_worth
+  8, none came back). The shelf is coarse there; the short list must be cut
+  by rank (top N), as the plan already says. Not tuned ("no fine-tuning").
+- KOReader re-lookups (source: koreader/koreader,
+  `plugins/vocabbuilder.koplugin/db.lua`, `VocabularyBuilder:insertOrUpdate`;
+  https://github.com/koreader/koreader/blob/master/plugins/vocabbuilder.koplugin/db.lua).
+  `word` is UNIQUE; an existing word is upserted with `ON CONFLICT(word) DO
+  UPDATE SET title_id = excluded.title_id, create_time = excluded.create_time,
+  ...` (it also resets the streak, lowers review_count and keeps the old
+  contexts when the new ones are null). So a repeated lookup OVERWRITES
+  `create_time` with the newest lookup time and the book with the newest book;
+  the first lookup and any counter are lost. Consequences: `repeat_signal`
+  stays false for KOReader (one row, no count); recency and "book being read"
+  are real (the stored time is the LAST lookup); and "снова искали после
+  экспорта" CAN work: a word exported at time T whose row now has create_time
+  > T was looked up again after the export. That holds only if the app keeps
+  the newest timestamp on re-sync (backend: a changed create_time of an already
+  known `koreader:<word>` must update/append the occurrence, not be dropped as
+  a duplicate). Kobo `WordList`: closed firmware, no source to read: UNKNOWN
+  whether a repeated lookup adds a row or changes `DateCreated`.
+- Tests: `tests/test_ranking.py` (+7 RankingModeTests: library_mode edges,
+  default unchanged, bad mode refused, no repeat/books/export reasons and score
+  equals the single-lookup score, band/reading/recency order, decomposition and
+  decisions, junk and negative reason, known_again note);
+  `tests/test_ranking_synthetic.py` (+6 LearningModeTests: collapse equals the
+  repeats=False file, learning beats frequency / lookups / current_score with
+  intervals above zero at lift@50, full == learning without repeats, labels
+  from outcome, CLI `--no-repeats`, shelves). ruff clean on the CI list plus
+  `ranking_synthetic.py` and the three test files; full pytest 241 passed,
+  1 skipped.
+- Files: `kindle_vocab_app/ranking.py`, `kindle_vocab_app/ranking_eval.py`,
+  `tests/test_ranking.py`, `tests/test_ranking_synthetic.py`.
+- Risks: proxy label (weak); one real library, one reader, 3-7 overlapping
+  cutoffs (intervals optimistic); 42-day windows say nothing; `full` not
+  proven better than `learning`; the learning shelf is coarse; Kobo re-lookups
+  unknown; the whole-library window was not finished (84 days is the longest
+  measured). Nothing committed.
+
+## 2026-11-19 — Backend: B3a user writes + B3b re-link (repository level)
+
+- Goal: the reader's decisions, card edits and export items are written
+  directly and never lost when the catalog is replaced or keys merge. No
+  bridge action yet (B5); contracts.py, fixtures, bridge, ranking, src untouched.
+- New `kindle_vocab_app/library_state.py`: `set_decision` (validates against
+  `ranking.DECISIONS`, stores language + canonical_key hint, `decided_at`,
+  `shelf_at`/`score_at`/`ranking_version`; None deletes the row),
+  `save_card_edit` (meaning trimmed, <= `MEANING_MAX_LENGTH`, "" or None
+  clears; example must be an occurrence of this lexeme, its context and form
+  are stored too; an edit with nothing left is removed), each one
+  `BEGIN IMMEDIATE`; `read_decisions` / `read_card_edits` (one query each,
+  linked rows only) for B4; `LibraryStateError(ValueError)` with `.code` and
+  the Russian `ERROR_TEXTS` text (`bad_decision`, `unknown_lexeme`,
+  `too_long`, `example_not_found`). Internal argument misuse raises TypeError.
+- Re-link: `_replace_catalog` refreshes hints from the current lexemes before
+  the delete and re-links orphans after the insert; `save_catalog` and
+  `save_processed_lexeme` now run in one `BEGIN IMMEDIATE` and re-link in the
+  same transaction. Target order: old->new id map from
+  `_canonicalize_catalog` (new `id_map` key), then (language, canonical_key),
+  then a form of exactly one lexeme. Merge conflict: newest row stays linked,
+  the other is kept under `<id>#merged` so it is never re-linked (no
+  resurrection after the reader clears a decision). export_items: every row
+  re-linked; a same-run duplicate stays as an orphan. Log line has counts only.
+- `library_repository.py`: repository methods `set_decision`,
+  `save_card_edit`, `load_decisions`, `load_card_edits`; ruff fixes (imports,
+  `datetime.UTC`); now ruff-clean.
+- Tests `tests/test_library_state.py` (12, invented words): writes and
+  validation codes, bulk readers 2 statements, survive two saves, process-queue
+  key change then id recompute, merge keeps newest + orphan, form fallback,
+  merge_kindle syncs leave user tables byte-equal, counts-only log, v3 with
+  three review_cards intact through migration, a save and a restart.
+  Mutation check: disabling relink fails 4 tests, disabling hint refresh 1.
+- Checks: ruff clean (CI list + library_state.py + library_repository.py +
+  the new test); full pytest 253 passed, 1 skipped; bridge smoke load_demo and
+  load_library (empty and a migrated v3 fixture with user rows) ok, clean stderr.
+- For the lead: add `kindle_vocab_app/library_state.py` and
+  `kindle_vocab_app/library_repository.py` to the ci.yml ruff list.
+- Risks: orphan export_items from same-run merges stay orphans (counted at
+  DEBUG on every save); `save_processed_lexeme` conflict check still runs in a
+  separate connection before its transaction (pre-existing). Nothing committed.
+
+## 2026-11-19 — Frontend: F0 (mock split, pencil controls) and F2 (shell, early deletions)
+
+- Goal: a browser mock that speaks the C0 contract, the pencil controls of the concept screens, the new
+  shell, and the old Books/Insights/Review screens gone. Nothing committed.
+- F0: `src/lib/mock-backend.ts` (split out of `backend.ts`, imported lazily so the Tauri build never loads
+  it; build emits it as its own chunk). Returns the C0 fields beside the old ones; keeps decisions, card
+  edits and export runs in memory; implements `set_decision`, `save_card_edit`, `export_preview`,
+  `export_words`, `load_lexeme_details`; coded errors as `BridgeError` (new in `backend.ts`, carries `code`).
+  Invented library grew from 6 to 12 words (every shelf, two repeat lookups, a word without a meaning).
+  Scenarios: mixed, `no-new`, `export-error` added; disconnected, slow, operation-error, lexeme-failure,
+  showcase and the rest kept. `resetMockBackend({scenario, instant})` for tests.
+- Tests: `src/lib/mock-backend.test.ts` (11) holds the mock to the fixture's assertions, which now live as
+  functions in `src/lib/contract-assertions.ts` (the lead may point `bridge-contract.test.ts` at them);
+  `pencil-controls.test.tsx` (7, server-rendered markup: states and aria); `features/shell/views.test.ts` (3).
+- `src/components/ui/pencil-controls.tsx`: `PencilButton` (lit/drawn, loading, kbd hint), `PencilChoice`
+  (aria-pressed), `PencilLink` (button or anchor, lit, loading), `PencilRadioGroup` (roving tabindex, arrows),
+  `PencilField` (wraps `Input`; label, hint, error, loading, commit on Enter/blur when changed). Buttons
+  reuse `ui-button-*` states; `src/design/cabinet.css` holds only what the concept adds (`kc-*`).
+  Checked in a throwaway gallery page (night and day, Tab focus ring), then removed.
+- F2: `features/shell/views.ts` (`home|words|triage|export|settings`, `navViewOf`, `parseView`); nav is
+  Главная, Слова, Настройки; the sconce maps triage/export to Слова; those two views open the library
+  workspace until they ship. No Слова badge yet (the controller has no disputed ids).
+- Deleted: `books-view.tsx`, `insights-view.tsx`, `review-view.tsx`; their CSS and the review card of the
+  home screen (`.home-review*`, `.home-curl*`); `load_review` call and `dueCount` in `main.tsx`; helpers
+  `bookStats`, `activityDays`, `lookupsForBook`, `repeatedLookupStats`, `reviewMinutes` and their tests.
+  `ReadingHome` lost the review card, the "Все книги" links (one became "Все слова") and the clickable
+  spines; its lower grid is two columns. `book-jacket.tsx` stays (home hero).
+- Checks: `npm test` 51 passed; `npm run build` ok; preview `vite-preview` Главная and Слова in mixed and
+  no-new at 1440 and 1280, view=triage lights Слова, no console errors.
+- Not verified: Tauri build against the real bridge (types only; old fields untouched); docs/screenshots
+  not refreshed (outside lane): `books.png` is stale, `home.png` changed (no review card).
+- Open: Rust turns `{ok:false}` into a plain string, so `code` is lost on the real bridge; the UI should
+  not depend on `BridgeError.code` until the lead settles that.
+- Design review fixes (F0/F2): `--on-lamp` token replaces the ink-on-lamp literal everywhere; kbd hint in the hand font without a box; radio hover is a lamp stroke, not a plate; busy radio group no longer double-dims; field error has a dashed line and a hand-written note; control radii are `--kc-radius*` vars. Spines already had no hover/cursor. npm test 51, build ok.
+
+## 2026-11-19 — Backend: B3 review fixes
+
+- Rows whose hint no longer matches the word on their id are orphans (parked, re-linked by id map/key/form, else returned and ignored by readers; writes detach such a stale row instead of overwriting it); pre-delete hint refresh replaced by `follow_key_change` for the processed word only; `meaning_ru` whitespace runs collapse to one space before the length check; `save_processed_lexeme` merge check runs inside its `BEGIN IMMEDIATE`. +4 tests (16 in `tests/test_library_state.py`); ruff clean; pytest 257 passed, 1 skipped; bridge smoke ok. Nothing committed.
+
+## 2026-11-19 — Lead: stage "C0 contract, B3, F0+F2, ranking mode" integrated
+
+- C0 (backend, sonnet/high): `contracts.py`, `src/types.ts` additions, two
+  shared fixtures, tests on both sides. Lead decisions: snake_case per lexeme
+  and in requests, camelCase aggregates; `newBatch.ids` = worth words by rank
+  cut at the batch size, disputed separate (≤5); `set_decision` returns
+  `{entry, shelves, newBatch, disputed, again}`.
+- B3a+B3b (backend, opus/high): `library_state.py`; decisions and card edits in
+  their own transactions; re-link after catalog saves; merged losers kept as
+  `#merged`. Review: no high-confidence bug; three lower ones fixed (stale id
+  re-link, whitespace in translations, merge check inside the transaction).
+  QA on a library copy: 50 decisions + 20 edits survive two saves and a sync,
+  0 orphans, 10 s of concurrent writers without loss.
+- Ranking mode (ranking, sonnet/high): `library_mode`, learning drops repeat,
+  several-books and after-export signals; not worse than frequency at the
+  top. KOReader's plugin overwrites `create_time` on a repeated lookup, so
+  "looked up again after export" can work for KOReader. The agent was stopped
+  after its report (it kept a background replay running).
+- F0+F2 (frontend, sonnet/high): mock split with v4 fields and actions, pencil
+  controls, nav Главная/Слова/Настройки, Books/Insights/Review deleted. Design
+  review: 5 must-fix applied. QA in preview: pass; the reading home flashes
+  the onboarding during a slow load (F6 must have a real loading state).
+- Open for the lead: Rust turns `{ok:false}` into a plain string, so error
+  `code` does not reach the UI (decide at B5).
+- Checks: ruff (CI list) clean; pytest 257 passed, 1 skipped; npm test 51;
+  build ok. cargo check not run (no Rust change).
+
+## 2026-11-19 — Lead: team meeting after "C0 contract, B3, F0+F2, ranking mode"
+
+- Views: skeptic (opus/medium), backend and frontend (sonnet/low),
+  ux-clarity on Главная/Экспорт before building (sonnet/low). Outcome in
+  `docs/plan/meetings.md`.
+- Decisions: next stage is the thin path only (B4 + B6 core + Rust error
+  code + F6 Главная with export states); cut export_preview, again-scope,
+  Obsidian in export_words, the separate Экспорт screen, F4 for now;
+  default destination stays today's Anki behaviour (AnkiConnect, else .apkg).
+- Committed earlier as 2f9baec; this entry and the meeting note uncommitted.
+
+## 2026-11-19 — Frontend: F6 Главная on the mock (short list, inline export)
+
+- Goal: the thin path on Главная: one question «Что выгрузить сейчас?», the short list
+  (`newBatch.ids`) with one reason and a translation per word, one lit button «Экспортировать N»,
+  export states inline. Nothing committed.
+- New `src/features/home/`: `home-domain.ts` (word plural, button label, «С прошлого раза» line,
+  `shortList`, `pickReason` = strongest positive reason, `rankingNote`, `homeMode`, export state
+  reducer idle/running/done/empty/error, done/error texts, `rankingOf` for the lean library answer),
+  `use-home-export.ts` (`export_words {scope:"new", ids}` with exactly the listed ids, reload after
+  success, `open_path` for «Открыть папку»), `home-view.tsx` (presentational), `home-screen.tsx`
+  (controller glue), `home.css`. Skeleton until the first load, so the reader path never flashes.
+  The desk lamp is lit only over a list (or over the reader path with a reader connected); out
+  with a handwritten note otherwise.
+- Controller: keeps `ranking` (short-list parts of the last answer), `demo`, `loadDemo`
+  (`load_demo`, queue idle while shown), `exitDemo`; reloads the library after `process_queue`
+  processed words so the list follows. `backend.ts`: `parseBridgeError` turns the Rust JSON text
+  `{"error","code"}` into `BridgeError {code, message}` (plain strings pass through);
+  `BridgeError.toString()` is the bare message so `String(error)` call sites stay clean.
+- Mock: scenarios `learning`, `no-repeats` (learning mode, no repeat reasons, `again.unavailable`),
+  `empty` (no words, no reader; `load_demo` returns the example library), `slow` also delays the
+  first `load_library`; `load_demo` action. Removed: `reading-home.tsx`, `book-jacket.tsx` and their
+  CSS (`home-*`, `dict-*`, `book-jacket*`). `ImportFileButton` got `look="pencil"|"link"`.
+- Tests: `home-domain.test.ts` (26), `home-view.test.tsx` (9), `backend.test.ts` (4); npm test 90
+  passed, npm run build ok. Preview (`vite-preview`): mixed, no-new, export-error (click), export
+  done, disconnected, empty + demo, learning, slow (skeleton then list) at 1440 night, 1280 day;
+  focus ring on rows checked; no runtime errors after reload.
+- Not verified: Tauri build against the real bridge; docs/screenshots/home.png not refreshed (the
+  browser pane cannot save files, and docs/ is outside this lane); 1280 night and 1440 day not
+  all walked scenario by scenario; no-repeats scenario checked by test only, not by eye.
+- Open for the lead: `load_demo` must return the v4 ranking fields or the demo list is empty;
+  while words are unprocessed the list is short and grows after processing (the button is
+  disabled and says so).
+- Review fixes (design-language + ux-clarity): desk line and padding driven by `--home-pad-l/r`; status line always in the page (visually hidden when empty); no lede over the list; one status line by priority (`deskStatus`: error > done > busy > demo > rough order); rows are not clickable until F3; copy («Слова на этот раз», «Загрузить слова с читалки», «Выгружаю…», «Ищу читалку…», new apkg hint and empty note; «С прошлого раза» only when N differs from the list); error as a graphite cross. npm test 96, build ok; checked at 1280 and 600 px, no horizontal scroll.
+
+## 2026-11-19 — Backend: B4 ranking in load_library, B6 core export_words, error codes
+
+- Goal: the thin path through the real bridge: `load_library` returns a ranked short list and `export_words`
+  sends it to Anki (or a file).
+- New modules: `library_view.py` (`decorate`: WordFacts from the catalog, `now` = latest lookup,
+  `historyDays`, `repeatSignal` from book-key prefixes, `library_mode`, per-entry `ranking`/`decision`/`card`/
+  `export`/`is_new`, `shelves`, `newBatch`, `disputed`, `again`), `card_fields.py` (`resolve`: edited > LLM >
+  dictionary, chosen occurrence > longest context; a dictionary meaning is cut to 200 chars on a sense
+  boundary), `export_policy.py` (`is_exportable`), `export_cards.py` (`export_words`), `coded_error.py`.
+- `tauri_bridge.py`: `export_words` action; `error_response` adds `code` to `{ok:false}`; the library
+  decoration runs in `_catalog_response` and also in responses that hand back `entries` (process queue,
+  enrichment, Obsidian sync) so a screen swapping its entries never loses the ranking; `load_demo` now
+  builds a processed demo library (9 invented words, every kind of shelf) without touching SQLite.
+- `library_state`/`library_repository`: `read_last_exports`, `record_export_run` (one transaction),
+  `load_reader_state`. `anki_export`: `build_note_fields`/`write_apkg` take the reader's edits and
+  `require_eligible`. `settings`: `export_destination`, `export_batch_size` with Russian validation.
+- `src-tauri/src/main.rs`: on `{ok:false}` Err is the JSON text `{"error": text, "code": code|null}`.
+- Tests: `test_library_view.py` (18, incl. perf), `test_export_words.py` (19); the v3 golden test now strips
+  the new fields and validates the migrated library. Checks: ruff (CI list + new modules) clean, pytest
+  293 passed / 1 skipped, cargo check ok, bridge smoke ok. Real-size check on a temp copy of the library
+  (1,961 words): load 0.45 s, payload 4.41 MB before, 6.40 MB after; csv export of 20 words 0.19 s, the
+  next load's batch shared no word with the exported one.
+- Perf: decorating 3,000 synthetic lexemes 74 ms best of 3 (budget 150, CI gate 450).
+- Open: `contracts.validate_library` demands a negative reason on every `not_worth` word, but ranking emits
+  zero-weight `thin_evidence` and `decision_skip` (119 of 1,961 on the real copy); tests set that one
+  message aside. Old actions (`export`, `export_apkg`, `push_anki`) still stamp `destinations`, not
+  `export_runs`, so words sent through them stay in `newBatch` until B7 removes them.
+- Nothing committed.
+- Follow-up: tests validate the real payload (validator relaxed by the lead); `save_settings` merges the payload over current settings so omitted keys are kept (tested); ruff clean, pytest green.
+- Review fixes in export_cards: export file names are unique (" (2)" suffix when taken), the .tsv.tmp is removed in a finally, the csv file is plain text (no HTML escaping; Anki notes keep their own escaping); +2 tests.
+
+## 2026-11-19 — Lead: stage "thin path" integrated
+
+- Backend (sonnet/high): B4 `library_view.py` (ranking, newBatch, disputed,
+  rankingMode in load_library, load_demo and processing responses; 3,000
+  words decorated in 74 ms); B6 core `export_policy.py`, `card_fields.py`,
+  `export_cards.py`, `coded_error.py`; `export_words` to anki (AnkiConnect,
+  else .apkg) and csv, recorded only after success; settings
+  `export_destination`/`export_batch_size`, saves merge over current values;
+  Rust returns `{"error","code"}` JSON text on ok:false.
+- Frontend (sonnet/high): new Главная in `src/features/home/` with inline
+  export states, rough-order lines, no-reader path, skeleton; old reading
+  home deleted; backend.ts parses coded errors.
+- Reviews: design-language and ux-clarity on Главная (6 must-fix + copy
+  applied); code review of B4/B6 (no high-confidence bug; unique export file
+  names, tmp cleanup, no HTML escaping in csv fixed). Lead relaxed
+  `validate_library` (thin_evidence / decision_skip count as a reason
+  against) and moved focus to the export result when the button disappears.
+- QA on a library copy through the bridge: 1961 words, 470 worth / 80
+  disputed / 1408 not_worth / 3 junk, newBatch 20, disputed 5, 0 contract
+  problems; csv export of 10, list moves on; .apkg without Anki; error codes;
+  settings persist. Preview: all scenarios pass.
+- Accepted: an .apkg written when Anki is closed counts as exported (the
+  screen tells the reader to open the file). Payload grew 4.4 → 6.4 MB (lean
+  payload is B7).
+- Not verified: the Tauri app against the real bridge, a real Anki.
+- Checks: ruff clean; pytest 296 passed, 1 skipped; npm test 96; build ok;
+  cargo check ok.
+
+## 2026-11-19 — Lead: team meeting after "thin path"
+
+- Views: skeptic (opus/medium), user-advocate, frontend, backend
+  (sonnet/low); three were interrupted by the usage limit and resumed.
+- Decisions: release 0.4.0 after a release minimum (remove Слова's old
+  export buttons and the statistics line, real Tauri walkthrough with a real
+  Anki, first-five-minutes copy, README and release notes); then B5 + F3
+  simplified and «снова искали после экспорта»; F4 deferred; lean payload
+  only if measured slow. Recorded in `docs/plan/meetings.md`.
+
+## 2026-11-20 — Codex release_review — Настройки выгрузки и Obsidian для новой главной
+
+- Аудит копии на `4675378`: новая выгрузка читает `export_destination`, а настройки меняли только legacy `default_export_format`; кнопки на «Слова» обходили новую историю выгрузок. Фоновая сверка Obsidian из предыдущей рабочей копии отсутствовала. Состояние выгрузки сбрасывалось при смене вкладки.
+- В `settings-view.tsx` выведены назначение Anki/TSV, размер списка и явная синхронизация Obsidian. Недоступная папка отображается в этой секции; повтор проверки только перечитывает существующие карточки.
+- В контроллере сохранения настроек идут частичными патчами по очереди. Изменение размера обновляет библиотеку; выгрузка ждёт сохранения. Сверка Obsidian идёт отдельно от загрузки и объединяет только сведения о наличии карточек, не подменяя список, рейтинг и остальной статус выгрузки.
+- Старые UI-обработчики TSV/APKG убраны из контроллера; общий экран держит состояние новой выгрузки между вкладками. У завершённой обработки скрыта строка внутренних счётчиков; ошибки обработки сохранены. Просмотр примера не запускает фоновую сверку или автоперевод.
+- Mock поддерживает частичное сохранение и read-only проверку Obsidian. Тесты проверяют сохранение назначения и доступность TSV, безопасное объединение результатов сверки и отказ от вызова без настроенного пути.
+- Проверки: 44 теста Python для импорта, миграций, выгрузки и Obsidian на исходном `4675378` с тестовыми данными. TypeScript прошёл. Vitest внутри песочницы заблокирован доступом esbuild к родительской папке; вне песочницы 100/100. Реальный vault, Kindle и Anki не использованы. Сборку и визуальную проверку ведёт основной агент. Коммит не создан.
+
+## 2026-11-20 — Codex — Перенос основной копии Kindle Cards и восстановление работы
+
+- Найдена исходная рабочая копия Anki Cards. Подтверждено, что прежний HEAD `59ac6de` — предок `4675378`. Ветка main в текущей рабочей области переведена на `4675378` с исходной историей (36 коммитов). Перенесены более поздние заметки встречи и 41 отсутствовавший раздел WORKLOG. Старое содержимое журнала сохранено побайтно. Исходная папка, личные базы и настройки не изменялись.
+- В recovery собраны архивы проекта Claude Design и локальная история Claude Code/Desktop. Проектные документы, пользовательские макеты и основные указания взяты из новой копии. Два каталога с материалами личного аккаунта исключены из Git. Перед переносом прежние незакоммиченные правки проверены трёхсторонним сравнением: закрытие SQLite и пропуск POSIX-теста уже были в новой ветке; исправления Obsidian перенесены поверх неё.
+- Продолжен этап перед 0.4.0: экспорт с главной учитывает историю и сохраняет состояние при уходе со вкладки; выбор Anki/TSV и размер списка в Настройках, там же действие Obsidian. Удалены старые кнопки экспорта на экране Слова. Главная объясняет ручную загрузку файла и открытие .apkg. Имя файла резервируется эксклюзивно, чтобы параллельные выгрузки не перезаписывали друг друга. Сверка Obsidian сохраняет только состояние назначения, поэтому не откатывает параллельный импорт.
+- Проверки: 303 Python-теста прошли, один пропущен; 100 frontend-тестов и сборка Vite прошли; cargo check и нативная сборка Windows прошли. В браузере на 1440 и 600 px проверены переходы между вкладками, .apkg, выбор TSV, повтор проверки недоступной папки, ошибка экспорта и демо. Найдено и исправлено исключение обработчика повторной проверки Obsidian; итоговый Playwright прошёл без ошибок консоли, снимки просмотрены.
+- Нативный сценарий с изолированной SQLite и шестью вымышленными словами прошёл через WebView2, Rust и Python: пять строк записаны в TSV, выгрузка отражена в SQLite, одно слово осталось в списке. Первый запуск WebView2 из песочницы оборвал CDP-соединение; с тем же изолированным профилем вне песочницы проверка прошла. Установка npm зависла в песочнице, восстановлены локальные зависимости из исходной копии после сверки lockfile. Для Vite потребовалась проверка вне песочницы из-за доступа esbuild к родительскому каталогу.
+- Реальные Kindle, Anki и Obsidian не использовались. Версия 0.4.0 не выпускалась. Новые правки оставлены в рабочей области, коммит и push не выполнялись.
+
+## 2026-11-20 — Codex — Сверка формата командной работы Claude
+
+- Сопоставлены роли и правила в AGENTS.md с памятью Claude, восстановленными отчётами и протоколами этапов. Подтверждена практика отдельных задач, контрактов перед реализацией, письменных обсуждений и итога ведущего. Зафиксированы реальные примеры по рейтингу, схеме SQLite и маршруту экспорта.
+- Изменён только WORKLOG.md. Проверка документальная, код и тесты не затрагивались, коммита нет.
+
+## 2026-11-20 — Codex QA — Релизный путь на командной планёрке
+
+- Проверил текущий рабочий кандидат над `4675378`, предыдущий протокол, покрытие импорта, миграции и Anki, логику записи истории и сценарий установки. Изменён только WORKLOG.md, коммита нет.
+- В Windows conda `kindle_app` прошли 53 из 53 целевых Python-тестов. Через отдельные процессы JSON-моста повтор импорта вымышленного KOReader-файла дал 1 → 0 новых слов, всего 1 слово и 1 контекст. Для трёх вымышленных слов сохранённый `.apkg` остался валидным, при следующей загрузке список пуст, путь файла в ответе отсутствует.
+- При управляемом перекрытии двух запросов выгрузки одних и тех же трёх слов оба вернули успех: два разных TSV с одинаковыми строками, шесть строк истории. Тест на параллельную запись разных слов покрывает коллизию имён. При искусственном отказе записи истории файл сохранился, а повтор создал второй файл. Частоту этих ситуаций в штатном интерфейсе не измерял.
+- Проверил глобальную новизну: после TSV смена назначения на Anki оставляет список пустым и повтор этих IDs даёт `nothing_to_export`. Это текущее правило `scope:new`, расширение повторной отправки отложено. Мигрированная история может включать Obsidian, поэтому это правило важно оговорить для старых библиотек.
+- Рекомендация для 0.4.0: собрать локальный кандидат, перед публикацией пройти чистую установку, ручной импорт, TSV и оба маршрута Anki в изолированном профиле. При закрытии сразу после записи колоды файл должен повторно находиться по ссылке или указанной папке, два импорта пакета должны дать то же число и те же идентификаторы заметок. Параллельный дубль проверять отдельно через две обычные копии приложения. Автообнаружение и чтение Windows MTP/WPD требуют устройства.
+- Реальный Anki, установщик и Kindle не запускал. Личные базы, исходники и версии не менял. Действующий релизный workflow собирает артефакт, но не проходит пользовательский сценарий после установки.
+
+## 2026-11-20 — Codex, ведущий и рецензенты — Полноценная планёрка перед 0.4.0
+
+- Цель встречи — выбрать ближайший этап после переноса проекта и проверить, что мешает первому экспорту. В AGENTS.md закреплены независимые позиции, раунд возражений, решение ведущего, ответственные и критерии приёмки. Владелец делегирует выбор моделей и исключает Astra для субагентов.
+- Шесть участников на gpt-6.2-sol. Продуктовый скептик сравнил приёмку первого экспорта, инспектор и сценарий возврата. Представитель читателя проследил получение и поиск колоды после перерыва. QA отдельно записал результаты воспроизведений выше. Backend предложил изменить обработку отказа Anki и после возражения согласился сохранить очередь и доступ к уже созданному файлу. Специалист по ранжированию сверил слабые данные для первых 20 слов с поведением первой загрузки. UX-рецензент уточнил приёмку ссылки на каталог, управление с клавиатуры и текст при потере подтверждения от Anki.
+- В docs/plan/meetings.md записаны решения, возражения и порядок работ. Приоритет — установленная сборка, в которой можно закончить импорт после перезапуска. Во время первой обработки Главная должна отличать ожидание от закончившегося пустого списка. Гонку двух запросов проверим через штатный запуск двух экземпляров. Порядок B5/F3 и последующего сценария повторного поиска сохранён.
+- В этой работе изменены AGENTS.md, docs/plan/meetings.md и WORKLOG.md. Проверены локальные ссылки протокола и git diff --check. QA прогнал 53 целевых теста на синтетических данных. Известные границы — проверка состояний Главной по исходникам, воспроизведение гонки на backend, реальные Kindle, Anki и текущий установщик остаются для этапа приёмки. Коммит и релиз не создавались.
+
+
+## 2026-11-20 — Codex backend — Безопасная выгрузка и доступ к сохранённым файлам
+
+- Цель — дать найти сохранённую колоду или TSV после перезапуска и не отправлять одни и те же слова из двух процессов. Изменены `anki_connect.py`, `contracts.py`, `export_cards.py`, `tauri_bridge.py`, `test_anki_connect.py` и `test_export_words.py`. Незакоммиченные правки предыдущего этапа сохранены.
+- `export_folder_status` возвращает наличие непустого готового `.apkg`/`.tsv` в каталоге текущей библиотеки. `open_export_folder` открывает этот фиксированный каталог и возвращает `opened: false`, если готового файла уже нет или открытие не удалось. Проверка не создаёт каталог. Временные файлы, пустые резервы и каталоги со сходными расширениями не учитываются.
+- AnkiConnect: успешный ответ подтверждает отправку, недоступность до отправки оставляет штатную выгрузку в файл. После попытки `anki_import_unconfirmed` и `anki_import_rejected` сохраняют созданный `.apkg` и слова в очереди. После сбоя записи истории TSV текст прямо сообщает об уже созданном файле и новом файле при повторе.
+- `scope:new` удерживает неблокирующую файловую блокировку на рабочую область от чтения состояния до записи истории. Второй процесс получает `export_busy`. ОС освобождает блокировку при выходе, SQLite не держит долгую транзакцию. Проверены одинаковые и пересекающиеся IDs, повтор обрабатывает только оставшиеся слова, принудительное завершение процесса освобождает блокировку.
+- Проверки в Windows conda `kindle_app`: 34 целевых теста, полная серия 311 прошли и 1 пропущен, `compileall`, ruff по списку CI и изменённым тестам, `git diff --check`. HTTP-сценарии Anki отработаны на локальном двойнике. Открытие Проводника, POSIX-ветку блокировки, замороженный мост, реальные Anki и Kindle в этой работе не запускали. Коммит не создавался.
+
+## 2026-11-20 — Codex QA — Реальный Anki и обнаружение Kindle на Windows
+
+- Цель: проверить ручной и подключённый экспорт перед 0.4.0 с установленным Anki 25.09.4. Использованы вымышленные слова, отдельные SQLite-библиотеки Kindle Cards, временные базы Anki и свежие профили с отключёнными синхронизацией и проверкой обновлений. Перед запуском проверено отсутствие Anki и слушателя 8765.
+- Закрытый Anki: вызов export_words через настоящий процесс JSON-моста записал .apkg с тремя словами, список 3 → 0. Backend Anki дважды импортировал один и тот же файл. Осталось три заметки и три карточки с теми же идентификаторами, GUID, словами, контекстами и переводами. Сверены отрендеренные вопрос и ответ.
+- Ручной вариант через стандартный диалог Qt Anki: первый импорт сообщил 3 новых записи, повтор того же файла 3 уже присутствующих. Подтверждены количество, идентификаторы и содержание обеих сторон. В песочнице Qt WebEngine не загрузил содержимое диалога ни в offscreen, ни в Windows-режиме. Обычный Windows-режим вне песочницы прошёл с тем же скриптом и новым временным профилем.
+- Подключённый Anki: штатным загрузчиком AnkiWeb получено дополнение 2055492159. Только официальный код и стандартный config помещены во временный профиль; слушатель 127.0.0.1, API 6. Через реальный процесс JSON-моста получено pushed=3, path=null, список 3 → 0. Повтор этого же пакета через дополнение сохранил идентификаторы, поля и число карточек. Дополнение выводит предупреждения requireReset/save об устаревших вызовах, импорт проходит.
+- Пассивное обнаружение Kindle вернуло «не найден». В выводе Windows PnP для подключённых устройств нет Kindle или USB VID_1949. Содержимое накопителей и vocab.db не открывались. После проверки Anki закрылся и порт 8765 свободен.
+- Проверен мост рабочего дерева, отдельно проверен стандартный диалог установленного Anki. Установщик Kindle Cards и физические маршруты диска или MTP/WPD этим прогоном не проверены. Личные настройки и данные не использовались. Изменён только WORKLOG.md, коммита нет.
+
+## 2026-11-20 — Codex frontend — Ожидание первой порции и доступ к сохранённой выгрузке
+
+- Главная отличает поиск читалки, очередь обработки, остановку с возможностью продолжить и готовый пустой список. При завершении очереди ждёт актуального рейтинга; у демо отдельный цикл ожидания и закрытия. Изменены экран, модель состояний, контроллер и настройка назначения. Тексты уточняют, что читалка не найдена, порядок может быть примерным, а выбор назначения влияет на следующие выгрузки.
+- Единственное действие «Открыть папку выгрузок» проверяет наличие файлов через `export_folder_status` на Главной, после экспорта и при возврате в окно. `open_export_folder` открывает каталог, а `open_path` открывает сохранённую колоду в Anki. Отказ открытия с файлами отличён от исчезновения последнего файла. Интерфейс различает `anki_import_unconfirmed`, `anki_import_rejected` и `export_busy`.
+- После рецензии предупреждение о неподтверждённом импорте стоит перед вторичной повторной отправкой. Успешное сохранение колоды объясняет подтверждение импорта. Кнопка папки остаётся фокусируемой при выполнении, возвращает фокус к сообщению при исчезновении только если была сфокусирована и не перехватывает Tab. В узкой оболочке устранено обрезание заголовка из-за минимальной высоты flex-элемента.
+- TypeScript и Vite build прошли; 105/105 Vitest. Browser plugin отсутствует, использован Playwright Chromium с локальным dist и моками. Пройдены 13 сценариев на 1440 и 600 px, включая повторное открытие, отказ, удаление при клике и возврате в окно, сохранение фокуса, Tab, продолжение очереди и выход из демо. Ошибок консоли и перекрытий интерфейса в финальном прогоне нет. Просмотрены шесть снимков во временном каталоге. Промежуточные проверки выявили старый список кодов в тесте, потерю aria-busy в примитиве, автоматическую синхронизацию в момент Tab в сценарии и срез заголовка; повторные проверки прошли.
+- В этой задаче не проверялись физический Kindle, Проводник, установленный Tauri и реальный Anki. Коммит и публикация не выполнялись.
+
+## 2026-11-20 — Codex QA — AnkiConnect и файл из установленного кандидата 0.4.0
+
+- Проверен установленный Kindle Cards 0.4.0 из финального NSIS (SHA-256 C2F38D8B…); SHA-256 установленного EXE f00e731e5dc4a0df1283f958fbbd8a55a6f5f91f0ee23daa46c93b767ef032ad. Использованы штатное окно Tauri, упакованный мост, отдельная SQLite с пятью вымышленными словами и свежий профиль установленного Anki 25.09.4 с официальным AnkiConnect API 6 на 127.0.0.1.
+- Перед запуском трижды подтверждено отсутствие Kindle через Windows PnP и пассивный детектор приложения. Перед нажатием проверка повторена. Скрипт сверил точное множество из пяти строк на Главной и только затем нажал обычную кнопку экспорта.
+- Главная подтвердила «Готово: 5 слов в Anki». В Anki созданы ровно пять заметок и пять карточек. Сверены слово, исходное предложение, русский перевод и обе стороны карточки. В SQLite приложения один запуск выгрузки на пять разных слов. После перезапуска список пуст, кнопки экспорта нет. Повтор того же .apkg через AnkiConnect оставил те же идентификаторы заметок и карточек.
+- Отдельно пакет fallback, сохранённый Главной установленной сборки при выключенном AnkiConnect, дважды открыт штатным движком Anki в новой временной коллекции. Первый импорт добавил восемь заметок и карточек, второй не добавил ни одной и сохранил ID и GUID. Точные предложения проверены для всех восьми слов на обеих сторонах.
+- Окна кандидата и тестовый Anki завершились. Подключённый экспорт проверен без физического Kindle, устройство проверял ведущий другим прогоном. Личные коллекции и синхронизация Anki не использовались. Изменён только WORKLOG.md, коммита нет.
+
+## 2026-11-20 — Codex, ведущий — Приёмка и локальная установка 0.4.0
+
+- Выполнен этап из протокола 20 ноября. Сохранён доступ к выгрузкам после перезапуска, разделены обработка и пустой список, межпроцессная защита устранила двойную выгрузку, интерфейс различает отказ Anki и потерю подтверждения. Включены замечания рецензента по порядку предупреждения, ручному подтверждению импорта и фокусу клавиатуры. Описание шагов для 0.3.0 и кандидата разведено в README, добавлены заметки docs/releases/0.4.0.md. Согласованы версии npm, Python, Cargo и Tauri.
+- Первая сборка release встретила ошибки Windows 5/32 при запуске служебного build-скрипта Cargo. С диагностическими символами зависимостей сборки (CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG=true) оптимизированный Rust и штатный NSIS собрались. Замороженный Python-мост проверил демо, конфигурацию и равенство обработки трёх слов с dev-Python. В нативном прогоне выявлен запрет подписки на события прогресса. src-tauri/capabilities/main.json разрешает локальному главному окну только подписку и отписку от событий. После пересборки ошибка исчезла.
+- После разрешения владельца сохранена локальная копия предыдущих программных файлов 0.1.0, существующая установка обновлена штатным NSIS в режиме /UPDATE. Окончательный установщик x64 имеет размер 43 693 750 байт, SHA-256 c2f38d8b20484e30588b906c4f99311e2a1e399f107467da9a2f91be86d41826. Ярлык меню «Пуск» ведёт на 0.4.0. Tauri при упаковке ставит в EXE признак типа пакета, поэтому сравнение с рабочим cargo-выходом сначала дало расхождение. Побайтное сравнение обеих установленных программ с извлечёнными из самого NSIS прошло. Тестовые окна запускались с отдельными библиотеками.
+- Финальная установленная сборка: восемь вымышленных строк в файле формата Kindle обработаны и выгружены, после перезапуска Проводник открыл правильный каталог по клавиатурному действию, повторная загрузка файла оставила восемь контекстов. На двух одновременно работающих экземплярах одна попытка заняла выгрузку, другая вернула export_busy; итог — один TSV с пятью уникальными словами и одна запись выгрузки. Прогон временной v3-библиотеки упакованным мостом подтвердил v4, сохранность слов и истории и целую резервную копию v3. Настоящий Anki и конечный NSIS, проверка пяти и восьми карточек описаны в записи QA.
+- Проверен подключённый владельцем настоящий Kindle по Windows MTP/WPD. До физического отключения два чтения дали 2 551 поиск и 1 815 слов. Наблюдались исчезновение и новое появление USB-устройства. После переподключения в самой базе Kindle стало 2 552 поиска и 1 816 слов, повторное чтение вернуло те же числа. Прежнее условие теста об отсутствии изменений в источнике оказалось неприменимо. Для проверки корректного приращения использовали временную локальную копию базы без одной последней записи, затем дважды прочли настоящий Kindle в ту же тестовую библиотеку. Все 2 551 прежних идентификатора наблюдений сохранились, добавились один новый идентификатор наблюдения и одно слово, следующий проход добавил ноль. Чтение устройства и тесты Anki разнесены, выгрузок реального словаря не выполнялось.
+- Проверки: Python 311 прошли, 1 пропущен; frontend 105/105; 13 браузерных сценариев, финальная сборка Windows, реальные WebView2, Проводник, MTP и Anki 25.09.4. Проверен git diff --check. Закрывающая встреча, альтернативы и условие следующего этапа записаны в docs/plan/meetings.md. Согласие получено на локальную установку. Публичного релиза, push и нового коммита не было. Опыт независимого нового пользователя, другие модели читалок и установка на отдельную чистую Windows в этом прогоне не проверялись.
+
+## 2026-11-20 — Codex, рецензент — Состав публикации 0.4.0
+
+- Проверил имена файлов в 36 коммитах относительно сохранённого origin/main, рабочую дельту, заметки и workflow релиза. Ведущий подтвердил фактический удалённый HEAD `fb8f1b6`: над ним три локальных исторических коммита.
+- В просмотренных деревьях нет пользовательских баз, выгрузок и архивов восстановления. Поиск типовых форматов токенов и закрытых ключей совпадений не дал. Рекомендовано оставить локальные журналы и recovery вне дельты публикации, обновить формулировки README и заметок до версии 0.4.0 и учесть автоматическую сборку при выборе проверенного установщика.
+- Проверка по именам и шаблонам не заменяет анализ двоичных файлов. Установщик не исследовал. Добавлена только эта запись, коммита и публикации не было.
+
+## 2026-11-20 — Публичный выпуск Kindle Cards 0.4.0
+
+- По запросу владельца опубликовал стабильный выпуск в GitHub Releases. Публичные main и аннотированный тег v0.4.0 указывают на 16b6c0c9015c3cd6620f0fe8a2c5a8c5f2ce0254 поверх fb8f1b6. Предыдущий локальный HEAD сохранён в codex/before-public-0.4.0. В рабочей области main синхронизирована с origin/main. Внутренние записи разработки и архивы восстановления в релизную дельту не вошли.
+- Подготовил README.md и docs/releases/0.4.0.md для публичного скачивания и обновления. В pyproject.toml ограничил стандартный поиск pytest каталогом tests после того, как локальный прогон захватил тесты сторонней зависимости из каталога уже собранного приложения. Штатный прогон завершился с 311 passed, 1 skipped. Vitest — 105 passed. Ruff и git diff --check прошли.
+- GitHub Actions CI (44707393164) и Release (44707393179) успешно завершились на Windows. Установщик CI сохранён артефактом этой сборки. В черновик релиза загрузил установщик, ранее прошедший приёмку на настоящих Kindle и Anki, и SHA256SUMS.txt. До публикации сверил размер и digest обоих вложений. После публикации проверил latest, текст заметок и повторно скачал оба файла по общедоступным ссылкам. SHA-256 и размеры совпали с оригиналами. Установщик Windows x64 — 43 693 750 байт, SHA-256 c2f38d8b20484e30588b906c4f99311e2a1e399f107467da9a2f91be86d41826.
+- Публичная страница https://github.com/Rescue5/kindle-anki-cards/releases/tag/v0.4.0. Версия установлена у владельца ранее. Цифровой подписи Authenticode у установщика нет.
+
+## 2026-11-20 — Codex, инженер интерфейса — Критерий приёмки редактора карточки
+
+- Сверил описание роли, PRODUCT.md, DESIGN.md и решение по B5/F3. Предложил проверить один сценарий с клавиатуры: изменить перевод и выбрать предложение из книги на экране «Слова», после перезапуска увидеть сохранённые значения и подтвердить, что оба попали в экспорт.
+- Изменён только WORKLOG.md. Реализация и проверка сценария ждут отдельного поручения. Коммита нет.
+
+## 2026-11-20 — Тимлид: постоянные чаты команды Kindle Cards
+
+- По просьбе владельца координирующий чат переименован в «Тимлид». В этом проекте созданы отдельные чаты десяти субагентов Codex с их собственными историями. Для двух специальных ролей исходной команды Claude — фронтенд-разработчика и рецензента визуального дизайна — открыты чаты по сохранившимся описаниям ролей.
+- В AGENTS.md закреплены имена двенадцати специалистов и порядок взаимодействия. Тимлид назначает задачи в профильных чатах, на планёрках передаёт участникам конкретные возражения и фиксирует решения. При передаче ролей использована модель gpt-6.2-sol.
+- Через инструменты чатов проверены состав проекта, названия и ответы всех двенадцати специалистов. Для следующей продуктовой планёрки зафиксирован вопрос о минимальном редакторе перевода и предложения из книги. Код приложения не изменён, публикации не выполнялись.
+
+## 2026-11-20 — Тимлид: модели для рабочих чатов
+
+- По просьбе владельца распределены модели и глубина рассуждения у двенадцати специалистов. Бэкенд и ранжирование получили gpt-6.2-sol, четыре чата разработки и продуктовых решений — gpt-6.1-sol, три чата визуальной работы и приёмки — gpt-6.1-terra, ещё три для типовых задач и работы с архивом — gpt-6-luna. Точные назначения приведены в AGENTS.md.
+- Настройки переданы в каждый существующий чат. У всех двенадцати завершился ход с ожидаемыми моделью и глубиной по метаданным выполнения. В AGENTS.md закреплены базовые назначения и возврат к ним после сложной задачи. Расход в деньгах не измерялся.
+
+## 2026-11-20 — Тимлид: продуктовая планёрка после 0.4.0
+
+- Провёл два раунда в постоянных чатах продакт-менеджера, UX-исследователя, инженера ранжирования и UX-дизайнера. Сопоставил предложения с приёмкой, данными GitHub, инструкцией Kindle2Anki и публичным запросом читателя Readest. На момент обсуждения у установщика два скачивания, одно из скачиваний делала команда. Подтверждённых внешних повторных использований пока нет.
+- Следующий этап — пять наблюдаемых первых сеансов на действующей 0.4.0 и повторный контакт через 7–10 дней. Проверяем интерес к короткой подборке слов из своей книги, использование карточек и самостоятельную повторную выгрузку. На втором раунде убрали предварительный выбор слов, разделили привлекательность приглашения и удобство установки, зафиксировали, как учитывать читателей без новых поисков.
+- Дополнен docs/plan/meetings.md. В протоколе есть выбор аудитории, альтернативы, владельцы задач, черновик приглашения и условия перехода к редактору, пересмотру отбора или исправлению установки. Рассылок, контакта с читателями и программных изменений на планёрке не было. Пороги остаются рабочей гипотезой для пилота.
+
+## 2026-11-20 — Бэкенд-разработчик: первый раунд B5
+
+- Проследил правку от `LibraryRepository.save_card_edit` через повторный импорт до эффективных полей в Anki и TSV. Предложил зарегистрировать предусмотренное контрактом `save_card_edit` с ответом `{entry}` и существующими кодами `too_long`, `example_not_found`, `unknown_lexeme`. Редактор получает предложения из `entries[].occurrences`; мок требует сверки очистки выбора и нормализации пробелов.
+- Для приёмки предложил сквозной прогон JSON-моста на временной библиотеке: две правки, перезапуск, импорт того же файла, совпадение перевода и выбранного контекста в `.apkg` и TSV на отдельных копиях. Отдельный случай для обсуждения — повторный импорт заменяет старый ID наблюдения, экспорт читает сохранённый текст, а текущий payload его не передаёт. Повторная выгрузка уже отправленных слов требует отдельного согласования.
+- Проверка по исходникам и существующим тестам на базе `16b6c0c`. Добавлена только эта запись. Тесты и реальные приложения не запускал, новый коммит не создавался.
+
+## 2026-11-20 — Инженер ранжирования: объяснение частоты и проверка «Не учить»
+
+- Цель — убрать догадку о значении слова, которую признаки не подтверждают, и проверить сохранность персонального исключения между порциями. В ranking.py текст frequency_common заменён на «очень частое слово». Код причины, вес, пороги и сортировка сохранены. В tests/test_ranking.py проверены оба режима на Zipf 5,6: вклад −0,6, оценка 0,231475, полка worth.
+- Синтетический ranking_eval на штатном seed, без повторов в признаках, с окном 21 день и восемью срезами: AUC 0,652102 → 0,652102, lift@20 2,911293 → 2,911293, lift@50 1,991826 → 1,991826. На срезе 14-го дня среди 59 слов код frequency_common остаётся у одного слова, необоснованная фраза исчезла (1 → 0). Это проверка сохранности отбора на синтетике.
+- Во временной SQLite на вымышленных данных через dispatch/set_decision исключил лидера пятёрки. Новый поиск того же слова и новая запись в каталоге сохранили skip, явный запрос export_words для его ID вернул nothing_to_export. Снятие решения вернуло слово на полку worth. При равной оценке двух лидеров сортировка по ID устойчива на повторных загрузках. Аудит охватывает тот же канонический ID, новую порцию, SQLite и scope:new; UI, настоящие базы и другие маршруты выгрузки не проверялись.
+- Первый целевой прогон выявил оставшуюся проверку старого текста, её заменил тест нового объяснения. Итоговый pytest: 315 прошли, 1 пропущен. Ruff для изменённых файлов и git diff --check прошли. Личные данные, зависимости и внешние сервисы не затрагивались. Базовый коммит 16b6c0c, новый коммит не создан.
+
+## 2026-11-20 — Инженер интеграции с Anki — Сохранение карточек и решений в контроллере
+
+- В use-library-controller.ts добавлены Promise<void> методы saveCardEdit и setWordDecision для действий save_card_edit и set_decision. Обновляется изменённая запись и ответные счётчики, затем перечитывается весь актуальный рейтинг, включая ранги остальных слов. Записи выполняются по очереди; отказ возвращает русское сообщение.
+- Новый library-edits.ts хранит версии ответов и переключений библиотеки. Старые load_library, сведения Obsidian и ответы фоновых действий не применяются после правок или смены библиотеки. Во время demo/loading, неизвестного ID и текущей операции сохранение отклоняется. На время записи не запускаются синхронизация/обработка, способные заменить каталог. Незавершённые записи не подменяют демо.
+- Mock выровнен с Python: выбирается самый длинный контекст, последовательности пробелов перевода схлопываются, пустой ID снимает выбор, явный выбор даже исходного примера считается правкой, длина перевода считается в Unicode code points.
+- Добавлены восемь тестов helper на payload, повторное чтение, skip/снятие и замену подборки, очереди, отказы, старые ответы и смену сессии. В mock suite добавлен сценарий очистки выбора/перевода и Unicode. Финальные проверки TypeScript и 117 Vitest прошли; Vitest запускался вне песочницы после отказа esbuild читать родительский каталог. Ошибка первой тестовой выборки исправлена добавлением шестого подходящего слова, ожидаемая замена подтверждена.
+- Сохранение после перезапуска проверено повторным чтением mock-состояния, реальное окно и bridge storage проверяются ведущим вместе с backend. Личные app data не использовались, код Python/UI/Home/main не менялся. Коммита нет.
+
+## 2026-11-20 — Бэкенд-разработчик: B5, правки карточки и «Не учить»
+
+- Подключил `save_card_edit` и `set_decision` в `tauri_bridge.py` по v4. Частичный патч сохраняет второе поле, пустая строка сбрасывает правку, `skip` исключает слово из нового списка, `null` снимает решение. Для решения сохраняется снимок полки, оценки и версии до изменения. В ответе — пересчитанная карточка, а для решения также сводки полок и списков. Новых полей JSON и миграции нет.
+- Импорт и USB-синхронизация возвращают каталог, перечитанный из SQLite после записи. В `vocab_cache.py` и `library_repository.py` при замене старого ID наблюдения на стабильный выбор примера переносится в той же транзакции, если новый пример принадлежит той же карточке. Экспорт по явным ID перечитывает ограничения через существующую политику. Anki и TSV получают перевод и выбранное предложение через существующий `card_fields.resolve`.
+- `tests/test_export_words.py`: новый JSON-процесс видит обе правки, ошибки валидации не сохраняют часть патча, `skip` исключает слово даже из старого запроса и снимается через мост, повторный импорт вымышленного KOReader-файла сохраняет правки и решение, `.apkg` и TSV содержат выбранные поля. Целевые проверки: 73 прошли. В первом полном прогоне во время параллельной правки текста причины изменившийся тест ранжирования упал, отдельно прошёл после обновления. Повтор полного прогона: 315 прошли, 1 пропущен. Ruff по списку CI и изменённым тестам, `compileall`, `git diff --check` прошли. В дополнительном lint `vocab_cache.py` есть прежние замечания к импорту и UTC вне списка CI.
+- Настоящие Kindle, Anki и UI в этой работе не запускал. Исходный коммит `16b6c0c`, коммит и публикация не выполнялись.
+
+## 2026-11-20 — QA-инженер — Независимая техническая приёмка B5
+
+- Проверил рабочий checkout после регистрации save_card_edit и set_decision в Python-мосте. Временная синтетическая база Kindle содержит три слова и шесть предложений. Прогон через 24 отдельных процесса JSON entrypoint подтвердил правку перевода с нормализацией пробелов, выбор второго предложения, сохранность после перезапуска, повторный импорт без новых слов и контекстов, отказ чужого occurrence без частичной записи нового перевода, skip и снятие решения через null.
+- На двух отдельных копиях библиотеки устаревший список IDs включал исключённое слово. TSV и APKG содержат только два разрешённых слова; исправленный русский перевод и выбранное второе предложение совпадают с карточкой. После создания файлов содержимое пакета проверено прямым чтением SQLite.
+- Перед APKG появился неизвестный слушатель AnkiConnect на 8765. После согласования ведущего только тестовая обёртка отдельного процесса задала ANKI_CONNECT_URL на проверенный закрытый loopback-порт 9 и вызвала стандартный JSON entrypoint через runpy. Это проверяет штатный fallback-файл. Настройки продукта и личный Anki не изменялись.
+- Движок установленного Anki через Collection API импортировал пакет в новую временную коллекцию. Получены две заметки, точные Meaning и Context совпали с пакетом. Повторный импорт сохранил те же ID и число заметок. GUI Anki, живой AnkiConnect и установленный Tauri в этом прогоне не проверялись.
+- Полный pytest прошёл: 315 passed, 1 skipped. Ruff по точному списку CI чистый, Vitest 117/117, TypeScript и Vite build прошли. Первый Vitest внутри песочницы остановился на доступе esbuild к родительской папке; повтор вне песочницы успешен. В проверочном скрипте исправлен формат payload save_settings до выполнения финального прогона.
+- Дефектов в проверенном сценарии не выявлено. Исходники не редактировал, добавлен только этот раздел журнала. Базовый релизный коммит 16b6c0c; проверенный tauri_bridge.py SHA-256 f1ca5c6e55431e76ab956c9141c08a80462b803a18a157e43a427e0f06553cc3. Коммита и публикации нет.
+
+## 2026-11-20 — Инженер интеграции с Anki — Фактический текст reading_now в mock
+
+- В двух причинах reading_now в src/lib/mock-backend.ts текст изменён на «Из книги с недавними поисками», как согласовано с ведущим. Формулировка описывает наблюдаемый сигнал.
+- Проверены существующие mock-backend и home-domain suites: 43 теста прошли. git diff --check прошёл. Реальные данные и приложения не использовались, коммита нет.
+
+
+## 2026-11-20 — Инженер ранжирования: объяснение недавних поисков
+
+- В production-ранжировании reading_now текст «читаете сейчас» заменён на «Из книги с недавними поисками». Взята та же формулировка, которую выбрали для моков в параллельной работе. Сигнал означает поиск в этой книге за 14 дней до последнего поиска в библиотеке. Вес, код причины и расчёт сохранены.
+- Обновлён тест текста в tests/test_ranking.py. Целевые pytest test_ranking и test_library_view: 70 прошли. Ruff для изменённых файлов и git diff --check прошли. Интерфейс и реальные данные в этом прогоне не проверялись. Файлы mock и общие фикстуры контракта не редактировал. Базовый коммит 16b6c0c, нового коммита нет.
+
+## 2026-11-20 — Релиз-инженер — Подготовка внутренней сборки редактора
+
+- По поручению тимлида подготовлены ignored build/internal-card-review и временный Tauri override с identifier com.kindlevocab.cards.preview и явным заголовком внутреннего окна. Финальная сборка приложения ожидает отдельного сигнала «финализировать».
+- В существующей Conda kindle_app штатный packaging/build_bridge.py собрал автономный мост. Проверки load_demo, llm_config и process_queue прошли; анализ трёх вымышленных слов совпал с dev-Python. Копия моста сохранена в bridge рядом с будущим EXE. Зафиксированы хеши Python-исходников для проверки необходимости перезаморозки.
+- SHA-256 обеих локальных копий публичного NSIS 0.4.0 совпал с опубликованным c2f38d8b20484e30588b906c4f99311e2a1e399f107467da9a2f91be86d41826 и сохранился после заморозки. Исходники и постоянные конфиги не менялись. Запускаемый Tauri EXE и приёмка конечной папки ещё впереди. Коммита нет.
+## 2026-11-20 — Инженер ранжирования: тексты причин в фикстурах контракта v4
+
+- Сверил WORKLOG, contracts.py и тесты. bridge_library_v4.json и bridge_library_v4_learning.json — общие вымышленные примеры текущего контракта Python/TypeScript. Отдельный library_v3_golden.json служит снимком миграции. Генератора этих двух примеров в репозитории не найдено.
+- Вручную обновил три значения text: оба reading_now приведены к «Из книги с недавними поисками», frequency_common к «очень частое слово». Схема, числа, production и снимок миграции не затронуты.
+- Python contract: 24 прошли. Первый Vitest из песочницы остановился при чтении Vite-конфигурации через esbuild; повтор официальной локальной командой вне песочницы: 6 прошли. git diff --check прошёл. Установленная сборка не проверялась. Базовый коммит 16b6c0c, нового коммита нет.
+
+## 2026-11-20 — Фронтенд-разработчик — Редактор карточки и упрощение «Слов»
+
+- По поручению тимлида реализовал `LibraryWorkspace` в выделенной области `src/features/library/`. Два фильтра «Стоит учить» / «Остальные», поиск и книга, виртуализированный список, инспектор с переводом и выбором предложения. Загрузка, повтор обработки и перевода доступны через раскрытие; причины, формы, сведения анализа и все исходные контексты — через «Подробнее о слове».
+- Редактор передаёт только изменённые поля, проверяет предел 200 Unicode-символов, позволяет снять ручной перевод и явное решение. Книга всегда берётся из выбранного occurrence; потерянный ID не подменяется другим контекстом. Demo доступно только для просмотра. Ошибка сохраняет ввод. Прямой вход из подборки имеет приоритет перед фильтрами, фокус получает заголовок слова. На узкой ширине редактор заменяет список; возврат восстанавливает фокус строки.
+- По замечаниям UI/QA сделал поля прозрачными, сохранил читаемые option; отделил pending от dirty, блокировал возврат и выбор другого слова на время записи. Флаг `onDraftChange` передаёт dirty/pending оболочке, при размонтировании сбрасывается. Фильтр использует ranking.shelf перед legacy decision. Кнопка возврата исходного перевода показана только для ручной правки; подсказка сброса учитывает LLM fallback.
+- Файлы: library-workspace.tsx, library-workspace.css, card-editor.tsx, card-editor-domain.ts и два новых тестовых файла. Контроллер, общий bridge и main меняли другие участники. Коммита нет.
+- Проверки: сборка TypeScript/Vite и 119 frontend-тестов прошли. Playwright на браузерном mock проверил сохранение, сброс перевода, запрет 201 символа, skip/снятие через «Остальные», возврат фокуса строки и Enter на 600 px, прямой вход из подборки и возврат после skip с одного нажатия без confirm. Снимки 1440 и 600 px сохранены в локальных данных и просмотрены. diff --check для области library прошёл. Сборка в песочнице встретила известный отказ esbuild читать родительский каталог; вне песочницы прошла. Playwright CLI потребовал временный npm cache и загрузку CLI вне песочницы; первые inline run-code команды отклонены парсером, сценарии из файлов прошли.
+- Реальный Tauri, SQLite после перезапуска и выгрузка Anki в этой фронтенд-задаче не проверялись. Ошибки записи проверяет отдельная QA-линия; собственный браузерный прогон здесь проверял успешные операции. Итоговое визуальное ревью и сквозную приёмку координирует тимлид.
+
+## 2026-11-20 — Фронтенд-разработчик — Восстановление перевода одного слова
+
+- По точечному поручению тимлида вернул в «Подробнее о слове» перевод одного подходящего слова и повтор неудачного перевода. Действие использует enrichWords с одним ID; условия isCardEligible, llm_enabled, ready/failed сохранены. Demo, занятость, ожидание записи и несохранённый черновик отключают кнопку. Готовые example_en/example_ru показаны отдельно как сгенерированный пример; context_ru не прикрепляется к выбранному альтернативному контексту.
+- onDraftChange теперь передаёт отдельные dirty и pending и сбрасывает оба при размонтировании. Изменены только card-editor.tsx, card-editor.test.tsx и library-workspace.tsx.
+- Добавлены два регрессионных теста на условия индивидуального действия, disabled, готовые примеры и отсутствие чужого context_ru. Vitest 121/121, сборка TypeScript/Vite и diff --check области library прошли. Реальный LLM-запрос и новый браузерный прогон не выполнялись. Локальный Vite на 1420 остановлен через собственную exec-сессию; порт больше не слушается. Коммита нет.
+
+## 2026-11-20 — Бэкенд-разработчик: цитата, перевод и книга в Anki
+
+- Исправил B5-регрессию в `anki_export.py`: поля заметки и тег `book::` строятся по одному выбранному наблюдению. Для сохранённой копии исчезнувшего примера `card_fields.py` не заимствует автора и книгу у другой цитаты.
+- `enrichment.py` и Anki используют порядок исходного запроса: по длине, при равенстве в порядке наблюдений. Новое обогащение сохраняет в существующем JSON отпечаток точной первой цитаты. Для старого prompt v1 перевод возвращается при совпадении с восстанавливаемой цитатой, пока время последнего импорта слова не превышает время обогащения. При неясном источнике или когда модель получила только префикс более длинной цитаты, поле перевода остаётся пустым. Новых сетевых вызовов и миграции нет.
+- `test_anki_export.py` проверяет SQLite заметок в `.apkg` с двумя книгами, смену цитаты и возврат к исходной, порядок равных длин и устаревшую запись. `test_enrichment.py` проверяет точный отпечаток запроса и выбор прежней цитаты после появления более длинного примера. 72 целевых теста и полный прогон (317 прошли, 1 пропущен), Ruff для изменённых файлов, `compileall`, `git diff --check` прошли.
+- Ручной интерфейс Anki и замороженный мост не запускал. Базовый коммит `16b6c0c`, коммит и публикация не выполнялись.
+
+## 2026-11-20 — Релиз-инженер — Финальная внутренняя сборка редактора
+
+- После сигнала готовности Anki-полей повторно заморожен штатный Python-мост, собран свежий production-фронтенд и оптимизированный Tauri EXE. Автономная папка build/internal-card-review содержит kindle-cards.exe и bridge/kindle-bridge.exe с ресурсами. Временный override задаёт com.kindlevocab.cards.preview, явный внутренний заголовок и minWidth 600. Использован CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG=true.
+- Сборка esbuild в песочнице получила отказ чтения родительской папки; та же Tauri-команда с расширенным доступом успешно завершилась. Постоянные конфиги и продуктовые исходники релиз-инженер не изменял.
+- Хеши всех входных файлов Python, frontend и оболочки совпали до и после сборки и smoke; хеши dist после Vite, окончания Cargo и smoke также совпали. Smoke из конечной автономной папки проверил load_demo, llm_config, process_queue на вымышленной библиотеке; анализ трёх слов совпал с dev-Python. Обе локальные копии публичного NSIS 0.4.0 сохранили исходный SHA-256.
+- SHA-256 kindle-cards.exe: 72193879243ae134fb7d0c0058ea4566f3a7ec07b2fc2bdbcd1d5a35422c997d. SHA-256 bridge/kindle-bridge.exe: eec5b01decedd33e050581db3c101d8fd629d1843dee6fa938cbc41dba28d61d. Контрольные суммы сохранены в SHA256SUMS.txt рядом с EXE.
+- Проверку native UI на отдельной библиотеке выполняет тимлид. Установка, публикация и запуск публичных workflow не выполнялись. Коммита нет.
+## 2026-11-20 — Релиз-инженер — Перезаморозка UTF-8 исправления
+
+- По сигналу тимлида перезаморожен мост после изменений tauri_bridge.py и build_bridge.py. Исходные файлы сохранили хеши на протяжении сборки и проверки. Обновлена только конечная папка bridge внутреннего приложения и локальные контрольные суммы.
+- Обновлённый штатный smoke и verify_final.py на конечной копии проверили load_demo, llm_config, process_queue и русскую правку save_card_edit с ensure_ascii=False. Отдельный запуск load_library подтвердил сохранность русского текста после перезапуска. verify_final.py динамически загрузил актуальный smoke и вывел UTF-8 preserved after restart.
+- SHA-256 bridge/kindle-bridge.exe: bacb63c4709784b95c9d7322096d799be7877b06e4966e4b0df3a3785739941c. Оболочка сохранила 72193879243ae134fb7d0c0058ea4566f3a7ec07b2fc2bdbcd1d5a35422c997d. Обе локальные копии публичного NSIS сохранили исходный SHA-256. Проверку native UI продолжает тимлид. Коммита и публикации нет.
+## 2026-11-20 — Тимлид — Внутренняя сборка для проверки подборки и карточек
+
+- По решению владельца отложили внешний набор. На планёрке согласовали единый сценарий для внутреннего просмотра. С Главной открывается конкретное слово, читатель может поправить перевод, выбрать исходную цитату или исключить слово из будущих порций. После возврата фокус восстанавливается. В «Словах» появились две полки, отдельный вид карточки для узкого окна и защита черновика.
+- Изменения затронули home, library, оболочку React, bridge, SQLite, поля Anki и TSV, обработку причин ранжирования и упаковку. Запись решения и правок проверена после нового импорта. Команда устранила несоответствие между выбранной цитатой, её переводом и тегом книги в Anki. Восемь синтетических срезов дали прежние AUC 0,652, lift@20 2,91 и lift@50 1,99. Весовые коэффициенты сохранены. Пригодность порядка для владельца на его книгах предстоит проверить.
+- Проверил оба размера окна в браузере, ошибку записи с сохранением ввода и возврат с клавиатуры. В ходе проверки устранили ложное предупреждение при выходе после исключения слова и непрозрачные поля редактора. Независимая QA-проверка охватила 24 отдельных процесса моста, повторный импорт, TSV и реальный импорт APKG движком Anki во временную коллекцию без дублей.
+- В настоящем Windows-приложении воспроизвёл порчу кириллицы в замороженном Python. Исправил чтение stdin в UTF-8 и добавил проверку сохранения и перечитывания через два процесса в обычные тесты и в проверку сборки. После пересборки два запуска WebView2 с одной вымышленной библиотекой подтвердили русский текст, точную цитату, работу при ширине 600, возврат фокуса, замену исключённого слова в пятёрке и точные поля готового TSV.
+- Итоговые проверки прошли. Python — 318 тестов и один пропуск, Vitest — 121 тест, production-сборка Vite, Ruff в объёме CI, git diff --check и упаковочная проверка кириллицы. Полный дополнительный Ruff показывает те же 49 замечаний, что и базовый коммит.
+- Исходники сохранены локальным коммитом 6e4360c ветки codex/card-review на базе 16b6c0c. Внутренняя сборка лежит в build/internal-card-review, использует отдельный каталог данных и запускается без установки. Сверены контрольные суммы оболочки, обновлённого моста и публичного установщика 0.4.0. Публикацию и внешние сессии отложили до решения владельца.
+
+## 2026-11-23 — Фронтенд-разработчик — Подготовка подборки на Главной
+
+- По согласованному поручению изменены только home-view.tsx, home.css и home-view.test.tsx. Добавлен обязательный processingProgress из home-domain, три фазы waiting/processing/finishing. До первой порции заголовок «Готовлю подборку», объяснение автоматического появления подборки и реальный native progress при известном total. Числа не входят в live-регион; неопределённая индикация поддерживает reduced-motion.
+- При уже готовой порции список остаётся на экране, компактный прогресс стоит у заголовка, причина блокировки связана с экспортной кнопкой через aria-describedby. Существующие сообщения об ошибке/результате выгрузки и доступ к папке сохранены. В preparing скрыта строка повторного импорта. Для подготовки ограничена ширина и выровнена по высоте сцена, размер хоста вмещает рисунок лампы. Под 680 скрываются все её слои вместе с pool.
+- Добавлены три регрессионных теста и обновлена проверка заголовка подготовки. 19 view-тестов, TypeScript, production Vite и diff --check назначенных файлов прошли. Данные подключает тимлид, native сборку выполняет релиз-инженер. Код передан тимлиду для визуальной проверки. В этом прогоне браузерные снимки и native UI ещё не проверены. Коммита нет.
+
+## 2026-11-23 — QA-инженер — Восстановление после ошибки ожидания
+
+- Независимо проверил браузерный маршрут cold-start-error на Vite ведущего, порт 1433, Chromium Playwright, 1280×850. Browser plugin отсутствует. После ошибки видны «Обработка слов остановилась», доступная кнопка продолжения и причина в подвале. «Слова» и «Настройки» открываются, подвал сохраняется, в Настройках доступен повтор операции.
+- После возврата на Главную кнопка «Продолжить обработку» достигнута последовательными Tab и нажата Enter. Показано «Готовлю подборку», затем готовый список из трёх слов и доступная выгрузка; сообщение остановки исчезло. Просмотрены снимки ошибки, продолжения и итогового списка.
+- В штатном mock slow готовая подборка остаётся видимой во время обработки. Выгрузка disabled, её aria-describedby указывает на пояснение ожидания. Соседние вкладки доступны. После завершения и возврата на Главную выгрузка снова активна. Снимок этого состояния просмотрен, ошибок console/pageerror и Vite overlay в финальном прогоне нет.
+- Исходники не менял. Дефектов проверенного маршрута не выявил. QA-скрипты и снимки сохранены во временном каталоге. Первый запуск Chromium остановился на запрете папки daemon в песочнице; повтор вне песочницы прошёл. В проверочном скрипте уточнил фактический заголовок Настроек после первого неверного ожидания текста.
+- Размеры, ночь/день, настоящее число 649 и нативное окно проверяет ведущий. В этой задаче не запускал физические устройства, установщик и дополнительные тестовые suites. Собственная сессия qa-waiting закрыта, Vite ведущего оставлен работающим. Коммита нет.
+
+## 2026-11-23 — QA приёмки — Изолированная очередь в прежнем native EXE
+
+- Подготовлен временный драйвер с синтетической библиотекой из 15 pending слов. Тестовый прокси отвечает disconnected на connector_status и пропускает только load_library, load_settings, process_queue и export_folder_status в штатный frozen bridge; все остальные действия блокируются. Проектные исходники не менялись.
+- По исходникам load_library отключает сверку Kindle, process_queue обрабатывает каталог SQLite и локальный анализ. Базовый EXE открыл WebView2 с временными workspace и профилем, показал подготовку и дошёл до доступной кнопки экспорта. Снимок старой сборки сохранён во временном каталоге. Читалка и данные владельца не использовались.
+- Проверка выполнялась в отдельном запущенном тестом процессе, который завершён. Видимый счётчик новой сборки, лампа и полная визуальная сверка ждут новый EXE. Коммита нет.
+
+## 2026-11-23 — Фронтенд-разработчик — Лампа в короткой и узкой сцене
+
+- По результатам визуального прогона тимлида уменьшил обычную настольную лампу до масштаба .56 при высоте стола 340px, а в среднем контейнере до .5. Подготовительная широкая сцена сохраняет .7/440px. Положение луча и рисунка масштабируется общей переменной.
+- В preparing до 680px компактная лампа .4 возвращена справа с местом для текста. До 420px рисунок поднимается выше текста, рисунок, beam, pool, bloom и настольный свет используют общий уровень основания 204px. Пояснение и счётчик занимают полную ширину; motes скрыты. Сокращён отрыв линии от содержимого.
+- Подпись чисел теперь «Обработано X из Y», aria-valuetext уточняет «Обработано слов X из Y», тысячи группируются по ru-RU. Добавлен один постоянный polite-регион фазового объявления, числовые обновления остаются вне него. Тест подтверждает одинаковое объявление при смене current и корректный случай 1 из 1.
+- 20 view-тестов, TypeScript, production-сборка Vite и diff --check прошли. Первое применение patch остановилось с частично записанными hunks; содержимое сверено, оставшиеся правки применены последовательно. Область передана тимлиду для повторного visual на узком экране и проверки готовой/пустой Главной. Собственный browser/native прогон не выполнялся. Коммита нет.
+
+## 2026-11-23 — Релиз-инженер — Переносная сборка новой Главной
+
+- После сигнала тимлида собраны свежие frontend и оптимизированная оболочка из базы 6e4360c и текущих правок. Автономная папка build/internal-card-review-2026-11-23 использует прежний com.kindlevocab.cards.preview, внутренний заголовок и minWidth 600. Путь передан тимлиду для QA сразу после копирования EXE и моста.
+- Мост скопирован без перезаморозки, все его файлы побайтно сверены по SHA-256 с предыдущей автономной папкой. Исходники Python и упаковки относительно 6e4360c не менялись. Сигнатуры входных файлов совпали до и после сборки, dist сохранился после упаковки и smoke. Предыдущий EXE сохранил свой хеш.
+- verify_final.py адаптирован к новой папке. Первый запуск ещё использовал прежний путь, после исправления выполнен повторный smoke именно новой копии. load_demo, llm_config, process_queue и сохранение русской правки после перезапуска прошли. Публичный NSIS 0.4.0 сохранил исходный SHA-256.
+- SHA-256 нового kindle-cards.exe: 872060308eed2dcb1606f3290ec0ac8f5ad7447e44a8a3a5f6aeaf5a5814518c. Мост: bacb63c4709784b95c9d7322096d799be7877b06e4966e4b0df3a3785739941c. Итоги сохранены в SHA256SUMS.txt. Native UI проверяет QA. Продуктовые исходники не редактировались, коммита и публикации нет.
+## 2026-11-23 — QA приёмки — Native счётчик обработки
+
+- В отдельном WebView2 проверена внутренняя сборка с временной библиотекой из 15 синтетических pending-слов. Прокси блокировал обнаружение и импорт читалки, разрешённые действия передавались штатному frozen bridge. Процесс теста завершён, пользовательская библиотека и работающий экземпляр не затронуты.
+- История progress: 0, 1, 2, 3, 8–14 при постоянном max 15; после обработки доступна кнопка экспорта. Заголовок «Готовлю подборку», одна полоса, подвал во время подготовки скрыт. В viewport 1320×840 лампа целиком в пределах сцены, снимок просмотрен.
+- Два старта тестового драйвера остановились до проверки из-за навигации WebView, третий выявил отсутствие скрытого подвала; ожидание страницы и обработка отсутствия подвала исправлены в временном драйвере. Эксперимент из 80 вымышленных слов прерван при ожидании экспорта: фикстура не гарантировала пригодные слова. Финальный прогон с обычными словами прошёл. Исходники не менялись; коммита нет.
+
+## 2026-11-23 — Тимлид — Подготовка подборки в окне Windows
+
+- После двух раундов с продактом и UX-дизайнером приняли один вид подготовки с текущим действием и настоящим ходом очереди. План в docs/plan/meetings.md. В первом импорте Главная центрирует заголовок, пояснение и индикатор под настольной лампой. При повторном импорте текущая порция остаётся видимой. Обрабатывается именно текущая очередь. До подтверждения её размера и при перечитывании итогового рейтинга показаны отдельные фазы.
+- Подключил события операции к HomeScreen и убрал дублирующий статус на Главной. Состояния соседних экранов и возможность повторить после ошибки проверены. HomeView, стили, разметка для чтения с экрана и тесты реализовал фронтенд-разработчик. После визуального ревью на 600 px вернули целую компактную лампу. Отдельно устранена обрезка плафона во время обработки при уже готовой порции. Рецензент принял широкую и узкую сцены после повторного просмотра.
+- В Playwright воспроизвёл исходные 649 из 1820 и последующее изменение до 1083, ожидание, получение подборки и вариант с готовыми словами. Визуальная проверка при ширинах 390, 600, 1280, 1440, 1628 и 2442 CSS-пикселя, в дневной и ночной темах. Перепроверил границы плафона, доступный progressbar, отсутствие горизонтального скролла и ошибок консоли. Первый прогон нашёл плафон на 12 пикселей выше границы; повтор прошёл. QA отдельно проверил ошибку и повтор с клавиатуры. Проверки прошли — 128 тестов Vitest, 318 Python и 1 пропуск, production-сборка, git diff --check.
+- В нативном WebView2 на временных 15 словах штатный замороженный мост передавал реальные значения очереди. Проверены изменение счётчика с неизменным максимумом, один видимый индикатор, целая лампа при 1320×840 и доступный экспорт после появления списка. Доступ к устройству был отключён тестовым прокси. Личный импорт владельца во время этого прогона не воспроизводили.
+- Локальный коммит 4a96284 в ветке codex/card-review. Сборка лежит в build/internal-card-review-2026-11-23, с прежним внутренним идентификатором и библиотекой. Открытый владельцем экземпляр сохранён. Релиз-инженер сверил контрольные суммы и проверил конечную папку. Вид подтверждён для Windows, внешней публикации не было.
+
+## 2026-11-23 — Фронтенд-разработчик — Два раунда обсуждения живой лампы
+
+- Исследовал существующие DeskLamp, HomeView, CSS света, адаптивные сцены и обработчики. Рисунок и свет разделены на слои с общим масштабом и независимыми координатами; текущая лампа не интерактивна. Framer Motion уже установлен, готового popover-компонента нет. Предложил сначала CSS-реакции света с остановкой при скрытии окна, без покадровых React-обновлений; шарнирное движение требует общей модели геометрии.
+- Для согласуемого MVP с ушками предложил состояния gaze rest/peek, motion off/quiet и управляемое bubbleOpen с onOpenBubble. Оглядывание выражается наклоном ушек при неподвижном якоре плафона и света. Открытие облачка — добровольное действие отдельной кнопки, состояние движения учитывает reduced-motion. Автоматическое открытие и полноценную артикуляцию плафона предложил отложить.
+- Критерии проверки: исходная и компактная сцены на 390/600/1440 px, день/ночь, общая привязка ушек и hit-target, отсутствие перекрытия текста, клавиатура/Escape/возврат фокуса, остановка idle вне видимой области и при скрытом окне. Код, ассеты и зависимости не менялись; браузерные измерения и тесты прототипа не выполнялись. Окончательное решение и протокол ведёт тимлид. Коммита нет.
+
+## 2026-11-23 — Тимлид — Концепция лампы-маскота
+
+- В постоянных чатах с продактом, UX- и UI-дизайнерами и фронтенд-разработчиком провёл два раунда. Сверили текущий DeskLamp, рисунок и отдельные координаты луча, правила доступности и компактный вид после исправления Главной. Продакт выбрал любопытный характер. UI предложил выразить первую реакцию ушком, UX — добровольное приветствие и закрываемое облачко. Обсудили цену сложного движения плафона и отвлекающих повторов.
+- Предложил внутренний эскиз с двумя металлическими ушками в сравнении с глазом-заклёпкой. Через imagegen получен и визуально просмотрен лист на основе скриншота с вымышленными данными. Сохранил docs/concept/lamp-mascot-study.png и протокол в docs/plan/meetings.md. Уточнил подходящие локальные навыки и проверил авторские animate и review-animations по первоисточнику. Установок не выполняли.
+- Зафиксировали жест простоя, взгляд, реакцию на появление списка, текст по нажатию, клавиатуру и тихий вариант. План применяет состояния текущего интерфейса. Нужны выбор владельца и проверка размеров и движения на прототипе. Готовность маскота и влияние на повторное использование пока не проверены. База 4a96284, программных изменений, сборки, коммита и публикации нет.
+
+## 2026-11-23 — Релиз-инженер — Скрипт автономной сцены лампы
+
+- Создан packaging/build_lamp_study.mjs с отдельным Vite JS API без загрузки общего конфига. Сборка выполняется в памяти, объединяет JS, встраивает CSS и ресурсы и пишет только build/lamp-study/index.html. Добавлена проверка остаточных ссылок на внешние ресурсы. Новых зависимостей нет.
+- node --check и diff --check прошли. Входные HTML и TSX сцены на момент проверки отсутствуют, поэтому сборка и file:// проверка ожидают готовности кода тимлида. Сигнал о готовности скрипта передан в чат тимлида. Обычная сборка приложения не запускалась, коммита нет.
+## 2026-11-23 — Фронтенд-разработчик — Переиспользуемая лампа-маскот
+
+- По одобренному левому эскизу добавил безопасный opt-in mascot в DeskLamp. Родной SVG получил два асимметричных металлических ушка с тёмными сгибами, прищур и более округлое тело; исходные рот света, конус и координаты источника сохранены. Обычный DeskLamp сохраняет прежний рисунок.
+- Новый MascotLamp принимает phase preparing/ready и motion. Возвращает фрагмент для home-desk.lamp-host. Кнопка 44px у головы открывает закрываемую бумажную реплику для текущей фазы, поддерживает повторное приветствие, Escape, закрытие снаружи и возврат фокуса при закрытии из облачка. Само открытие не перемещает фокус.
+- Одно ушко двигается через Web Animations API, 850мс. Idle один раз после 25 секунд видимого preparing, остаток ожидания сохраняется при паузе; число обработанных слов не является зависимостью. Переход preparing→ready даёт один жест. IntersectionObserver, visibilitychange, ResizeObserver и системный reduced-motion управляют активностью, очистка отменяет таймеры, наблюдатели и анимацию. motion=false отключает жесты и прежние пыль/прогрев; приветствие доступно.
+- В собственном CSS кнопка/облачко используют --lamp-s и компактный уровень основания. Для lamp-study на600 зарезервирован карман208px, в самом узком preparing облачко находится выше текста. Кнопка скрывается вместе с обычным скрытым рисунком. Родитель подключает сцену, slot и контролы.
+- Файлы: lamps.tsx, новые mascot-lamp.tsx, mascot-lamp.css, mascot-lamp.test.tsx. Два локальных теста и общий Vitest 130/130 прошли, TypeScript/Vite сборка и diff --check прошли. Визуальное соответствие реальному размеру, геометрию открытого облачка, WebView2 и таймеры в браузере ещё предстоит проверить на подключённом стенде тимлида. Исходники за пределами выделенной области не менял, коммита нет.
+
+## 2026-11-23 — Фронтенд-разработчик — Toggle приветствия и скрытая лампа
+
+- Исправил повторное нажатие click/Enter на переключение открытия и закрытия облачка по принятому плану. Проверка фактической видимости рисунка и hit-target выполняется после смены phase, при resize и наблюдении хоста. Когда рисунок скрыт, открытая реплика удаляется; фокус с скрываемой головы или содержимого облачка переносится на заголовок Home. При возвращении ширины облачко остаётся закрытым.
+- Самостоятельно проверил стенд через Playwright. Click/Enter toggle и Escape с возвратом фокуса прошли. На600 подготовка с открытым облачком перешла в ready без висящей реплики и скрытого фокуса, расширение до1440 ничего не восстановило. Просмотрел снимки600 и1440, дневную и ночную темы. Ушки читаются по силуэту, реплика на600 не перекрывает прогресс. Прищур сдвинут на бок плафона и усилен, чтобы выходить из светового ореола.
+- Два локальных теста, TypeScript/Vite и diff --check прошли. Первый сценарий после автоматического завершения подготовки не нашёл скрытый target600; сценарий исправлен явным перезапуском подготовки и прошёл. В консоли стенда единственный404 favicon.ico, исключений приложения нет. Idle25s, native WebView2 и все комбинации reduced-motion отдельным браузерным прогоном в этой правке не проверял. Коммита нет.
+
+## 2026-11-23 — Релиз-инженер — Первый автономный HTML маскота
+
+- Скрипт собрал build/lamp-study/index.html размером 1 585 416 байт. Исправлено ложное срабатывание CSS-проверки на JS: url теперь анализируются только внутри style. Шрифты, JS и CSS встроены; зависимости общего приложения не менялись.
+- По прямой просьбе владельца установлен Playwright CLI в ignored build/lamp-study-tools. Запуск потребовал расширенного доступа к служебному каталогу и отдельного тестового разрешения file-протокола. Встроенное управление Chrome ранее не получило разрешение.
+- Через file:// и с offline network проверены загрузка, счётчик, открытие реплики и переход к подборке. В журнале запросов только два чтения самого HTML, ошибок и предупреждений консоли нет. Снимок сохранён в ignored build/lamp-study/first-offline.png и просмотрен. Сцена использует синтетическую JSON-фикстуру, сетевых импортов во входном TSX не найдено.
+- SHA-256 первого HTML 102c643a012445b258e1539feea977bdd989985f53fd8307f1d64bcb4fa16691. node --check и diff --check прошли. Итоговый повтор сборки ожидает правок QA. Коммита и публикации нет.
+## 2026-11-23 — Фронтенд-разработчик — Узкое облачко и повторные циклы
+
+- Исправил геометрию облачка до420px: его правый край отступает от головы по той же координате430×scale, хвостик смотрит вправо к плафону. Постоянная окружность expanded удалена, клавиатурный focus сохранён. Карман600 не менялся.
+- Новый переход ready→preparing сбрасывает idleRemaining к25 секундам и idleDone. Переход в ready при отключённом движении не сохраняет отложенный жест; выключение движения также очищает readyPending.
+- В Playwright на390 и360 проверил фактический elementFromPoint в центре головы при открытой реплике и отсутствие пересечения bubble с44px target. Второй pointer-click по голове закрыл облачко в обоих размерах. Снимки просмотрены. Отдельно600: облачко и progress не пересекаются, повторный click работает.
+- Через часы Playwright и счётчик реальных вызовов animate проверил первый idle после25 секунд, новый idle через25 секунд после повторного цикла и отсутствие жеста ready после60 секунд ожидания с движением off и последующего включения. Два component-теста, TypeScript/Vite и diff --check прошли. Native и автономный HTML после этой правки не проверял, коммита нет.
+
+## 2026-11-23 — Релиз-инженер — Финальная автономная сцена маскота
+
+- После сигнала владельца повторно собран build/lamp-study/index.html из обновлённых входных файлов. Итог — 1 586 266 байт.
+- В Playwright файл открылся через file:// при отключённой сети. Статус и интерфейс присутствуют, журнал показывает только чтение самого HTML; ошибок и предупреждений консоли нет. Проверен production файл после правок шапки, favicon и статуса TSV.
+- SHA-256: 42b2567b60bc1b0d1cc9b993e8008a9279cb8cc240eb1b623f2487301e4a018b. Других файлов проекта не менял. Сборка общего приложения и публикация не выполнялись. Коммита нет.
+## 2026-11-23 — QA-инженер — Функциональная приёмка пробы маскота
+
+- Проверил Vite-сцену на 1435 и окончательный автономный build/lamp-study/index.html, SHA-256 42b2567b60bc1b0d1cc9b993e8008a9279cb8cc240eb1b623f2487301e4a018b. Chromium Playwright CLI, 1440×900 и 600×900, вымышленные слова контрактной фикстуры. Browser plugin отсутствует, артефакты и скрипты сохранены во временном каталоге.
+- Пройдены click/repeat-click, настоящий Tab до головы, Enter, Space, Escape, видимое закрытие и возврат фокуса, переключение темы и движений с aria-pressed. После закрытия доступна карточка ephemeral и выбор второго предложения. При узкой сцене скрытые кнопка/облачко исчезают из Tab; фокус с головы переносится на home-title.
+- На финальном HTML без ускорения таймеров зарегистрирован один idle-жест через 25,12 с. До этого счётчик дошёл 7/10 без жестов на каждое число. Переход к подборке дал один ready-жест, дальнейшего повтора и автоматических реплик не было. Reduced-motion сохраняет приветствие и исключает ear.animate при фокусе, нажатии и готовности.
+- Ветка visibilitychange проверена отдельно с моделируемыми document.hidden и visibilityState: за 27 реальных секунд жестов 0, счётчик не менялся; готовность в скрытом состоянии не двигала ушко, возврат видимости вызвал один отложенный жест. Настоящее скрытие вкладки headless Chromium не подтвердилось при переключении foreground на вторую вкладку, поэтому результат этой проверки ограничен моделированием состояния.
+- Финальный file:// прогон при отключённой сети прошёл, HTTP-запросов 0, ошибок JavaScript не обнаружено. Просмотрены снимки ожидания и узкой реплики. В dev-прогонах отмечены favicon 404 и предупреждение повторного createRoot при HMR; финальный автономный файл этих сообщений не выдавал.
+- Предварительное расхождение повторного клика передано ведущему и исправлено владельцем области до окончательной проверки. Первый timing-прогон затронут HMR, повторный наблюдатель задвоил записи в QA-скрипте; чистая сессия дала указанные единичные жесты. Исправлено QA-ожидание скрытого role-локатора, зависший npm-вызов остановлен, дальнейшие команды шли через уже загруженный CLI.
+- Продуктовые исходники не редактировал, изменён только этот раздел WORKLOG. Обе собственные браузерные сессии закрыты. Внешний вид и TSV отдельно проверяет ведущий. Нативное приложение, устройства и личные данные не использовались. Коммита и публикации нет.
+
+## 2026-11-23 — Фронтенд-разработчик — Прищур и положение облачка
+
+- По двум блокирующим замечаниям UI-дизайнера расширил прищур до одного плавного штриха, усилил контраст и освободил от штриховки бумажное поле на боку плафона. Поле и прищур нарисованы после halo, сохраняя исходные координаты источника света.
+- В контейнере421–680 облачко поднято над головой и стойкой, хвост направлен вниз к плафону. В широком виде хвост привязан к координате317×scale вместо доли ширины облачка. Геометрия до420 сохранена. Изменены только lamps.tsx и mascot-lamp.css.
+- Самостоятельно снял и просмотрел600 день и1440 ночь на локальном стенде. Прищур виден в обеих темах; bbox-проверка600 подтвердила, что нижний край облачка выше44px кнопки головы. Два component-теста, TypeScript/Vite и diff --check прошли. Остальные сценарии поведения не изменялись; native и новый автономный HTML не проверялись. Коммита нет.
+
+## 2026-11-23 — Релиз-инженер — Пользовательская версия сцены маскота
+
+- После последних визуальных правок очищенного прищура и стойки повторно собран автономный build/lamp-study/index.html.
+- Открытие через file:// при offline прошло. В журнале запросов только HTML, консоль без ошибок и предупреждений. Размер 1 586 751 байт.
+- SHA-256: 89e011f93d38a8013f805f2a81aca8b1d791f3cf80cff8aae79131e97bae55e7. Исходники проекта не редактировал. Коммит и публикация не выполнялись.
+## 2026-11-23 — Тимлид — Автономная проба ушастой лампы
+
+- Владелец предпочёл левый эскиз. На той же Главной собрана отдельная локальная сцена с вымышленными данными, доступным приветствием, ожиданием и готовой подборкой. Основная сборка использует штатную лампу. Контракт бэкенда, личная библиотека и установленный EXE не затронуты.
+- Изменения интеграции в home-view.tsx, исходная страница в docs/concept/lamp-study.html, сцена и стили в src/preview/. Исходники компонентов, сборщика и сценария сохранены в локальном коммите 0a23b6d. Решение по выбору и итог рецензии добавлены в протокол планёрки.
+- По визуальному ревью освободили поле вокруг прищура, изменили положение облачка на 600 px и вернули доступ к плафону при открытой реплике на 360 и 390 px. UI-дизайнер повторно подтвердил читаемость при дневном и ночном освещении. Проверил финальную геометрию и доступность закрытия на 421×620, 600×480 и 680×550.
+- Итоговый HTML в build/lamp-study/index.html. Проверил работу без сети, клавиатуру, закрытие и возврат фокуса, обе темы и экспорт трёх строк TSV с выбранным вторым предложением. 130 тестов интерфейса и сборка TypeScript/Vite прошли, git diff --cached --check чист. Просмотрены снимки финальной сцены.
+- Первые прогоны Playwright не переводили страницу в реальное фоновое состояние. Повторил в отдельном видимом окне Edge с двумя обычными вкладками и чистым профилем, без эмуляции фокуса. Зарегистрированы реальные переходы hidden и visible. За 26 секунд в фоне не появилось жестов и не изменился прогресс, при возвращении счётчик возобновился. Тем самым закрыто ограничение первоначального отчёта QA.
+- Итогом этапа служит автономный прототип для оценки владельцем. Интерес читателей и уместность поведения в ежедневной работе ещё не оценивали.
+
+## 2026-11-23 — Тимлид — Четыре образа лампы на Главной
+
+После отзыва владельца подготовил четыре отдельных статичных макета встроенным ImageGen на основе одного настоящего снимка подготовки слов. Сохранил изображения в docs/concept/lamp-characters. Зимородок освещает стол из-под клюва, керамический гриб из-под широкой шляпки, у механического светлячка источник света в загнутом янтарном брюшке, у маленького смотрителя над глазами бумажный абажур. На четырёх PNG проверены положение персонажей, свободная область текста и видимость прогресса. UX-дизайнер определил условия сравнения. UI-дизайнер дополнительно просмотрел птицу, гриб и смотрителя. Выбор владельца открыт. Это изображения широкого окна в ночной теме. Код приложения, анимации и сборку в этом цикле не меняли.
+
+## 2026-11-23 — Тимлид — Лис с фонарём
+
+По выбору владельца переработал образ смотрителя в антропоморфного лиса. Ориентир для силуэта и светлых глаз — герой Limbo. Сгенерировал статичный ночной экран в ImageGen, проверил видимость хвоста, ушей, фонаря в лапе и счётчика. Макет сохранён в docs/concept/lamp-characters/05-fox-lantern.png и сверен по SHA-256. Образ передан на выбор владельцу.
+
+## 2026-11-23 — Релиз-инженер — Предварительная проверка fox preview
+
+- Прочитан текущий WORKLOG. В существующей папке внутренней сборки доступен замороженный bridge/kindle-bridge.exe; Python 3.11.15, Cargo 1.96.1 и Node v26.4.0 доступны через Conda kindle_app. Предыдущий процесс kindle-cards сейчас не запущен.
+- Новая папка build/internal-fox-preview не создана до сигнала финального рендера. Preview ID остаётся com.kindlevocab.cards.preview. Проверены только исполняемые версии и существование артефакта, bridge запускать не потребовалось. Продуктовые исходники не менялись. Коммита и публикации нет.
+## 2026-11-23 — QA-инженер — Лис на Главной и в автономной пробе
+
+- Независимо проверил настоящую браузерную Главную с cold-start на Vite 1436 и build/fox-lantern/index.html. Финальный проверенный HTML SHA-256 e6bfe4d697714262eb3600bc96c75fd3b41aee32c4c078d925758a763cd19ce7. Chromium Playwright CLI, синтетический mock/контрактная фикстура. Browser plugin отсутствует, применён прежний отдельный CLI, скрипты и снимки во временном каталоге.
+- Главная: 1440×900 ночью и 600×900 днём с reduced-motion. Кнопка «Поприветствовать лиса» работает через click/toggle, Enter и Space, Escape и видимое закрытие возвращают фокус. До обращения автоматической реплики нет. При штатном окончании mock-обработки лис и реплика размонтируются, фокус из кнопки закрытия переходит на home-title. После этого штатный mock-export успешно завершается.
+- Автономная проба: offline file://, 0 HTTP-запросов, 1440 и600 в дневной и ночной темах. Настоящий Tab достигает приветствия, Enter/Space открывают, Escape/внешний click/повторный click закрывают реплику. Проверены переключатель движения и aria-pressed, отсутствие анимации глаз при reduced-motion и при отключённом движении. При готовности сцена исчезает с переносом фокуса на заголовок, экспорт запускает загрузку TSV.
+- Консоль без ошибок, pageerror отсутствуют, горизонтального переполнения нет. Два дневных снимка просмотрены. Собственная браузерная сессия qa-fox закрыта; Vite ведущего не останавливал.
+- Продуктовые исходники не менял. Нативный EXE, настоящий bridge/Anki, устройства, личная библиотека и качество нового изображения не входили в эту проверку. Пригодность внешности отдельно оценивают ведущий и UI-дизайнер. Добавлен только этот раздел WORKLOG, коммита и публикации нет.
+
+## 2026-11-23 — Фронтенд-разработчик — Интерактивный FoxLantern
+
+- В выделенной области создал только fox-lantern.tsx и fox-lantern.css. FoxLantern принимает необязательный motion, использует отдельный FoxFigure тимлида и предназначен для preparing. На широком экране лис справа с зарезервированным местом для текста, до520px — ниже текста справа. Текст и прогресс имеют полную ширину в узкой сцене. Масштаб рисунка привязан к viewBox500×450.
+- Кнопка44px совпадает со стеклом по10%/74% сцены, открывает добровольную реплику «Я посвечу.», повторный click/Enter закрывает её. Escape, outside и Закрыть поддерживают фокус. При размонтировании с фокусом внутри сцены layout-cleanup передаёт фокус следующему home-title через microtask только если другой живой control ещё не получил фокус. Изоморфный выбор useEffect для SSR устранил предупреждение; браузер сохраняет layout-cleanup.
+- Редкое мягкое моргание группы fox-eyes через CSS с периодом18секунд. IntersectionObserver и visibilitychange приостанавливают его вне видимой области и в фоне. motion=false и системный reduced-motion отключают анимацию. Таймеров подсказок, смены состояния и покадрового React-state нет.
+- По просмотру собственных снимков и замечанию тимлида реплика перенесена вправо от лица над хвостом, хвостик направлен влево к лису; на600 текст короткой реплики переносится на2строки. Вся сцена с hit-target сдвинута вниз на1.333333% высоты, чтобы ступни y444 из450 совпали с линией стола.
+- Проверки:130 frontend-тестов без SSR-предупреждения, TypeScript/Vite и diff --check прошли. На стенде1436 Playwright проверил360/390/600/1440, точное положение кнопки на стекле, отсутствие коллизий реплики с прогрессом и глазами, pointertoggle, Enter/Escape с возвратом фокуса, размонтирование из реплики с фокусом на следующем заголовке, motionoff и systemreduce. Финальные снимки четырёх размеров просмотрены. Один повтор геометрии встретил уже завершившееся ожидание; после нового запуска подготовки прошёл. Ошибок приложения в консоли нет.
+- Реальное переключение вкладок в фоне, моргание в native WebView2, дневную тему и финальный автономный HTML в этом прогоне не проверял; их проверяет основная QA-линия. FoxFigure, Home и стенд менял тимлид. Коммита нет.
+
+## 2026-11-23 — QA-инженер — Финальный HTML лиса на 600px
+
+- Коротко повторил независимую offline file:// проверку build/fox-lantern/index.html с SHA-256 beaa05c68fda3ff8df50eb33f41844d6f0a0a0e46d558d35c081b4f1b9fa5f40 после визуального ревью.
+- При 600×900 нажатие мышью в центр кнопки на фонаре открывает реплику. Bounding boxes подтверждают отсутствие перекрытия репликой глаз и прогресса, горизонтального переполнения нет. Дневной и ночной снимки с открытой репликой просмотрены: лицо и счётчик видны.
+- Escape закрывает реплику, переход к подборке и скачивание kindle-cards-example.tsv прошли. HTTP-запросов при отключённой сети 0, ошибок JavaScript нет. Собственная qa-fox-final сессия закрыта, исходники не редактировал, коммита нет.
+
+### 2026-11-23 — изолированная native-приёмка fox preview
+- Цель: проверить Главную и приветствие лиса во время обработки на переносной внутренней сборке.
+- В отдельном временном профиле подготовлены 15 вымышленных слов; прокси запрещал доступ к читалкам и передавал разрешённые действия штатному bridge. Личная библиотека и открытое приложение не использовались.
+- Native WebView2: наблюдались значения очереди 0, 1, 2, 7, 8, 9, 10, 11 при постоянном максимуме 15; кнопка приветствия доступна, Enter показывает реплику, после обработки видны список и экспорт. Ошибок страницы не обнаружено. Сохранены снимки подготовки и приветствия.
+- Исходники не менялись, коммит не создавался. Реальное устройство и пользовательская библиотека в этом прогоне не проверялись.
+
+## 2026-11-23 — Релиз-инженер — Переносной Fox preview
+
+- По сигналу владельца пересобран production dist командой npm run build, затем собрана оптимизированная Tauri оболочка без bundle/установщика в build/internal-fox-preview. Использован прежний preview ID com.kindlevocab.cards.preview, копия автономного проверенного моста.
+- Первый Vite запуск в песочнице не прошёл из-за отказа esbuild читать родительский каталог; повтор с расширенным доступом прошёл. Tauri/Cargo собрал EXE. Все хеши исходников и dist совпали после сборки, отдельный ID проверен.
+- verify_final.py на конечной папке проверил load_demo, llm_config, process_queue и русскую правку после перезапуска. Три анализа совпали с dev Python. Публичный установщик 0.4.0 не менялся. Native UI QA передан принимающей линии.
+- SHA-256 kindle-cards.exe: 3146963ff433dbf048019272a096c476bb25fd42c44ff7af35bd997e299606a1. Мост bacb63c4709784b95c9d7322096d799be7877b06e4966e4b0df3a3785739941c. Контрольные суммы записаны в SHA256SUMS.txt. Установки и публикации нет, исходники не менял, коммита нет.
+## 2026-11-23 — Тимлид — Первая рабочая версия лиса
+
+- Одобренный пятый эскиз сохранён с реализацией. По координатам исходного изображения воспроизведены контур, положение глаз, рукоять и стекло фонаря. SVG задаёт свет относительно пламени. Днём остаются стекло и фитиль, ночью лис освещает стол. Фронтенд-разработчик поставил доступную кнопку на фонарь, добавил добровольную реплику и редкое моргание с учётом reduced-motion и видимости.
+- После двух раундов планёрки лис появился при подготовке на обычной Главной. В готовой подборке работает прежний экспорт. Автономный пример на тестовых словах использует тот же HomeView. Сборка примера — node packaging/build_lamp_study.mjs --fox.
+- По визуальному ревью скорректированы свет, прилегание лап к столу и положение открытой реплики на компактном экране. На финальных снимках UI-дизайнер подтвердил исправления. Независимая QA прошла клавиатурное приветствие и закрытие, восстановление фокуса, готовность списка, обе темы и скачивание TSV без сети. Проверены окна от 360 до 1628 px. 130 тестов интерфейса, TypeScript, production Vite, сборка Tauri и git diff --cached --check прошли. Внутри Windows WebView2 испытана очередь из 15 вымышленных слов с настоящими изменениями счётчика, приветствием и доступным экспортом после обработки.
+- Внутренняя сборка находится в build/internal-fox-preview, автономный файл в build/fox-lantern/index.html. Контрольные суммы сборки и мост проверены релиз-инженером. Локальный коммит 94563cc. Публичного релиза и установки не выполнялось. Для проверок использована временная тестовая библиотека.
+
+## 2026-11-23 — Релиз-инженер — Проверка окружения fox motion
+
+- Прочитан текущий WORKLOG. Мост из build/internal-fox-preview доступен, SHA-256 bacb63c4709784b95c9d7322096d799be7877b06e4966e4b0df3a3785739941c. Python 3.11.15, Cargo 1.96.1 и Node v26.4.0 доступны через kindle_app. Предыдущий preview процесс не запущен.
+- Подготовлена к использованию отдельная папка build/internal-fox-motion; на момент проверки её ещё нет. Жду сигнал о готовности SVG и CSS анимаций перед Vite/Cargo. Исходники и прежняя сборка не менялись, установки и публикации нет.
+## 2026-11-23 — Фронтенд-разработчик — Общая хореография лиса
+
+- В выделенной области изменены fox-lantern.css и только атрибут data-speaking в fox-lantern.tsx для паузы при открытой реплике. SVG и остальные файлы не редактировал. Повороты используют согласованные pivot головы, ушек, хвоста и обоих экземпляров фонаря; взгляд и моргание имеют отдельные группы.
+- После возражения продакта заменил независимые длительности одним циклом40с. Голова2.8–6.4с, взгляд3.0–6.4с; ближнее ушко8.0–9.6с, дальнее9.6–11.2с; фонарь и его проекция13.2–18.4с; хвост22.0–27.2с; моргание31.2–31.68с. Остальное время покой. Амплитуды: голова−7/+1.8°, ушки−15/+8° и+12/−5°, фонарь+3.8/−2.4/+1.4/−.6°, хвост+8/−5/+2°. Общая фаза сохраняется при паузах, наложение разных окон на последующих циклах исключено общей длительностью.
+- Все семь классов жестов ставятся на паузу при data-active=false и data-speaking=true. motion=false и системный reduced-motion снимают все анимации. Существующая SVG-привязка видимости света к lamp-glow сохранена. Новых библиотек, таймеров и React-state на кадрах нет.
+- Проверки:130 frontend-тестов, TypeScript/Vite и diff --check прошли. Playwright на1437 проверил8 CSS-animation экземпляров с40с, активность только ожидаемых групп в6 опорных точках, совпадение второго цикла, равенство matrices обоих фонарей, нахождение стекла внутри44px target на максимальном качании, паузу всех жестов при открытой реплике и вне viewport, motionoff, reduced-motion и нулевую видимость света днём. Снимки оглядывания1440 и хвоста600 просмотрены.
+- Первый shell-запуск получил1223 от setup helper; чтение через login=false прошло. Patch общего цикла остановился на неверном ожидаемом тексте keyframe; файл перечитан и исправлен последовательной заменой, браузерная проверка финального цикла прошла. Реальное hidden-переключение вкладок и native после этой правки не проверял. Собственный Vite1437 оставлен для основной QA по сообщению тимлиду; тестовый браузер закрыт. Коммита нет.
+
+## 2026-11-23 — QA-инженер — Анимация частей лиса и связанный свет
+
+- Независимо проверил Vite 1437 и окончательный offline HTML build/fox-lantern/index.html, SHA-256 4bf3e79b6429396c072182cf5dfbb69a16c55ad6fa66302bf576e83e8501892b. Chromium Playwright, вымышленные слова, артефакты и скрипты во временном каталоге. Продуктовые исходники не редактировал.
+- На общей40с шкале управляемая выборка currentTime показала head+gaze в3,6с, ближнее ухо8,6с, дальнее10,2с, фонарь14,4с, хвост23,2с, моргание31,4с. Вне каждой фазы остальные группы нейтральны, кроме совместного head+gaze. К34с все семь матриц вернулись в исходное положение.
+- Дополнительно наблюдал два полных реальных цикла,82с и820 выборок с шагом100мс. Перекрытий независимых жестов не обнаружено. В каждом цикле около227–228 выборок шесть основных групп находились в покое. Для продолжительности теста только браузерная обёртка продлила интервал синтетического счётчика3800→380000мс; CSS-время не ускорялось. Реплики автоматически не открывались.
+- Обе местные матрицы .fox-pendant совпадают. Воздушный свет имеет CTM фонаря; отражение соответствует матрице статического сплющивания, умноженной на матрицу фонаря, максимальная численная ошибка около6,1e-6. Быстрый mouse.click по screenCTM-точке стекла50,333 на пике при playState=running открыл приветствие на1440 и600px. Снимок600 просмотрен.
+- Непрерывная анимация меняет матрицу без ручной остановки; открытое приветствие удерживает позу. Моделируемая hidden-ветка visibilitychange удерживает матрицу; настоящее переключение вкладки в этой задаче не проверял. Тихий режим и prefers-reduced-motion оставляют0анимаций. Днём все пять световых opacity равны0.
+- Обычная Главная с cold-start прошла1440ночь и600день+reduce: клавиатура, закрытие, focus из приветствия на home-title после готовности, штатный mock-export. Финальный file:// проход не делал HTTP-запросов и не дал pageerror. Собственная qa-fox-motion сессия закрыта.
+- Предварительно на старых циклах23/27/30/31/34с зафиксированы пересечения, о которых сообщено ведущему; после переноса на общую шкалу повторные проверки прошли. Первое QA-ожидание нейтрального translate исправлено по фактическому CSSOM. Полные suites, native WebView2, устройства и пользовательская библиотека в этом прогоне не проверялись. Добавлен только этот раздел WORKLOG, коммита и публикации нет.
+
+## 2026-11-23 — Native-проверка fox motion
+- Изолированный запуск новой сборки на 15 вымышленных словах с блокировкой доступа к читалке: очередь продвинулась от 0 до 14 при максимуме 15, затем появился экспорт; приветствие по Enter работает, ошибок страницы нет.
+- В WebView2 обнаружены анимации лиса; у фонаря при 36% цикла матрица изменилась с единичной на поворот около 3,8°. Остальные движения и геометрия зоны на максимуме отдельно не проверены. Снимки сохранены в визуализациях.
+- Первый запуск теста не нашёл Playwright в conda; повтор через отдельное окружение прошёл. Личные данные и устройство не использовались, исходники не менялись.
+
+## 2026-11-23 — Релиз-инженер — Проверка поставки fox motion
+
+- Завершена проверка переноса в build/internal-fox-motion. Хеш EXE совпал с бинарником после Cargo. Автономный мост и все ресурсы побайтно совпали с эталоном build/internal-fox-preview; SHA-256 моста bacb63c4709784b95c9d7322096d799be7877b06e4966e4b0df3a3785739941c.
+- Входные сигнатуры Python, frontend и оболочки сохранились, production dist после Vite совпадает с зафиксированным до Cargo. Preview ID — com.kindlevocab.cards.preview. verify_final.py проверил load_demo, llm_config, process_queue и UTF-8 сохранение русского изменения после отдельного запуска. Три синтетических анализа совпали с dev-Python.
+- Публичный установщик не изменён. SHA256SUMS.txt добавлен в новую папку. SHA-256 kindle-cards.exe ec03353ae309e7cc81c0bb4e211f32536461342e34fbc595186f9f30f403ca46. Исходники и старые сборки не менял. Установки и публикации не было. Коммита нет.
+## 2026-11-23 — Фронтенд-разработчик — Закрытие стенда после QA
+
+- По поручению тимлида остановил свой Vite1437 через исходную exec-сессию. Повторная проверка не обнаружила слушателя1437.
+- В .playwright-cli оставались только два файла собственной сессии fox-motion, console и page от11:32. Переместил их в игнорируемую .app-data/frontend-playwright-logs; git check-ignore подтвердил исключение. Продуктовые исходники не менял, коммита нет.
+
+## 2026-11-23 — Native-проверка движений лиса
+- В изолированном WebView2 на новой очереди из 15 вымышленных слов проверены матрицы головы и взгляда на 4 с, ближнего уха на 8,6 с, дальнего на 10,2 с, обоих элементов фонаря на 14,4 с и хвоста на 23,2 с: все отличаются от исходных. В точке фонаря на максимуме elementFromPoint нашёл кнопку приветствия; анимации возобновлены.
+- Приветствие по Enter и готовая подборка с экспортом прошли, ошибок страницы нет. Первый вариант временного сценария ошибочно выбирал SVG и исправлен; повтор прошёл. Личная библиотека, устройство и исходники не затронуты.
+
+## 2026-11-23 — Тимлид — Движения лиса и свет фонаря
+
+- В ответ на пожелание владельца разделил исходный вектор лиса на голову, два уха, корпус и хвост. Соединения находятся внутри силуэта. Дужка, стекло, пламя, ореол и луч качаются вокруг точки хвата. Отблеск использует тот же поворот в проекции на стол. Фронтенд-разработчик добавил движения в `fox-lantern.css` и паузу при приветствии в `fox-lantern.tsx`. Изменение рисунка находится в `fox-figure.tsx`.
+- На планёрке согласовали редкие жесты и постоянную область нажатия на стекло. Первая проба с разными периодами давала наложения. После замечаний продакта и UX перешли на один цикл в 40 секунд. UI-дизайнер сверил кадры в крайних положениях и признал пригодными стыки, освещение и композицию узкой дневной сцены. Его оценка относится к отдельным позам. Ритм проверил QA в работающем браузере на двух полных циклах.
+- 130 тестов интерфейса, сборка TypeScript/Vite и проверка diff прошли. В браузере проверены наклон фонаря и проекция отблеска, выбор фонаря мышью на ходу, клавиатура, возврат фокуса после появления подборки, системное уменьшение движения и остановка при реплике. Для ожидания двух циклов в тестовой вкладке продлевался интервал синтетического счётчика. Скрытие вкладки проверялось моделированием. В WebView2 отдельная очередь из 15 вымышленных слов дошла до готовой подборки.
+- Собраны автономный пример `build/fox-lantern/index.html` и отдельная внутренняя версия `build/internal-fox-motion/kindle-cards.exe`. Рядом с HTML сохранён фрагмент `fox-motion.webp` длительностью 33 секунды, снятый по ключевым кадрам работающей сцены в исходном темпе. Личную библиотеку для проверок не открывали. Локальный коммит `5cc84e2` в ветке `codex/card-review`.
+
+## 2026-11-23 — Релиз-инженер — Именованный Fox preview
+
+- Собран дополнительный EXE Kindle Cards - Fox.exe, не заменяя ранее зафиксированный kindle-cards.exe. Временный Tauri config задаёт заголовок «Kindle Cards — Лис-фонарщик · внутренняя сборка 5cc84e2» и сохраняет preview ID com.kindlevocab.cards.preview.
+- Production frontend не менялся: хеши dist до/после Cargo совпали. Мост и ресурсы совпали с эталонным bridge. SHA-256 прежнего EXE до и после сборки остался EC03353AE309E7CC81C0BB4E211F32536461342E34FBC595186F9F30F403CA46. Новая оболочка имеет отдельный новый SHA-256.
+- Установщик не создавался. Открытые процессы не останавливались. Исходники и публичная установка не затронуты. Контрольные суммы записаны в SHA256SUMS-fox.txt. Коммита и публикации нет.
+## 2026-11-23 — Native-проверка именованного Fox preview
+- Проверен именованный EXE с SHA-256 f263d77a70dd615d41f26634d9c8f104e70a7bf0301d2d9b2aadd2a3ca0d80c2 в отдельном временном профиле на 15 вымышленных словах. Видны подготовка с лисом, приветствие по Enter и готовая подборка с экспортом; ошибок страницы нет.
+- Доступ к устройству заблокирован, личная библиотека не использовалась, закрыт только тестовый процесс. Исходники не менялись.
+
+## 2026-11-23 — Тимлид — Проверка ссылки на внутреннюю сборку Windows
+
+Владелец уточнил, что открывал ссылку из чата. Запуск именно `build/internal-fox-motion/kindle-cards.exe` до исправления подтвердил ожидаемую контрольную сумму `ec03353a…`, общий заголовок «внутренняя версия редактора» и обычную Главную с готовой подборкой. Доступный заголовок экрана и наличие списка прочитаны без вывода слов. На этом экране показывается настольная лампа. Лис в текущей реализации появляется при подготовке первой подборки. Ярлыки рабочего стола и меню «Пуск» ведут к отдельно установленной 0.4.0 и в описанном владельцем запуске не участвовали.
+
+Релиз-инженер пересобрал оболочку с названием «Kindle Cards — Лис-фонарщик · внутренняя сборка 5cc84e2». После сверки новой сборки с результатом Cargo тимлид атомарно обновил исходный путь ссылки, сохранил резервную копию и обновил конфиг и SHA256SUMS внутренней поставки. Новый SHA-256 `f263d77a70dd615d41f26634d9c8f104e70a7bf0301d2d9b2aadd2a3ca0d80c2`. По исходному пути запущено и оставлено открытым проверенное окно с новым заголовком. Приёмка того же бинарника на отдельной тестовой очереди подтвердила появление лиса, приветствие по Enter и открытие готового списка. Сценарий Главной, установленная программа, её ярлыки и публичные поставки не менялись. Изменение относится к локальной сборке, исходный коммит приложения `5cc84e2`.
+
+## 2026-11-23 — Фронтенд-разработчик — Постоянный лис на Главной
+
+- В HomeView лис теперь постоянно занимает одну JSX-позицию во всех состояниях loading/no-reader/empty/preparing/list/processing-stopped. Условное размонтирование заменено стабильным FoxLantern. Исторический deskLamp override сохранён. В fox-lantern.tsx обновлено описание жизненного цикла; обработчики приветствия и анимации сохранены.
+- Scoped-геометрия FoxLantern распространена на все состояния Home. В компактном контейнере уменьшены фигура, заголовок и отступ до списка; в самом узком виде фигура140px у заголовка, действия и прогресс ниже на всю ширину. Открытая реплика получает отдельную верхнюю полосу104px, чтобы не обрезаться и не закрывать текст. При коротком окне подготовка выравнивается к верху. home.css и остальные экраны не менял.
+- Обновлены тесты постоянного интерактивного лиса во всех шести состояниях и сохранности deskLamp override. Все131 frontend-тест и production TypeScript/Vite прошли, diff --check чист.
+- На сервере тимлида1441 Playwright проверил готовую/занятую Главную600×480, готовую390 и1440, no-reader/empty/loading/processing-stopped600×480. Снимки просмотрены: основное действие и первая строка либо прогресс доступны без прокрутки, лис виден. DOM-маркер на стенде600×480 подтвердил тот же trigger, открытое приветствие и focus после preparing→list; Enter продолжил закрывать реплику. Реплика не открывается автоматически.
+- Свой временный Vite1438 остановлен; сервер1441 тимлида не тронут. Собственные browser-логи перемещены в игнорируемую папку после закрытия сессии. Native, устройства и личная библиотека в этой линии не проверялись. Коммита нет.
+
+## 2026-11-23 — QA-инженер — Один лис на каждом экране
+
+- На Vite1441 независимо проверил32состояния: Главная/list, no-reader, Слова, Настройки, прямые view=triage иexport, карточка из подборки и возврат. Все сочетания1440/600px иday/night. Во всех состояниях одна видимая .fox-figure в пределах viewport; прежние desk/clip/sconce и элементы старого знака отсутствуют. Отдельный .fox-mark бренда соответствует согласованному исключению.
+- Вне Главной .fox-vignette имеет aria-hidden и не содержит focusable controls; кнопки приветствия нет. На Главной приветствие доступно в готовом списке, без читалки и при подготовке. Четыре cold-start→list прогона сохранили открытое приветствие и фокус на «Закрыть»; Escape/Space и последующий штатный mock-export работают.
+- В Словах дополнительно открыта карточка из обычного списка: на600px возврат восстановил фокус строки, на1440px список остаётся доступным рядом и позволяет выбрать другое слово. В каждом варианте основной лис один. Первое ожидание отдельной кнопки возврата на широком экране исправлено в QA-скрипте после сверки штатной компоновки.
+- Сохранены восемь снимков Settings/карточки на1440/600 в обеих темах; просмотрены широкие дневные и узкие ночные. Горизонтального переполнения, framework overlay и ошибок console/pageerror нет. Browser plugin отсутствует, применён Playwright CLI с отдельной сессией и временными артефактами.
+- Продуктовые исходники не редактировал, синтетические mock-данные. Сессия qa-fox-screens закрыта, Vite ведущего не остановлен. Native, пользовательская библиотека и реальные экспорты не проверялись. Добавлен только этот раздел WORKLOG, коммита нет.
+
+## 2026-11-23 — Внутренняя сборка aa4f033 оставлена архивной
+- Цель: подготовить отдельную переносную сборку по подтверждённому запросу, затем учесть уточнение о смене объёма.
+- Решение: после указания владельца не продвигать `aa4f033` остановить публикационные действия; не менять старый путь и не запускать приложение. Отдельный артефакт сохранён в `build/internal-fox-everywhere/` как архивный кандидат; дальнейшую сборку ждать до нового commit и staging-папки.
+- Артефакты: `kindle-cards.exe` (9,825,280 байт, SHA-256 `6613BB7A5D605F1753B97A259D81E5FAFA4C8E3B42AA77CDFD2115298951BA02`); bridge SHA-256 `BACB63C4709784B95C9D7322096D799BE7877B06E4966E4B0DF3A3785739941C`.
+- Проверки: production Vite build завершился успешно. Повтор Tauri build остановлен до проверки smoke из-за уточнения объёма; EXE и bridge только проверены на наличие и хеш. Старое открытое приложение не затронуто.
+- Риски/остаток: этот артефакт не считать приёмочным; ждать новый commit и staging-путь. Публичная установка и старые ссылки не менялись.
+
+## 2026-11-23 — QA-инженер — Уточнение: лис только вместо настольной лампы
+
+- Адресно перепроверил окончательный Vite1441 на синтетическом mixed в1440/600px иday/night. На Главной один интерактивный лис, настольная лампа отсутствует. Приветствие открывается и закрывается Escape во всех четырёх сочетаниях.
+- На Словах, в карточке и Настройках лиса нет. В карточке восстановлен ClipLamp, исходный бренд и бра возвращены. На1440бра видимо, на600скрыто штатной компоновкой. Возврат из карточки ведёт к Главной с доступным приветствием лиса.
+- Проверены12основных состояний и четыре карточки/возврата, ошибок console/pageerror и горизонтального переполнения нет. Сохранены восемь новых снимков карточки и Settings вtemp, просмотрены карточка600ночь иSettings1440день. Собственная qa-home-only сессия закрыта.
+- Этот результат заменяет прежнюю приёмку варианта «лис на каждом экране» по уточнению владельца. Остальные сценарии поведения Главной проверены предыдущим прогоном; native и личные данные в этой задаче не использовались. Продуктовые исходники не редактировал, добавлен только этот раздел журнала. Коммита нет.
+
+## 2026-11-23 — Native-приёмка лиса только на Главной
+- Изолированный WebView2 smoke сборки 6db84bb, SHA-256 EXE 911b59d13ce1f4553f5389ef2f0961356d75a0041070ae571031793f7e573f54: очередь 15 вымышленных слов обработана, приветствие по Enter работает, в готовой подборке видны лис и экспорт.
+- На широком экране видно бра; в Словах и Настройках лиса нет, карточка открывается и содержит ClipLamp. Ошибок страницы нет. Доступ к читалке блокирован, личная библиотека и другие окна не затронуты, исходники не менялись.
+
+## 2026-11-23 — Тимлид — Лис на месте основной настольной лампы
+
+Владелец уточнил смысл «везде»: лис занимает место большой лампы на Главной во всех состояниях. Бра, лампа у карточки, знак приложения и остальные экраны сохраняют прежнее оформление. До уточнения команда проверила более широкую замену на отдельном стенде, затем убрала её. Общий коммит aa4f033 не передавался на пользовательскую ссылку. Итоговый локальный коммит 6db84bb. Сверка с 5cc84e2 показала изменения только в документах, HomeView и его тесте, FoxLantern и переключателе движений автономного примера.
+
+На Главной сохраняется один экземпляр интерактивного персонажа при смене подготовки готовой подборкой. При открытом приветствии фокус и реплика сохраняются. В узком окне лис, пояснение, действие и список занимают отдельные места. QA проверил все состояния Главной, обе темы, карточку, возврат, навигацию и настройки на 600 и 1440 px. Визуальное ревью подтвердило видимый силуэт рядом с готовым списком и восстановленное оформление других разделов. Все 131 тест интерфейса прошли, TypeScript/Vite и сборка Tauri завершились успешно. Автономный пример открылся без сети и сохранил лиса и переключатель движений после показа подборки.
+
+Внутреннюю сборку обновили по прежнему пути build/internal-fox-motion/kindle-cards.exe, сверили второе имя EXE и мост, сохранили копии предыдущего бинарника. SHA-256 новой сборки 911b59d13ce1f4553f5389ef2f0961356d75a0041070ae571031793f7e573f54. Штатно закрыли ранее открытое тимлидом окно после проверки готовности. Запустили обновлённый EXE по пути из чата и в обычном открытом окне подтвердили одновременно заголовок списка «Слова на этот раз» и кнопку «Поприветствовать лиса». Установленная версия и публичный установщик для этой задачи не менялись.
+
+## 2026-11-23 — Приёмочная сборка 6db84bb
+- Цель: подготовить отдельную переносную Windows-сборку для внутреннего QA в `build/internal-fox-home/`.
+- Решение: использованы preview identifier `com.kindlevocab.cards.preview`, согласованный заголовок сборки `6db84bb` и прежний проверенный bridge. Старый путь/EXE и открытую версию не заменял и не запускал; публичную установку не менял.
+- Артефакты: `kindle-cards.exe` (9,826,304 байт, SHA-256 `911B59D13CE1F4553F5389EF2F0961356D75A0041070AE571031793F7E573F54`), bridge (SHA-256 `BACB63C4709784B95C9D7322096D799BE7877B06E4966E4B0DF3A3785739941C`), `SHA256SUMS.txt`; только локальные файлы в `build/internal-fox-home/` и эта запись журнала.
+- Проверки: `tauri build --no-bundle` завершился успешно; production dist содержит ожидаемые `index-0lxHn7To.js` и `index-DPbOqSle.css`. Совпали SHA всех 258 файлов bridge с проверенным источником. В EXE найдены ожидаемые identifier и заголовок. Bridge smoke: `load_demo`, `llm_config`, очередь из 3 синтетических слов идентична dev Python, UTF-8 round-trip `save_card_edit` после перезапуска. SHA старого EXE совпал с ранее сохранённой контрольной суммой.
+- Не проверено: ручное открытие нового окна и визуальная приёмка владельцем; smoke покрывал bridge, не UI. Ошибок сборки/bridge smoke нет. Публичная установка и старые ссылки не менялись.
+
+
+## 2026-11-23 — Инженер ранжирования: исходный замер и контракт шкалы полезности
+
+- До изменений на базе 6db84bb запустил ranking_eval в Windows conda kindle_app. SQLite открывалась только на чтение, оба реальных прогона увидели 2 564 поиска и 1 768 слов. В ignored-каталоге .app-data/ranking_eval/usefulness-baseline-2026-11-23 лежат команды и агрегаты. Копию базы не создавал.
+- В зрелой истории ranking_v2: AUC 0,642, P@20 0,38, P@50 0,32, lift@20 3,1, lift@50 2,6 на двух сопоставимых срезах. На прокси короткой истории без повторов, три среза: ranking_learning 0,591 / 2,176 / 1,278 по AUC / lift@20 / lift@50. Штатная синтетика, восемь срезов: 0,652102 / 2,911293 / 1,991826. Оба CLI и синтетический прогон завершились, каталог проверен через git check-ignore.
+- Предложил производную от полки и исходной оценки шкалу 1–10 отдельно от ранга экспорта. Записи без анализа получают предварительную середину; 10 резервируется для фактической полки junk, включая личное решение «Не слово». Порядок детерминирован по уровню, уверенности, исходной оценке и ID. Проверка при реализации: все состояния, монотонность, приоритет решений, сохранность состава и порядка новой порции, повтор исходных замеров.
+- Слабые стороны: относительный сигнал повторного поиска, зависимость реального сравнения от состояния библиотеки и отсутствие оценки необработанных слов в ranking_eval. Продуктовый код и тесты не изменялись, нового коммита нет.
+
+
+## 2026-11-23 — Инженер ранжирования: study_priority и проверка общего порядка
+
+- В ranking.py добавил study_priority по согласованным абсолютным границам и с исходной точностью score. Оценка не зависит от решений, включая истёкшее «Знаю». Уровень 10 требует непустой записи без букв Unicode. Имена, буква ё, дефисы, слова с цифрами, отсутствие в словарях и старые флаги non_word/non_english сами по себе не дают уровень 10. Пояснения отличают неполную словарную проверку от отсутствия слова в доступных словарях.
+- В tests/test_ranking.py добавил четыре проверки: точные границы, независимость решений, структурные признаки и словарная неопределённость. Целевые тесты ранжирования и представления библиотеки: 134 прошли. Полный pytest: 326 прошли, 1 пропущен. Ruff для изменённых файлов и git diff --check прошли. Файл ranking.py заморожен для упаковки, SHA-256 CDE99A3B2299E3511C33B6D83EBFF2C972E8D55C8383BACEED67B93F62070054.
+- Повтор ranking_eval дал одинаковые агрегаты, в зрелом JSON разница только generated_at. Отдельный ignored-скрипт пересчитал production decorate и фактический новый компаратор с ранее rejected. Все 15 срезов дали одинаковые списки первых 20 по сравнению с исходным score без округления. AUC / lift@20 / lift@50 до = после: локальные месячные 0,586528 / 1,977598 / 1,925094; короткие 0,574097 / 2,144812 / 1,257266; синтетика 0,659112 / 2,967686 / 2,028826. В первом сравнении округлённый score ошибочно создал искусственные ничьи, это исправлено в скрипте.
+- Бенчмарк включает 0–17 rejected на срез, проверяет повторный поиск как прокси. Уровень 10 и предварительные записи в этих исторических срезах отсутствовали, соответствующие ветки проверены на вымышленных данных. Реальная SQLite только читалась. Интерфейс и установленную сборку в этой задаче не проверял. Отчёты под ignored .app-data/ranking_eval, исходный коммит 6db84bb, нового коммита нет.
+
+## 2026-11-23 — Бэкенд-разработчик: шкала study_priority в библиотеке
+
+- В `library_view.py` добавил `study_priority` всем каноническим записям и переиспользовал результат существующего rank для слов без ручного решения. Незавершённое состояние, отсутствие достаточного анализа или даты поиска дают предварительные 6/0 с отдельной причиной. Расчёт уровня находится у инженера ранжирования. Подборка, полки, спорные и допуск к экспорту используют прежние поля. Изменения схемы и повторный анализ не требуются.
+- Обновил `contracts.py`, обе `bridge_library_v4*.json`, проверки библиотеки и контракта, исключение полей представления при сверке миграционной фикстуры. Синтетические проверки включают pending/processing/failed, legacy без измеренных признаков, отсутствие даты, истёкшее «Знаю» и реальный TSV для `rejected + learn`. Отдельного `bridge-contract.md` нет.
+- На временной копии реального SQLite v4 1 762 из 1 762 слов получили оценку. По сравнению с `6db84bb` эквивалентны все прежние поля записей, очереди, полки и списки. Совпали 325 экспортируемых ID в порядке выдачи и короткий список из 20. SHA-256 исходной базы и копии до/после совпали. Целевые тесты: 95 прошли. Полный Python: 326 прошли, 1 пропущен. Ruff, compileall и git diff --check прошли. UI и замороженный мост не запускал.
+- Дополнительно прогнал обычный `import_reader_file` и `scan` с контролируемым источником и настоящей синтетической схемой Kindle. Оба сохраняют цифры и дефис, `?!` и пробельная строка не получают канонический ключ. После штатной очереди сохранённые записи без букв переходят в rejected, но остаются preliminary 6 из-за отсутствия лексических признаков. Предложил сохранить непустую исходную форму только при пустом результате нормализации и разрешить структурное основание 10 для завершённого анализа. Код после сигнала готовности для упаковки не менял. Коммит не создавался.
+
+## 2026-11-23 — Подготовка staging для study-priority
+- Цель: подготовить отдельный приватный staging-путь под новую frozen bridge и Tauri сборку.
+- Решение: создан `build/internal-study-priority/` и предварительный `tauri.study-priority.json` с preview identifier; до конкретного нового commit PyInstaller/Tauri не запускаются.
+- Изменённые файлы: только ignored staging-конфиг в `build/` и эта запись WORKLOG. Источники и существующие сборки не изменялись; публичной упаковки нет.
+- Проверки: синтаксис JSON подготовленного конфига проверяется следующим шагом; сборка и smoke не запускались.
+- Риски/остаток: обновить заголовок и зафиксировать сигнатуры по commit владельца перед упаковкой.
+
+## 2026-11-23 — QA-инженер — Независимая приёмка study_priority
+
+- На вымышленных данных проверил24точки около восьми включительных порогов уровня, типы study_priority у девяти канонических записей, пять вариантов provisional6/score0 с конкретной причиной и независимость приоритета отвергнутого слова от learn/skip/junk/known/null. Подтверждено, что буквенное имя и отсутствие словаря сами по себе не дают10.
+- Через отдельные процессы JSON-моста проверены load_library и set_decision с повторным чтением. В CSV после ручного learn присутствует прежде отвергнутое vigilant, а пропущенное glimpse из устаревшего списка IDs отсутствует; число и причина vigilant сохранились. Этот сценарий создавал каталог напрямую и не покрывал reader-канонизацию.
+- После сообщения ведущего о дефекте настоящего импорта и исправления structural_study_priority независимо прошёл import_reader_file→process_queue→load_library→повторный import→load_library. Синтетический Kindle vocab.db с семью записями полностью сохранился: ?!,123,00:17 получили окончательный10, Aldric/zqvrel/vigilant/glimpse не получили10. Повторный импорт добавил0слов, осталось7контекстов, ID и study_priority сохранены. Использовано пять отдельных JSON-процессов на финальном Python.
+- Браузер Chromium/Vite1442, mixed на1440/600×day/night: все13слов доступны, порядок совпадает с независимым levelASC/provisionalfalse/scoreDESC/idASC. Поиск, фильтры уровней9/10 и книги, восстановление vigilant через Учить с неизменным8, Home→карточка→назад→mock-export прошли. Дополнительная tie-выборка helper подтвердила все ступени порядка при равном уровне.
+- Cold-start600 показал три предварительных6 и причину ожидания; после обработки уровни обновились на2,2,3. Финальный обзор групп подтвердил admit1, sundry/languid6, vigilant8, aldric9,00:1710. Просмотрены снимки широкого списка и узкой карточки/предварительного слова; пути переданы ведущему.
+- До последнего исправления импорта полный pytest дал326passed/1skipped. После него89целевых тестов ranking/library_view/reader_bridge/vocab_catalog прошли, точный список Ruff CI чистый. Vitest136/136 прошёл вне песочницы. Production build ведёт релиз-инженер, свой не запускал во избежание одновременной записи dist.
+- Console/pageerror, framework overlay и горизонтальных переполнений в браузерных прогонах нет. Browser plugin отсутствует, применён отдельный Playwright CLI. Сессия qa-priority закрыта, исходники не редактировал, добавлен только этот раздел журнала. Native, установленная сборка и настоящий Anki в этой задаче не проверялись, личные данные не использовались. Коммита нет.
+
+## 2026-11-23 — Бэкенд-разработчик: сохранение записей без букв при импорте
+
+- `vocab_cache.py`, `library_repository.py`, `tauri_bridge.py`: общий канонический нормализатор сначала применяет прежнее правило, при пустом результате сохраняет непустой исходный токен. Пустые и пробельные слова пропускаются до присвоения ID. Записи с уже существовавшим ключом используют прежнее значение.
+- `ranking.py`, `library_view.py`: общий `structural_study_priority` определяет непустые строки без букв Unicode. Для завершённой записи присваивает уровень 10, score 0, с причиной «В записи нет букв» без требования времени или словаря. Pending остаётся предварительной 6. Полки, история и допуск к выгрузке не пересчитываются по новой шкале.
+- `test_tauri_bridge_smoke.py` проверяет scan с подменённым обнаружением и реальный import_reader_file на синтетическом Kindle SQLite, настоящий process_queue и повтор. Сохраняются 00:17, ?!, 123, Unicode-слово и обычное ready-слово, пустоты отсекаются, контексты не дублируются. `test_library_view.py` покрывает ready без словарных признаков и даты. На копии реальной v4-библиотеки запись каталога сохранила 1 762 канонических ID, порядок выгрузки и очередь, SHA-256 оригинала не изменился.
+- 135 целевых тестов прошли. Полный Python: 328 прошли, 1 пропущен. Ruff для файлов CI и изменённых тестов, compileall и git diff --check прошли. Физический Kindle, UI и замороженный мост не запускал. Исходный коммит `6db84bb`, коммита нет.
+- SHA-256 упаковки: `vocab_cache.py` 1F930A590E9EF693728B1E0E5C8D4343BA8C39D59B52AC66E774F9FB0FF8D900; `library_repository.py` C27809C883473A56596844C143FA105D1E99A39C3F72D0102F25FD6B80918BDA; `tauri_bridge.py` 5E47180B3FB7411093C52DFD5ECBFDFB6FF7D6861BCD65650E56ECAC6D6DA36C; `ranking.py` 208BD18E972AA08C415A2AC212CBF1A844AE15A6FFBC999B616CDE7368F4E7CA; `library_view.py` 951C4359EE365306324013066E9A4DFC03DA8A7C8F3C74F42FD4AEA6A37B306C.
+
+## 2026-11-23 — Фронтенд-разработчик — Все слова и шкала приоритетов
+
+- По согласованной планёрке «Слова» по умолчанию показывают все канонические записи, включая старые, rejected и низкие уровни. Новый study-priority.ts читает snake_case поле study_priority; для старого payload без поля сохраняет запись как предварительную6 с причиной отсутствия данных. Сортировка level ASC, provisional false раньше true, score DESC, id ASC. Пороги на фронтенде не вычисляются.
+- Поиск и книга пересекаются с точным уровнем в одном Select. По итоговому поручению владельца те же10 options сгруппированы нативными optgroup1–3/4–6/7–9/10, значения и названия «Приоритет N» сохранены, All остаётся значением по умолчанию. На строках показан уровень и «предварительно», направление шкалы пояснено. В карточке приоритет и его причина отделены от «Моё решение».
+- Из любой карточки можно выбрать Учить/Не учить, сменить или снять существующее решение. Demo/busy/pending/dirty сохраняют блокировки, ожидание и ошибки не сбрасывают ввод. Неиспользуемый worthLearning и его прежний тест двух полок удалены. filterLexemes получил необязательный comparator: существующие вызовы сохраняют legacy сортировку, новый каталог сортируется один раз.
+- Исправлена обнаруженная браузером гонка возврата focus к виртуализированной строке ниже viewport. WordList ждёт отрисовки и ненулевой высоты, поиск получает фокус только если записи нет в текущем фильтре. Прямой вход по ID из подборки по-прежнему обходит фильтры. Breakpoint последовательного списка/инспектора поднят до1100px, чтобы900–1024 не сжимали таблицу; поиск показывает «Найти слово» с прежним полным aria-label.
+- В UI review первоначальное замечание о сокращении цитат снято: полный выбранный контекст уже доступен в blockquote, после новой компоновки на1000 он также помещается в select. UI-дизайнер просмотрел промежуточные дневные список и карточку, новых дефектов не отметил. Самостоятельно просмотрены1440/600 и промежуточные1000/1024, проверена полная цитата при смене выбора.
+- Проверки:136 frontend-тестов, TypeScript/Vite и diff --check прошли. Новые4 теста проверяют полноту, четыре ключа сортировки, пересечение поиска/книги/уровня и fallback старого payload; тест карточки — независимое личное решение и demo. Playwright1442 проверил All,00:17=10, имя aldric=9, vigilant=8, фильтр10 и поиск,4 optgroup и11 options, Learn/Skip/снятие без смены приоритета, возврат focus600, восстановление rejected vigilant в подборку на Главной и обычный mock-экспорт. Браузерная консоль без исключений приложения.
+- Первый sandbox shell остановился на Windows1326, чтение и проверки с расширенным доступом прошли. В первом тесте disabled не учитывался вложенный PencilFrame; тест уточнён. В первом браузерном селекторе имени уточнён регистр lemma. Реальный Tauri/SQLite/Anki и личную библиотеку не проверял. Стенд1442 принадлежит тимлиду. Изменены только файлы src/features/library/ и эта запись; TypeScript types/mock менял тимлид. Новые study-priority.ts и study-priority.test.ts нужно включить при коммите. Коммита нет.
+
+## 2026-11-23 — Тимлид, полный каталог по приоритету изучения
+
+- Владелец выбрал полный каталог с приоритетами от 1 (учить первым) до 10 (возможная ошибка записи). Продакт, UX-дизайнер, инженер ранжирования и бэкенд обсуждали направление шкалы, ручные решения и незавершённый анализ. Итог и разногласия добавлены в docs/plan/meetings.md. У неподготовленного слова видна временная 6 с причиной. Приоритет независим от личного решения. Короткая подборка сохраняет свой лимит.
+- Коммит d48dad3 содержит контракт, интеграцию ранжирования всех канонических записей, сохранение непустых токенов из знаков, v4-фикстуры и тесты. ed88fa9 добавляет типы и browser mock, каталог, четыре группы уровней, фильтры, действие «Учить» и продуктовую документацию. В UI-дизайн не добавляли цветовые индикаторы. После ревью исправили возврат фокуса в виртуализированный список и размещение карточки при 1000 px. UI-дизайнер повторно проверил карточку и снял замечание по цитате.
+- На копии библиотеки подтверждены все 1762 канонических ID и прежний порядок 325 кандидатов. У исходной кэшированной базы Kindle каждый словарный токен связан с поиском. Независимый сквозной импорт семи искусственных записей проверил очередь, повторный запуск и ноль новых слов при повторном импорте. Записи из цифр или знаков приходят на уровень 10 после обработки. Буквенные имена и незнакомые слова доступны для проверки в общем списке.
+- Проверили реальные границы уровней, решения и CSV. Сравнение результатов на 15 срезах сохранило первые 20 слов; эти замеры относятся к повторным поискам. Они не доказывают, что читатель согласится с оценкой каждого слова. Vitest 136/136 и TypeScript/Vite прошли. В браузере проверены 600/1000/1440, темы, поиск, книга, выбор уровня, возврат в карточку и «Учить» при неизменной оценке. Физическое устройство и личная колода для этого изменения не использовались. Внутренняя сборка и её изолированная приёмка идут отдельно.
+
+## 2026-11-23 — Поставка внутренней сборки ed88fa9, study-priority
+- Цель: новый frozen Python bridge и отдельный Tauri EXE в `build/internal-study-priority/` для native QA.
+- Собран свежий bridge PyInstaller 6.22.3 / Python 3.11.15 из backend d48dad3; Python byte-for-byte совпадает с финальным ed88fa9. Первоначальная постобработка ошиблась в DIST; исправлено только staging-направление на фактический bridge-build/kindle-bridge, затем prune, ресурсы и smoke выполнены успешно. Старый bridge не использован как бинарник.
+- Tauri production build --no-bundle завершился exit 0. EXE SHA256 `397CB1F36A79BB6D44A1971EADC44C966184F4050276A1986890DEC8918C6C01`; новый bridge SHA256 `2C71128EFE95FC82A46DD100CB5FEF14C52754C81EAB5BCECB1026371FE777A1`. Embedded identifier com.kindlevocab.cards.preview и заголовок «Kindle Cards — Приоритет изучения · ed88fa9» подтверждены.
+- Проверки delivery bridge: load_demo, llm_config, process_queue (3 синтетических слова идентичны dev Python), UTF-8 save_card_edit после перезапуска, study_priority во frozen load_library — успешно. Bundled офлайн-словарь совпадает SHA256 с исходным; NLTK WordNet проверен штатным smoke с изолированным APPDATA. Созданы SHA256SUMS.txt для EXE и всех файлов bridge и source-signatures.json.
+- Изменены только ignored staging-артефакты и append WORKLOG. Старые ссылки, открытые окна, установленная копия и публичные артефакты не изменялись. Native UI, физический reader и реальная пользовательская библиотека не проверялись; путь передан ведущему для приёмки.
+
+## 2026-11-23 — Приёмка bridge приоритета
+- На временной синтетической базе проверен обычный импорт новым frozen bridge и обработка очереди: 00:17 и ?! получили окончательный уровень 10 с причиной «В записи нет букв», имя aldric — 8. Данные пользователя и устройство не использовались.
+- Подготовка отдельного native-сценария прервалась из-за ошибки экранирования Windows-пути в тестовом скрипте; окно не запускалось. Проверки интерфейса, решения «Учить» и экспорта остаются открытыми. Исходники не менялись.
+
+- Повтор native-сценария после исправления тестового пути прошёл: в отдельном окне через поиск открыта карточка импортированного 00:17, показаны приоритет 10 и причина «В записи нет букв». Снимок списка сохранён. Ручное решение и экспорт в этом прогоне не проверены.
+
+## 2026-11-23 — Продолжение native-приёмки приоритета
+- После загрузки синтетического списка проверен порядок уровней 1, 1, 8, 10, 10; снимок готового списка просмотрен. В карточке 00:17 нажато «Учить»: решение сохранилось, приоритет остался 10 после перехода на Главную и обратно, запись появилась в короткой подборке.
+- Экспорт файла в этом прогоне не проверен. Использовались только временная библиотека и свой процесс, устройство и пользовательские окна не затронуты.
+
+## 2026-11-23 — Тимлид, поставка ed88fa9 и постоянная ссылка
+
+- Внутренний build/internal-study-priority/kindle-cards.exe собран со свежим Python-мостом. Контрольные суммы SHA-256 у EXE 397cb1f36a79bb6d44a1971eadc44c966184f4050276a1986890dec8918c6c01, у bridge 2c71128efe95fc82a46dd100cb5fef14c52754c81eab5bcecb1026371fe777a1. При первой подготовке one-folder исправлена ссылка скрипта упаковки на каталог ресурсов. Конечный мост проверен на полноценном офлайн-анализе и сохранении кириллицы.
+- Полный pytest на итоговом коде: 328 прошли, 1 пропущен. В запущенном нативном приложении с тестовой базой виден порядок 1, 1, 8, 10, 10. Готовый список просмотрен визуально. Нажатие «Учить» вернуло запись уровня 10 в короткую подборку, переходы между разделами сохранили число и решение. Активное устройство и личные словари для нативной приёмки не использованы.
+- Для ранее выданной ссылки подготовлена отдельная полная копия. EXE, именной вариант и все файлы bridge сверены по SHA-256. После проверки отсутствия работающего старого экземпляра каталог build/internal-fox-motion переключён на новую копию. Предыдущий каталог с его собственным мостом и прежними архивами сохранён рядом в build/internal-fox-motion-backup-6db84bb. Проверка demo через прежнюю точку запуска вернула уровни 1, 2, 3, 6 и 9. Публичный установщик и установленные программы не изменялись.
+
+## 2026-11-23 — Закрытие проверки локальной выгрузки
+- Новый frozen bridge через штатные load_settings/save_settings/export_words со scope=new и назначением csv создал TSV из 3 синтетических записей в отдельном временном профиле. Файл прочитан как TSV, Base form содержит 00:17 с ранее сохранённым решением «Учить». Отправка в Anki не выполнялась (pushed=0).
+- Проверки порядка, независимости приоритета от решения и локальной выгрузки завершены. Личная база, устройство и пользовательские процессы не затронуты; продуктовые исходники не менялись.
+
+## 2026-11-24 — Подготовка staging читательского стола
+- Создан отдельный ignored-каталог build/internal-reading-desk и проверен шаблон Tauri-конфига с preview ID.
+- Проверены локальные Python 3.11.15, PyInstaller 6.22.3 и наличие прошлых offline NLTK/словарных ресурсов.
+- Сборка не запускалась до сигнала. Python и frontend изменены; старую сборку целиком не копировать. После финального hash сформировать заголовок. Публичных действий нет.
+
+
+## 2026-11-24 — Подготовка native-приёмки читательского стола
+- Изучены прежний изолированный драйвер и текущие точки интерфейса для поиска Kindle, полного экспорта и меню приоритетов. Для проверки потребуется отдельный профиль с синтетикой и прокси, блокирующий реальное обнаружение устройства; после сигнала будет проверена готовая сборка и её bridge.
+- Запуск и проверки новой сборки пока не выполнялись; личные данные и устройство не использовались.
+
+
+## 2026-11-24 — Инженер ранжирования: доказательства и фильтр в каталоге
+
+- В library-workspace.tsx/css причина study_priority видна в каждой строке до двух строк. Виртуализация использует ту же высоту 92 px, что CSS. В card-editor.tsx причина доступна целиком, рядом выводятся только числа уникальных сохранённых записей читалки и известных ключей книг. Записи legacy не считаются, неизвестная книга не превращается в новую. Функция и тест в study-priority.ts/test.ts.
+- Нативный выбор приоритета заменил на Radix DropdownMenu с группами, RadioItem, индикатором и прокручиваемым порталом в обеих темах. Стрелки, End/Enter, Escape и мышь проверены. На 600×570 End доводит до 10, пункт получает hover и остаётся над приложением. На 1440×900 видны все четыре группы; активный фон, текст и контур проверены по снимкам. Тексты причин и уровни backend не менялись.
+- У нижней виртуализированной строки воспроизвёл потерю фокуса при возврате. Повторная попытка теперь следует за обновлением окна виртуализации. Сценарий карманной ширины подтвердил тот же фокус и одинаковую прокрутку 1029 px. Поиск сохраняется при возврате. Первый тест клавиатуры послал End до появления меню; адаптированное ожидание и повтор прошли.
+- Проверки: TypeScript и Vite production build во временный каталог прошли, 10 адресных тестов прошли. В последнем общем Vitest 138 прошли, 1 упал вне моих файлов в mock-backend.test.ts (сценарий no-new). На действующем стенде 1443 отдельной сессией Playwright проверены четыре сочетания ширин/тем, без overlay и ошибок консоли в финальном проходе; шесть снимков и снимок прокрутки сохранены во временном каталоге и просмотрены выборочно. Browser plugin отсутствует. Собственная сессия закрыта, общий Vite оставлен.
+- Проверено на синтетических данных Chromium. Нативная сборка, иные браузеры и пользовательские данные не проверялись. Home, backend, use-library-controller и main не редактировал, новых зависимостей и коммита нет.
+
+## 2026-11-24 — Инженер интеграции с Anki — Повторная выгрузка полного каталога
+
+- Цель: принять две последовательные колоды штатным import_anki_package установленного Anki25.09.4 в отдельных временных коллекциях. Использованы вымышленные слова, явные поля перевода, заданное расписание и одна строка revlog. AnkiConnect владельца и его коллекции не открывались, продуктовые исходники не менялись.
+- Прямой write_apkg проверен в шести режимах: стандартный импорт, явные IF_NEWER/ALWAYS/NEVER, with_scheduling=True, равные timestamp. Первая колода — две заметки, вторая — изменённое старое слово и новое при исключении второй исходной заметки. Каждый режим оставил три заметки и карточки, прежние note ID/GUID/card ID, поля расписания и revlog. Исключённая заметка сохранилась. При более позднем notes.mod стандартный импорт/IF_NEWER/ALWAYS и режим с расписанием обновили перевод; NEVER сохранил прежний перевод и добавил новое слово.
+- Сквозной scope=library выполнен через отдельные процессы dispatch на временной SQLite. Первый запрос с ids двух слов и levels1..10 выгрузил две карточки. Затем сохранён новый перевод, добавлено слово, второй запрос с ids трёх записей и levels=[1] выгрузил две карточки, исключив уровень10. Штатный Anki подтвердил одну updated и одну new, итог2→3. Повтор второго файла дал duplicate=2 и ноль новых. Исходная карточка уровня10 целиком сохранена, расписание и история прежних карточек совпали. SQLite содержит два export_runs со scope=again и word_count2. В temp-wrapper адрес AnkiConnect задан как закрытый loopback-порт9 для принудительного файлового маршрута.
+- Ограничение: genanki сохраняет notes.mod с секундной точностью. Контрольные колоды с одинаковым timestamp при стандартном импорте оставили прежний перевод. Дополнительный прогон с update_notes=ALWAYS также оставил прежний перевод, поэтому рекомендация ALWAYS как обхода этой коллизии отозвана ведущему. Условие более позднего timestamp для успешно обновившихся колод проверено. Эта граница воспроизведена управляемым timestamp в тестовой генерации; сквозной штатный экспорт без подмены времени прошёл.
+- Пробы запускались native PowerShell и conda kindle_app Python3.11; импорт выполнял установленный Anki Python3.13 с его Rust backend. Новая версия Anki, окно ручного диалога, AnkiConnect и замороженная сборка для этого изменения не проверены. Коммита и публикации нет.
+
+## 2026-11-24 — Фронтенд: редкие реплики лиса и живой огонь
+- Область: только fox-lantern.tsx/css, fox-figure.tsx и новый локальный fox-lantern.test.tsx. Добавлен quiet для подавления речи при занятости/ошибке; Home и подключение остаются у ведущего. Исторический прототип не содержал обещания приветствия кликом, поэтому не изменён.
+- Реплики: первая через 8 секунд активной сцены, следующие через 60 секунд после закрытия предыдущей; четыре короткие русские фразы идут без немедленного повтора. Общий для экземпляров отсчёт сохраняет паузу при навигации. Кнопка «Реплики лиса» с aria-pressed хранит выбор в localStorage, переключение откладывает речь на минуту. Фонарь больше не является кнопкой приветствия. Escape убирает текущую реплику, фокус не захватывается.
+- Unicode-набор по кодовым точкам, полный текст доступен отдельно при aria-live=off. Reduced motion и motion=false дают целый текст без анимации. Visibility/IntersectionObserver приостанавливают речь и жесты. Таймеры удаляются, передача фокуса при unmount сохранена. Бумажное облачко получило собственный округлый SVG с общим изогнутым хвостом, Caveat 23px и чуть тёплую бумагу; фиксированная пустая высота и прежний PencilFrame удалены. Скрытый полный текст резервирует размер конкретной фразы, полоса под постоянный переключатель не прыгает.
+- Пламя и две группы источника/отражения синхронно колышутся за 5.8 секунды с неравными акцентами 18/31/48/73/81%, яркость 94–104%. Общая дневная прозрачность сохранена. Прежняя 40-секундная режиссура тела не изменена.
+- Проверки: финальные npm run build и два focused Vitest прошли. Полный Vitest в промежуточном состоянии общего checkout: 138/139, один внешний сбой mock-backend.test.ts ожидал newBatch без нового availableIds; ведущий уведомлён. Первый build временно остановился на параллельном quantity/HomeViewProps, после интеграции прошёл. В браузере 1443 проверены первая речь, cooldown после переключения, сохранение выбора после reload, Escape, отсутствие захвата фокуса, статичный reduce, пауза hidden и вне viewport, отсутствие дневного пламени. Скриншоты реальной Главной 600/1440 в обеих темах в ignored .app-data/fox-home-*.png; кадры hold с opacity 1. Дополнительно просмотрен 390 и исторический стенд. Передано ведущему наблюдение о возможном выходе длинной подсказки экспорта под фигуру на 600; чужая Home-область не менялась.
+- Ограничения: native/Tauri и реальный screen reader не запускались; окончательная визуальная приёмка у ведущего/UI/QA. В preview при HMR встречалось существующее предупреждение повторного createRoot; предупреждений SSR useLayoutEffect от компонента нет. Без коммита.
+
+## 2026-11-24 — Инженер интеграции с Anki — Приёмка устранения секундной коллизии
+
+- По поручению ведущего согласовал проверку с бэкенд-разработчиком и проверил итоговые _package_timestamp/_previous_anki_seconds через полный export_words(scope=library). Продуктовые исходники не редактировал.
+- Первый естественный тест со стартами двух запросов в одну wall-second не достиг условия: первый экспорт на этой Windows занял около1.95с. У другой временной колоды notes.mod и filesystem mtime различались на1с. Это ограничения тестового тайминга, импорта Anki между генерируемыми колодами в таком тесте не было.
+- Для контролируемой приёмки первый настоящий temp .apkg получил mtime=T+.1, что моделирует завершение записи в ту же секунду. Только локальные функции anki_export.time/sleep второго export_words управляются тестом: старт T+.2, реальная логика запросила ожидание0.8с, тестовые часы продвинулись в T+1.001. Внутри второго .apkg notes.mod строго увеличился T→T+1. Системные часы и пользовательские профили не менялись.
+- Штатный import_anki_package установленного Anki25.09.4 без options обновил ровно одну старую заметку и добавил одну новую (2→3). Перевод проверен по сохранённым полям. Исключённый при повторной выгрузке уровень10 остался целиком, прежние note ID/GUID/card ID, заданное расписание и строка revlog сохранены. Повтор второго файла дал duplicate2, новых0.
+- Дополнительный естественный прогон через отдельные JSON-процессы без подмены времени также подтвердил updated1/new1, сохранность прежних карточек и duplicate2 при повторе. Оба прогона выполнены на отдельных временных SQLite и коллекциях, AnkiConnect принудительно направлен на закрытый loopback-порт9. GUI и замороженный мост в этом изменении не проверены. Коммита нет.
+
+## 2026-11-24 — Бэкенд-разработчик: выбор объёма и повторный экспорт
+
+- `library_view.py`, `contracts.py`, `export_cards.py`: `newBatch.availableIds` даёт все подходящие к новой выгрузке ID в том же порядке, что и прежняя порция. `ids` — префикс, `count` — её размер. Писатель повторно фильтрует присланные ID по актуальному каталогу и тому же рассчитанному списку. В обеих v4-фикстурах добавлено поле. Регрессия выгрузила 103 записи, отсеяла прежний экспорт, `skip`, повторяющийся ID и необработанную запись даже с `learn`, включила `rejected + learn`.
+- По уточнению владельца `export_words scope=library` выгружает только явно переданные ID, включая предварительные, ранее отправленные и исключённые вручную. Проверяет актуальные `levels` от 1 до 10, сохраняет порядок запроса, удаляет повтор ID в запросе. После успешной записи файла или подтверждения Anki сохраняет историю со схемным scope `again` и фактическим `is_repeat`; личные решения не меняет. TSV использует штатную схему. Для Obsidian возвращается `no_destination`. Отдельный `export_library_file` не добавлялся, миграции нет.
+- `anki_export.py`: повтор для того же ID использует прежний GUID, текущие поля и тег «повтор». Исправлен одинаковый `notes.mod` при экспорте в ту же секунду. Под блокировкой учитываются история выбранных слов и время готовых `.apkg` в папке, в том числе после потери ответа AnkiConnect. Перед записью пакет однократно ждёт границу секунды и перечитывает часы. При откате нет ожидания до будущего времени и искусственных отметок. Контрольные тесты проверили историю, файл без подтверждения и откат часов.
+- Целевой прогон 127 прошли, полная серия после синхронизации TS-контракта 337 прошли, 1 пропущен. Ruff для изменённых Python и тестов, compileall и git diff --check прошли. Первое чтение новых тестов остановилось на лишней запятой в тестовом comprehension; исправлено до прогона. Сам проверял содержимое `.apkg` и локальный двойник AnkiConnect. Нативный прогон Anki ведёт инженер интеграции, замороженный bridge и устройство здесь не запускал.
+- Отдельное наблюдение: временный экспорт `chose` до анализа, затем канонизация `choose` сохраняют историю, но дают другой GUID после смены канонического ID. Проблема воспроизведена на временной базе, озвучена тимлиду и требует отдельного решения о сохранении идентичности карточки при смене ID. Фикс равных секунд этого сценария не покрывает.
+- SHA-256 к упаковке: `anki_export.py` E34531B58F224E4E7D0FE274712E531DA344422AB231CE49736CDB17EAA03212; `export_cards.py` 3F8F3080D3073F15574162FCCADAEBB5526A792C397413D5C0A95E6718C24243; `contracts.py` CFADB0660466253E959CAF8208A5EA5F8098B6BC921731DBC7E639398EABC102; `library_state.py` BFCEFA733CF45A8595E26BD723B312C84523C43A2387F5920599618B0FD4B7A3; `library_view.py` 348DA2C1CA840E3AA715F6E409F95B1D6328CA73DA6AF109FDF605505BDFE6B7. База ed88fa9, коммит и публикация не выполнялись.
+
+## 2026-11-24 — QA-инженер: независимый браузерный smoke читательского стола
+
+- Проверен стенд 1443 в отдельном Chromium с синтетическими mixed, large, export-error и no-reader. Browser plugin отсутствует, использован локальный Playwright CLI. Продуктовые исходники, личная библиотека и устройство не затронуты. Сборку, общий CI и native по распределению тимлида выполняют другие линии.
+- Полный режим по умолчанию: 133 слова, предпросмотр первых пяти. После решения «Не учить» для admit полный запрос всё равно содержит его и 00:17, scope=library, 133 ID и уровни 1..10. Повторная выгрузка содержит те же 133. Исключение уровня 10 даёт 132 и удаляет уровень и соответствующий ID из запроса. Выбор TSV в Настройках и выгрузка 132 завершились состоянием готового файла. Payload наблюдался тестовой вставкой логирования в ответ mock-модуля браузера без изменения поведения и файлов продукта; это не проверка настоящего файла или Anki.
+- Порция 101 отправляет scope=new и 101 ID; последующий режим всех новых отправляет оставшиеся 24 без пересечения. Ноль, отрицательное, дробное и пустое число блокируют выгрузку. Все снятые уровни блокируют кнопку, уровень 8 сохраняет вручную отклонённый vigilant в предпросмотре. Замечание о фиксированных размерах в Настройках снято после уточнения: произвольный разовый размер вводится на Главной.
+- Первая реплика появилась примерно через 8 секунд, текст рос посимвольно, фокус оставался на BODY. Полный текст доступен отдельно, aria-live=off, Escape закрывает. Отключение реплик сохраняется после reload, за следующие 8.5 секунды сообщения нет. Reduced-motion сразу показывает полную реплику без печати, animation:none для огня и световых групп. Огонь меняет transform в обычном режиме. При тестовой подмене visibilityState и событии visibilitychange сцена неактивна, transform неподвижен и реплика не появляется за 9 секунд; после возврата таймер продолжается. Это имитация скрытия, не проверка настоящей фоновой вкладки. «Найти Kindle» убирает открытую реплику; ошибка экспорта подавляет её более 8.5 секунды, повтор и навигация доступны. Поиск в no-reader заканчивается и снова доступен. Финальный проход без pageerror.
+- Меню приоритетов проверено на 1440 и 600 в тёмной теме: Enter/Space, Home/End, Enter выбора, Escape с возвратом фокуса; 11 radio-пунктов и четыре смысловые группы, выбор 10 оставляет 00:17. Нативный SELECT книги сохранён. Видимые виртуализированные строки содержат непустые причины, совпадающие с mock study_priority.reason. Меню помещается в окно, горизонтального переполнения на 600 нет. Снимки 1440 dark, 600 day и меню dark на обеих ширинах сохранены во временном каталоге kindle-home-speech-qa и просмотрены; дневная сцена без видимого пула света.
+- Во время разработки HMR давал временную ошибку несовместимых main и export hook; на свежих загрузках не воспроизведена. Таймауты тестового стенда из-за переименованных заголовка и кнопки «Попробовать снова», узкой навигации и отложенного фокуса Radix исправлены в проверках, за дефекты продукта не приняты. Порционный проход дошёл до всех утверждений, затем остановился на отсутствующем в узкой навигации переключателе темы; дневной снимок получен штатно через Настройки.
+- Ограничения: следующий интервал реплик 45–80 секунд, полный обход всех виртуализированных строк, реальная фоновая вкладка, физическое устройство, настоящий Anki/TSV, frozen bridge, установщик и другие браузеры в этой партии не проверялись. Дефектов, блокирующих проверенный браузерный маршрут, не найдено. Коммитов нет.
+
+## 2026-11-24 — Фронтенд: компактная геометрия лиса после ревью
+- Только fox-lantern.css: убран безусловный верхний резерв 104px. На 521–680px сцена сохраняет правый карман речи и фигуры, текст ограничен с учётом ширины облачка. Под 520px постоянный float резервирует колонку персонажа, а ниже него текст возвращается на всю ширину. Высота зависит от содержимого, речь не меняет геометрию. Локальная карандашная линия под лапами привязана к baseline фигуры в узкой композиции.
+- Проверены Range.getClientRects всех видимых текстовых узлов против bbox головы, тела, хвоста, фонаря и облачка: 600/390/360 × заполненная/пустая Главная × открытая/закрытая речь — 12 сочетаний без пересечений, координаты h1 и сцены до/после речи совпали. Дополнительно получены кадры preparing на этих ширинах. Снимки fox-geometry-* в ignored .app-data. Итог 600 просмотрен и принят ведущим. npm run build прошёл; предыдущие focused тесты остаются пройдены, изменения только CSS. По замечанию ведущего удалена лишняя пустая строка в конце, git diff --check по CSS чистый. Без коммита, native не запускался.
+
+## 2026-11-24 — Инженер интеграции с Anki — Предварительная форма после канонизации
+
+- По поручению ведущего согласовал fixture с бэкенд-разработчиком. На временном Kindle vocab.db сохранены chose со stem=chose и контекст «She chose a book from the shelf». Все действия import_reader_file, save_card_edit, export_words, process_queue и load_library выполнялись через отдельные свежие Python-процессы JSON-dispatch.
+- Первая полная выгрузка до обработки импортирована штатным import_anki_package Anki25.09.4 с настройками по умолчанию: new1. Карточке заданы review type/queue, due411, interval31, factor2450, reps7, lapses1 и одна запись revlog.
+- process_queue обработал одно слово; повторный импорт той же базы закрепил choose с другим каноническим ID. Сохранённый перевод пережил переход, затем для нового ID задан новый перевод и сделана повторная полная выгрузка. Anki подтвердил updated1/new0: ровно одна заметка и карточка с прежними GUID/noteID/cardID, полным расписанием и revlog. Lemma стала choose, LexemeId соответствует новому ID, Meaning обновился; исходные Word и Context сохранились. Повтор второго пакета дал duplicate1/new0.
+- Использованы новая временная SQLite и отдельная коллекция установленного Anki Python backend. AnkiConnect в test-wrapper направлен на закрытый loopback-порт9; личные данные и профили не открывались. Код приложения не менялся, схема и исправление принадлежит бэкенду. GUI, frozen bridge и объединение двух уже выгруженных форм здесь не проверялись. Изменён только WORKLOG.md, коммита нет.
+
+## 2026-11-24 — Тимлид. Читательский стол и полная выгрузка
+
+Планёрка с продактом и UX зафиксирована в docs/plan/meetings.md. Владелец выбрал полную выгрузку в обычное назначение и исключение отдельных уровней. Пересмотренный контракт отражён в PRODUCT.md и README.md с отдельным описанием для внутренней версии. Текущее основание — ed88fa9. Публикация не запрашивалась.
+
+В main.tsx, Home, контроллере библиотеки, настройках, типах и browser mock подключены три режима. Весь каталог отправляет снимок ID и уровней, новые учебные — весь остаток либо указанную на Главной порцию. На кнопке фактический размер, в списке максимум пять примеров. Учебный размер по умолчанию сохраняет прежние значения настроек. Ручной поиск обходит задержку фонового опроса, совместно использует выполняющийся запрос и показывает результат. Поиск использует действующее обнаружение дисковых и MTP/WPD устройств.
+
+На ревью попросил переделать прямоугольное облачко, добавить неровное мерцание, убрать пустой верхний отступ и освободить текст от пересечений с рисунком при 600 px. Проверены итоговые кадры. UI-дизайнер принял образ, предложил равномерно разложить десять уровней выбора. Теперь у уровней две строки по пять. UX-исследователь проверил видимое до отправки пояснение о правках в Anki и доступную кнопку поиска, согласовал внутреннюю поставку. Код библиотеки показывает причину в строке, число реальных сохранённых записей поиска и известных книг в карточке. Открытое меню ночной темы просмотрено.
+
+Проверены 142 frontend-теста и штатный Vite build. QA проверил 133 слова, 132 после снятия уровня 10, порцию 101 и следующие 24 без пересечения, пустой выбор, клавиатуру, автоматическую печать и уменьшение движения. Для большого объёма использовали синтетику. Штатный Anki в отдельной коллекции подтвердил обновление перевода, добавление нового слова, сохранение расписания и пропущенного уровня. Нашли два краевых случая — одинаковую секунду сохранения и смену ID предварительной формы после обработки. Бэкенд учёл секундную точность времени импорта и сохраняет идентичность Anki при канонизации. На тестовой паре chose → choose после канонизации подтверждены одна заметка, прежние идентификаторы и история повторений. Автоматическое обновление полей зависит от настроек Anki. Проверка в этой коллекции использовала импорт пакета, а не пользовательский AnkiConnect.
+
+## 2026-11-24 — Бэкенд-разработчик: GUID Anki после канонизации
+
+- `library_state.py` и `library_repository.py` сохраняют ключ заметки отдельно от текущего ID лексемы в существующей таблице metadata. Резервирование идёт транзакционно до записи пакета. Смена ключа под тем же ID и последующая замена каталога переносят привязку. Перед заменой каталогов прежние ID принимаются из сохранившейся истории Anki и legacy-назначения. Если при слиянии у сохранившейся формы есть ключ, используется он. Ключ второй заметки остаётся зарезервированным, чтобы другой лексеме не достался прежний GUID. Операций удаления в Anki и новой миграции нет.
+- `export_cards.py`, `anki_export.py` и `tauri_bridge.py` используют резервацию в штатном и совместимом .apkg-путях. GUID строится из сохранённого ключа, поле LexemeId содержит текущий ID. `tests/test_export_words.py` проверяет обычный импорт, очередь и повторный импорт при chose → choose, перенос из старой истории и выбор заметки при слиянии двух уже выгруженных форм.
+- Инженер Anki проверил весь переход через отдельные процессы JSON-моста и штатный импорт Anki 25.09.4 на временной коллекции. Импорт обновил одну заметку и добавил ноль. Совпали GUID, note/card ID, расписание и revlog. Lemma, LexemeId и Meaning обновились. Повтор дал одну уже существующую заметку и ноль новых.
+- Целевой прогон 100 прошли. Полный pytest 340 прошли, 1 пропущен. Ruff по списку CI и изменённому тесту, compileall и git diff --check прошли. Восстановление до появления резервации ограничено прежними связями, которые ещё есть в SQLite. Замороженный мост и физический Kindle здесь не проверял. База ed88fa9, коммит не создавался.
+- SHA-256 для упаковки: `anki_export.py` C196156C191A084CCA8E3667F65ACCC6323F3186E506773865E3D8D386E8D2BC, `export_cards.py` A7A60523155654912800D029BA529E37553B1AC5D8B1E433AA0328D9366B6BD6, `library_repository.py` 108569C932B88A239F83719B4227984F21953D9991B4885FAF7EFB7F4B434ACB, `library_state.py` 776F0BB86A2D1EE61845D3E95524F903D0EAD18BFA10A5CA5029D154CF0A2CAA, `tauri_bridge.py` 533C31E9E4E3BA68EFC69BE3D4EF74D98AD4293B95CA05853A79C29DC3CD6BB3.
+
+### Внутренняя сборка читательского стола
+
+Производственный код, тесты и продуктовые документы зафиксированы локально в 9f77358. Итог Python — 340 passed, 1 skipped, Ruff прошёл. Для внутреннего EXE используется com.kindlevocab.cards.preview и заголовок «Kindle Cards — Читательский стол · 9f77358». Первая попытка Cargo с неполным окружением попыталась пересобрать зависимости и остановилась на блокировке build-script Windows. Сборка с conda kindle_app и прежним профилем build override прошла.
+
+При сверке обнаружилась вложенная копия bridge после повторного PyInstaller. Тимлид сохранил исходную staging-папку отдельно и перенёс чистый конечный результат. SHA-256 итогового EXE 99918291010cbc00d1877af6338c47b53ccf8c8d5d75bf981385c09c9e74b941; итогового bridge 6fbb5a4f9400cb748106d49c5a1ac2d80318c9ad36044ff24b74d5950d089c63. Все 258 файлов совпали с результатом повторной упаковки; его smoke проверил штатную обработку и чтение UTF-8 после перезапуска. Список контрольных сумм лежит рядом с EXE в build/internal-reading-desk. Предыдущая версия запущена у владельца, новая выдана отдельным путём. Личные данные и открытое старое окно для приёмки не используются.
+
+Финальная нативная приёмка 9f77358 пройдена на чистом временном профиле Windows WebView2 с тремя вымышленными словами. В действительном окне лис автоматически показал полную рукописную реплику. Кнопка поиска вернула состояние отключённой читалки через тестовый адаптер. Просмотрены снимки Главной и раскрытого ночного меню «Слова». Проверены три отдельных TSV из поставляемого bridge, включая состав строк по Base form. Без приоритета 10 записались glimpse и harbor, полный файл добавил 00:17, повтор сохранил все три слова. Ошибок страницы не зарегистрировано. Нативный поиск с физической читалкой в этом прогоне не выполнялся. Первый сценарий QA пытался ждать реплику сразу после нажатия поиска 30 секунд, что короче предусмотренной паузы; в завершающем сценарии естественная реплика проверена до поиска. Окно закрыто только для собственного тестового процесса.
+
+## 2026-11-24 — Первая попытка native-приёмки читательского стола
+- Запущена отдельная сборка в изолированном временном профиле с синтетической библиотекой и подменой connector_status; действие «Найти Kindle» завершилось состоянием «Читалка не найдена».
+- Сценарий остановился на ожидании автоматической реплики через 30 секунд: после поиска штатный quiet откладывает её на 60 секунд. Окно теста закрыто своим процессом; выгрузки и снимки в этом прогоне не проверены. Завершающий прогон передан ведущему. Реальные данные, устройство и другие окна не затронуты.
+
+## 2026-11-24 — Тимлид. Планёрка об общей полезности слова
+
+Продакт, инженер ранжирования, бэкенд и QA независимо рассмотрели запуск без истории, затем разобрали взаимные возражения о частых связках, артиклях, фразовых глаголах и метрике повторов. На 9f77358 воспроизведён штатный импорт синтетического vocab.db, обработка и загрузка восьми записей с одним поиском в одной книге. У enough уровень 4, although 3, sword и borrow 1. В контроле без штрафа за высокую частоту the поднимается с 8 до 1. Бэкенд отдельно подтвердил потерю признака выражения take off и ограниченность восстановления старых ключей. Наблюдения характеризуют поведение модели, а не предпочтения читателей.
+
+В docs/plan/meetings.md записаны альтернативы, возражения, решение и обязанности. Сначала сравним действующую модель, одну частоту, снятие штрафа и ограниченный гибрид. Книжный охват и учебное ядро NGSL остаются отдельными исследовательскими гипотезами. Первый опыт — слепые пары, следующий — отложенные книги и отдельная проверка длинной истории. Открыты описания источников; загрузок наборов, правок модели, пересчёта личной библиотеки и новой сборки не было. Рабочая версия остаётся 9f77358.
+
+
+## 2026-11-24 — Инженер ранжирования: офлайн-прототип по открытым словарным признакам
+
+- В scripts/research/reading_priority.py добавлены точное нормализованное сопоставление формы CYP-LEX, Zipf wordfreq для одиночной формы, CEFR только при однозначном POS и уровне. Контракт четырёх векторов включает сглаженный logit книжного охвата, индикаторы пропусков и опциональный CEFR one-hot. CLI читает веса из JSON и выводит исследовательские уровни и причины. Без весов показывается доля книг и отдельно частотный резерв. B1 не задаёт уровень автоматически. Только непустые записи без букв получают 10; недостаток признаков даёт предварительную 6.
+- Восемь тестов тестового модуля, Ruff и diff --check прошли. Первый pytest встретил отказ доступа к общему Windows temp, отдельный ignored --basetemp устранил проблему. Smoke CLI на имеющихся локальных CYP-LEX и CEFR проверил точные формы, POS, выражение и запись из цифр и знаков. Для вывода о пользе читателям требуется независимая выборка; оценщик и обучение ведёт тимлид. Продуктовые файлы, личная библиотека и пользовательские данные не использовались. Коммита нет.
+
+
+## 2026-11-24 — Инженер ранжирования: человеческая оценка поверх книжного прогноза
+
+- Выделены scripts/research/study_value.py и tests/test_study_value_research.py. Единый загрузчик исключает 30 единиц контрольных испытаний Wang et al., пустые строки и все варианты дублированного ключа после NFKC/casefold. Raw и независимо подготовленный clean TSV дают один и тот же словарь из 82 848 форм. Ручной POS не выбирает значение в BWS.
+- Базовый книжный прогноз берётся из JSON. При неизвестном книжном охвате используется отдельно обученный частотный прогноз, когда доступна Zipf. С наблюдаемой оценкой людей одиночная форма получает ограниченную поправку по остатку к ожидаемой оценке. Максимальное изменение 0,05, strength 0 сохраняет базовый балл. Если книжного прогноза нет, прямая человеческая оценка остаётся видимой у предварительного уровня 6 и разрешает равенства в этом классе. Уровень 10 сохраняет структурный смысл.
+- 16 focused тестов обеих линий, Ruff и diff --check прошли. CLI проверен на синтетических JSON и TSV в отдельном процессе. Влияние поправки и её значение по умолчанию определяет внешняя оценка ведущего. Продуктовая модель и личная библиотека не использовались. Коммита нет.
+
+
+## 2026-11-24 — Исследование внешних оценок полезности слов
+
+- Сверил первоисточник Wang, Brysbaert & Günther (2026, DOI 10.3758/s13428-026-03051-8) и OSF 4nwgx. Балл Utility основан на ответах 5 526 взрослых носителей английского из США и Великобритании. GPT использован для предварительного отбора по знакомости и анализа признаков. В исследовании 82 880 основных стимулов, включая 47 987 выражений. Оценки даны без контекста. Сама статья CC BY 4.0, а агрегат явно открыт для науки и образования, отдельная лицензия OSF для поставки не указана.
+- Добавил scripts/research/prepare_study_utility.py на стандартной библиотеке. Исходные XLSX и список контрольных предъявлений хранятся во временной папке. Из 82 892 строк исключены 30 контрольных единиц, 12 строк с 6 дублированными формами и 2 строки без Utility. Повторная конвертация дала 82 848 строк и тот же SHA-256 86ed5370b7643e99e794e588a0b841fe20b102a2cd6fe96fc0800843065b8d22.
+- Из опубликованного Appendix 10 Dang, Webb & Coxhead (DOI 10.1177/1362168820911189, CC BY-NC 4.0) извлечены все 146 строк. Прямой загрузчик PDF и ссылки Wiley на таблицу He & Godfroid вернули 403. Приложение Dang удалось прочитать через веб-инструмент, локальный PDF не получен. На 145 совпадающих формах Spearman с оценкой преподавателей: Wang .090, Multilex Zipf .282, CYP-LEX 13+ охват книг .053, CYP-LEX 13+ Zipf .178. Это усечённая выборка со средними баллами 4.00–4.82 и знанием не менее 90%, без подтверждения переноса на читательский выбор.
+- Скачал размеченные тестовые TSV CompLex CC BY 4.0 (917 отдельных слов и 184 выражения) для проверок контекстной сложности. В репозиторий вошёл только конвертер. Данные читателей не использованы, продуктовый рейтинг не менялся. Ruff в conda kindle_app, py_compile, повтор конвертации, сверка checksum и diff --check прошли. В базовом Python Ruff отсутствует. Коммита нет.
+
+
+
+## 2026-11-24 — Инженер ранжирования: справочный корпус для непокрытых форм
+
+- В study_value.py добавлен опциональный JSON справочных книг и режим --resources. Точное попадание при отсутствии базового прогноза даёт сглаженный счётчик книг с указанием охвата выборки. Непокрытая одиночная форма из ASCII-букв получает временный балл класса с прежними порогами и флагом provisional. Непокрытые выражения сохраняют предварительный уровень 6 и имеющуюся человеческую оценку, структурные записи — уровень 10. Продуктовый интерфейс не менялся.
+- 18 focused тестов, Ruff после устранения замечаний о склейке строк и diff --check прошли. Проверены отдельные файлы и --resources в изолированном CLI. Интеграцию собранного справочного корпуса и внешнюю оценку ведёт тимлид. Пользовательские данные не использовались. Коммита нет.
+
+## 2026-11-24 — Тимлид. Внешние данные и исследовательское ранжирование для чтения
+
+- Запрос владельца уточнён в двух раундах. Обязательный B1→1 снят. Для исследования применены 6.2 Sol и отдельная методологическая рецензия 6.2 Astra. В AGENTS.md исправлены старые назначения Sol и blanket-запрет Astra по выбору владельца. Обсуждение зафиксировано в docs/plan/meetings.md, подробный протокол и источники в docs/plan/reading-priority-research.md.
+- Исследовательские программы находятся в scripts/research. Проверены исходные CYP-LEX, CEFR-J/Octanove, ELTeC, Gutenberg, нормы Wang, оценки Dang. Рабочие ресурсы, модели и отчёты подготовлены в игнорируемой .app-data/reading-priority-study. Данные OSF Wang имеют разрешение для исследований и образования; включение в публичную поставку не согласовано. Продуктовую версию 9f77358, личную базу, настройки и экспорты исследование не меняет.
+- 8 000 форм, 400 списков по 20, 42 обучающих, 17 проверочных и 22 отложенных романа разных групп авторов. При равном единичном синтетическом поиске контроль функции rank даёт 0,2299 nDCG@5, общая частота 0,6111, книжный охват 0,6662, их комбинация с CEFR 0,6735. Это оценка повторной встречи. Педагогическую модель проверяли на 6 664 скрытых формах и независимых оценках 145 слов преподавателями. Рабочий CLI с поправкой 0,5 даёт 0,6669 по книжному критерию против 0,6708 при нулевой. Улучшение учебной пользы для целевой аудитории пока не установлено.
+- В пилоте равные линейные пороги помещали слишком много редких форм в одну группу. Сравнили фактический порядок CLI после переноса на фиксированные неравномерные интервалы. Для непокрытых слов предусмотрен предварительный прогноз класса, для выражений — отдельный счётчик точной последовательности в обучающих книгах. При обновлении границ два теста ещё ожидали прежний порядок; ожидания скорректированы и целевой прогон полностью пройден. Для сборки учебного набора не добавлены зависимости в приложение. Проверены обычный CLI на локальных наборах, режим без поправки, единичные слова, фразы, неизвестная форма и структурная запись. 131 тест ранжирования и исследовательской линии прошёл, Ruff и git diff --check прошли. Пользовательская сборка и личный ranking_eval не запускались.
+
+Независимая заключительная проверка. Исследователь корпусов повторил оба обучающих CLI из исходных таблиц и текстов в отдельный временный каталог. Все шесть JSON побайтно совпали с локальным исследовательским набором. Фактические уровни примеров подтверждены. По его замечанию в отчёте уточнено ограничение поправки концами шкалы 0 и 1, применение только к непредварительным одиночным формам и добавлена контрольная сумма таблицы авторов ELTeC.
+
+## 2026-11-24 — Подготовка приватной сборки Open Research
+- Подготовил ignored staging `build/internal-openresearch-coverage/` и Tauri-конфиг с ID `com.kindlevocab.cards.preview`. Проверил PyInstaller 6.22.3, Cargo 1.96.1, Node v26.4.0 и наличие Tauri CLI и локальных NLTK-ресурсов.
+- Frozen lookup ожидает компактную модель рядом с мостом в `models/rp-v2-coverage.sqlite`. Исходная локальная модель существует. Условия CONLIT остаются в исследовательской документации. Модель пока не копировал.
+- После сигнала сверить ревизию и входные SHA-256, собрать новый мост и Tauri, положить модель только в staging `bridge/models`, проверить синтетический import/reload/export и сверить SHA-256. Компиляцию и smoke пока не запускал. Менял только staging-конфиг и журнал.
+
+## 2026-11-24 — Инженер ранжирования. Локальная проекция RP-V2
+
+- Добавлены kindle_vocab_app/book_coverage.py, scripts/import_openresearch_coverage.py и tests/test_book_coverage.py. Импорт проверяет фиксированный SHA-256 ranker.json.gz, читает исходный gzip или тот же вложенный ресурс из research-kit-v2.zip и атомарно заменяет игнорируемую .app-data/models/rp-v2-coverage.sqlite. В проекции только точные значения coverage, связи aliases и хеш источника. Равный вес авторов указан в русской причине доли современных романов. Для непокрытых, невалидных форм и выражений используется отдельная причина предварительного уровня 6. Уровни 1–9 используют восемь исследовательских порогов, математический ноль отличается от пропуска, небольшие положительные доли не округляются до нуля.
+- Текущий workspace заполнен из имеющегося research-kit-v2.zip. Импорт напрямую из gzip в отдельный игнорируемый каталог дал побайтно тот же результат. SHA-256 проекции 17987a224bb01452aef7e87379552c52355e75dc45537c2c442fb6f922de6e1e, 4 628 480 байт, 184 933 строки, 1 885 aliases, 3 263 NULL. SQLite integrity_check и полная сверка таблиц с исходником прошли. 186 827 вызовов совпали по числу или его отсутствию с rank.py score_record для coverage. Переход к одной транзакции чтения на запрос уменьшил время замера 10 000 индексных обращений с 2,236 до 0,086 с на этой машине.
+- Четыре адресных pytest, Ruff и diff --check прошли. Точный ноль проверен синтетикой, поскольку в зафиксированном источнике его нет. Первый запуск временной сверки через -m с относительным именем модуля отклонён Python, запуск файла с рабочим корнем в PYTHONPATH прошёл. Portable fallback рядом с frozen sys.executable проверен синтетически, реальный frozen bridge в этой линии не запускался. Корпус и пользовательские данные не скачивались, упаковка и пользовательская библиотека не менялись, коммита нет.
+
+## 2026-11-24 — Подготовка native-приёмки RP-V2
+- Подготовлена временная копия изолированного драйвера с пятью вымышленными записями и проверкой списка и карточек. Прокси возвращает отключённый Kindle и пропускает только необходимые операции к штатному bridge.
+- До получения точного EXE приложение и тест не запускались. Итоговые уровни и причины необходимо сверить после готовности модели и сборки; личная библиотека и устройство не использовались.
+
+## 2026-11-24 — Бэкенд-разработчик. RP-V2 в библиотеке и экспорте
+
+- Подключил один локальный снимок книжного охвата к ответам библиотеки, решениям и экспорту. В `library_view.py`, `tauri_bridge.py`, `export_cards.py` и `contracts.py` добавлен `studyPrioritySource`; без модели остаются прежние приоритет и порядок новой порции. При наличии модели готовые и отклонённые записи оцениваются без обязательной даты поиска, ожидающие и ошибки получают предварительный 6, а обработанные записи без букв — 10. Совпадающая исходная форма разрешает alias. Многословный display_form сохраняется для оценки целого выражения. Старые полки, допустимость новых слов и Anki-ключи не менялись.
+- Новая порция сортирует допущенные слова по группам: измеренные, предварительные, структурные 10. При равном уровне учитываются балл и ID. Полный экспорт требует явный снимок ID, сохраняет его порядок и проверяет текущий уровень.
+- В `tests/test_export_words.py` отдельные процессы JSON-моста проверяют режимы без локальной модели и с синтетической SQLite-моделью, решение, явный и неявный scope=new, scope=library с уровнями и отказ при пропущенном снимке. Прошли 71 проверка экспорта, библиотеки и загрузки модели, Ruff для изменённых файлов с исключением старого BLE001 в tauri_bridge.py, а также git diff --check.
+- Нативная сборка, личная библиотека, устройство и Anki в новом сценарии не запускались. Ранее утраченная при канонизации исходная фраза из SQLite не восстановится. Коммит не создавал.
+
+
+## 2026-11-24 — Фронтенд. Порядок RP-V2 по книжному охвату
+
+- Источник studyPrioritySource проходит из снимка библиотеки в Главную и каталог, а после set_decision читается из ответа или наследуется для старого моста. Каталог и полный экспорт сортируют общим компаратором RP-V2 по классу (измеренные 1–9, предварительные, структурный 10), уровню, баллу по убыванию и ID. Главная считает уровни отдельно от порядка; фильтр полного экспорта сохраняет последовательность выбранных записей. Состав «Все новые» и «Порция» прежний, их порядок уже приходит в newBatch.availableIds от backend. Точный фильтр уровня и смысл галочек сохранены.
+- При RP-V2 скрыты старые объяснения важности и предупреждение о малом числе поисков. Причина приоритета приходит из study_priority, реальные числа сохранённых поисков и книг в карточке доступны отдельно. Legacy порядок и объяснения сохранены. Браузерный пример ?scenario=coverage использует вымышленные фиксированные доли, неизвестные уровни и структурную запись. Старые сценарии mock сохранены.
+- Сверены с backend порядок новых слов, фильтрация снимка и порядок экспорта каталога. TypeScript, production Vite в отдельный игнорируемый каталог, полный Vitest (145/145) и diff --check по src прошли. Первичный Vitest в песочнице Windows упал при чтении esbuild родительского пути конфига; повтор вне песочницы прошёл. npm сообщил о предупреждении существующего allow-scripts.
+- Ручной браузер, нативный Tauri и файловый экспорт этой линией не запускались. Правки только src и эта запись; без коммита.
+
+
+## 2026-11-24 — QA-инженер. Независимая проверка RP-V2
+
+- Chromium, локальный Vite, сценарии coverage и mixed. На 1440×1700 проверены все 13 строк: восемь рассчитанных, включая уровни 8 и 9 перед четырьмя предварительными 6, структурный 10 в конце. Равные баллы dread и glimpse сохраняют порядок ID. Фильтр уровня 6 оставляет сначала рассчитанное слово, после сброса возвращаются исходный состав и порядок. Первые пять на Главной совпадают с каталогом, выключение и включение уровня 2 сохраняет порядок. В mixed сохранились прежнее возрастание уровней и порядок предпросмотра. Ошибок страницы нет.
+- На 600×900 проверены порция из трёх слов и полный режим с выключенным уровнем 10. Порядок ID порции совпадает с предпросмотром, полный запрос содержит 12 ID и уровни 1–9. Оба mock-экспорта завершились. Запросы наблюдались через временное логирование в браузерной копии mock-модуля. Снимки сохранены во временном QA-каталоге, узкий кадр просмотрен, горизонтального переполнения нет.
+- Реальная локальная проекция импортирована из имеющегося ranker.json.gz во временный профиль с 13 синтетическими записями. Отдельные штатные JSON-процессы проверили load_library и export_words. Сортировка newBatch совпала с независимой проверкой по SQL-значениям, включая разные баллы одного уровня и готовый 9 перед предварительным 6 и структурным 10. Порция дала пять строк TSV в порядке рейтинга при обратном списке ID запроса. Полный режим без 10 дал 12 строк в порядке снимка, включая прежние пять. После снятия модели мост вернул legacy и все 13 записей. 71 адресный pytest прошёл.
+- При первичном обзоре передано отсутствующее подключение source в каталоге промежуточного дерева. Финальный smoke подтвердил исправление. Перезапуск Vite после запрета esbuild на обход родительского каталога прошёл с одобренным запуском. Риск замены модели между preview и выгрузкой рассмотрен по коду, гонка не воспроизводилась в проверке. Установщик, физическая читалка, реальные Anki и личная библиотека не использовались. Исходники не менялись, основа 9f77358.
+
+## 2026-11-24 — Внутренняя сборка Open Research
+- Подготовлена приватная Tauri-сборка и свежий frozen bridge из текущего рабочего дерева. Модель `rp-v2-coverage.sqlite` скопирована только в `build/internal-openresearch-coverage/bridge/models/` после сверки ожидаемого SHA-256.
+- Проверки bridge: стандартный frozen smoke, synthetic load_library с источником `rp-v2-coverage`; все 3 demo-записи получили приоритет. Офлайн модель совпала с утверждённым SHA. Vite и Tauri `--no-bundle` завершились успешно.
+- Артефакты находятся только в ignored `build/internal-openresearch-coverage/`. Старые установленные/публичные сборки не менялись. Ручной native QA не выполнялся. Условия CONLIT сохранены в исследовательском документе и не перенесены в ресурсы поставки.
+
+## 2026-11-24 — Изолированная native-приёмка RP-V2
+- В отдельном WebView2 с пятью вымышленными заранее обработанными записями: borrow — уровень 2 и охват 72,32%, sword — 3 и 45,55%, harpoon — 7 и 4,64%. Они идут в этом порядке; причины указывают современные романы выборки и равный вес авторов.
+- give up сохранилось как выражение с предварительным уровнем 6 и причиной отсутствия расчёта для целой фразы; 00:17 — уровень 10, «В записи нет букв». Карточки и читаемый ночной снимок списка проверены.
+- Первый временный сценарий слишком рано снял очередь и показал предварительные оценки; повтор использовал готовые записи. Реальный импорт и переход очереди в этой приёмке не проверялись. Реальные данные, устройство и прочие окна не использовались; исходники не менялись.
+
+## 2026-11-24 — Тимлид. Книжный охват Open Research RP-V2 в Kindle Cards
+
+- Прочитал отчёт, определения исходов, исходный код ранжировщика, исследовательский реестр и исходную таблицу сравнения из комплекта RP-V2. Проверены SHA-256 архива и 128 записей манифеста. Зафиксированы обучение на 771 романе 636 авторов, проверка на 393 романах 315 авторов и результаты P@5 для охвата с равным весом авторов 0,7710, доли книг 0,7711, общей частоты 0,6442 и прежнего исследовательского варианта 0,6913. Методика и основания для локальной поставки описаны в PRODUCT.md и docs/plan/openresearch-integration.md, обсуждение записано в docs/plan/meetings.md.
+- Согласовал единый порядок для каталога, предпросмотра, порций и полного экспорта. Продакт предложил общую частоту для пропусков; оставлена предварительная 6 с конкретной причиной, чтобы значение процента в списке было однозначным. UX-дизайнер указал, что стрелка сортировки вводит в заблуждение при 9 перед предварительной 6. Убран знак в заголовке, рядом с фильтром пояснён порядок. UI-дизайнер проверил узкое окно. Режим точных выражений на 422 пересказах доступен в локальной копии исследовательского CLI. Его результаты и off-line smoke подтверждены напрямую.
+- Добавил необязательную проверку --coverage-workspace в ranking_eval.py. При одних и тех же двух общих временных срезах personal ranking_v2 дал AUC 0,642 и P@50 0,32; RP-V2 дал 0,589 и 0,05. Измеряется повторный поиск за 42 дня в одном профиле. В исследовании измеряется встреча в новой книге. Существующие показатели совпали до и после. Исходные записи читателя и личные слова в журнал не внесены.
+- Первый полный pytest обнаружил, что проверка старого формата сравнивала новый необязательный ключ studyPrioritySource с прежним снимком. В tests/test_library_migrations.py добавил ключ в список расширений старого формата и отдельную проверку legacy. Финал — 363 passed, 1 skipped; frontend 145/145, TypeScript/Vite, Ruff изменённых модулей, compileall и diff --check прошли. Команда проверила браузер, реальный порядок TSV, обе ветви bridge и явно выбранные уровни. Условия CONLIT требуют уточнения для внешнего распространения.
+- Выпущена локальная переносная сборка в build/internal-openresearch-coverage/ с отдельным именем и моделью в bridge/models. SHA-256 EXE 92f25096d735842e3d7d5a8cb1b500067efb947373949bbb3d728b771b94bf20. Проверил SHA-256 EXE, bridge и модели; сохранил манифест и указание источника рядом с EXE. Приёмщик проверил карточки в настоящем окне на пяти подготовленных записях. Дополнительно прогнал через frozen bridge импорт вымышленного vocab.db → очередь → загрузка новым процессом → повторный импорт. Получены уровни 2/3/7 для borrow/sword/harpoon, предварительная 6 для give up и 10 для 00:17. Повторный импорт добавил ноль слов. Коммерческая поставка, физическое устройство и реальная коллекция Anki не проверялись в этом изменении. Публичный релиз не выполнялся.
+
+## 2026-11-24 — Подготовка staging Personal Priority
+- Создан отдельный ignored-каталог `build/internal-personal-priority/` и проверен Tauri JSON-шаблон с preview ID `com.kindlevocab.cards.preview`.
+- Подготовлен путь модели `.app-data/models/rp-v2-coverage.sqlite` для последующего копирования только в staging bridge/models. Production backend пока не замораживался, PyInstaller и Tauri не запускались.
+- После сигнала обновить commit в заголовке, снять сигнатуры источников и собрать свежие bridge/EXE по прошлому рабочему staging-процессу. Проверки, smoke и WORKLOG выполнить после сборки.
+
+## 2026-11-24 — Подготовка native-проверки Personal Priority
+- Подготовлен отдельный временный сценарий с двумя синтетическими профилями: один поиск sword и отдельный профиль с поисками sword и give up в двух вымышленных книгах; также включена запись 00:17. Сценарий использует изолированный WebView2 и блокирует обнаружение читалки.
+- Сборка до сигнала не запускалась. Ожидаются проверка причин, процентов и уровней в карточках и снимок; реальные данные и устройство не использованы.
+
+
+## 2026-11-24 — Инженер ранжирования: поправка к книжному охвату по личным эпизодам
+
+- В book_coverage.py реализовал чистую personalized_priority(base, lookups). Считает разные пары UTC-день и ключ книги, исключает записи без даты или ключа и источники с ключами koreader:/kobo:. Отдельного синтетического ключа без книги в исходниках не найдено, существующие резервные даты подставляются с пустым ключом. Первый поиск ничего не меняет, поправка ограничена множителем шансов 2.
+- В результате coverage_score хранит исходный охват либо null. Неизмеренная запись остаётся на предварительном уровне 6, её score служит только для порядка среди предварительных. Прибавка сопровождается пояснением фактов, исходный процент не изменяется. У нулевого и полного охвата и структурных записей личной поправки нет.
+- Первый граничный тест воспроизвёл пересечение двух порогов из-за округления непосредственно ниже 0,20. Явно ограничил повышение одним уровнем, сохранил формулу оценки. Первый прогон tmp_path также получил WinError 5 в общем каталоге pytest; повтор с отдельным ignored basetemp прошёл.
+- tests/test_book_coverage.py: 15 прошли, Ruff и diff --check прошли. Проверены пороги, UTC и дубли, неполные источники, 0/null/1, разные пары эпизодов, предварительные записи и неизменность исходного объекта. Интеграция, итоговая сборка и ranking_eval с реальной библиотекой ведутся отдельно. Изменены только собственные файлы и эта запись. Базовый коммит 9f77358, собственного коммита нет.
+
+
+## 2026-11-24 — Инженер ранжирования: точная граница личной поправки
+
+- Устранил обнаруженный QA пограничный случай в personalized_priority. При C=0,60 и множителе 2 прежняя арифметика float давала 0,7499999999999999. Теперь поправка и классификация идут в точных дробях от кратчайшего десятичного представления входа, в payload возвращается float. Пороги заданы единым набором точных значений, включая 1/3. Прежний предел повышения на один уровень сохранён.
+- Регрессия в tests/test_book_coverage.py проверяет 0,60 и соседний меньший float: первый даёт уровень 1 и score=0,75, второй остаётся на уровне 2. Целевые pytest 16 прошли, Ruff и git diff --check прошли. open_model и источник модели не трогал. Изменение в моей зоне заморожено; сборка и полный набор тестов не запускались. База 9f77358, собственного коммита нет.
+
+## 2026-11-24 — Фронтенд: персональный приоритет RP-V2
+- В src/types.ts добавлены rp-v2-personal и необязательный nullable coverage_score. Общий компаратор двух источников RP-V2 используется в каталоге, порядке выгрузки на Главной и mock-подборке: измеренные, предварительные (порядок по баллу при равном уровне), затем структурный 10.
+- Главная и каталог выводят точное предложение моста о найденном основании для повышения, карточка показывает полный текст и отдельно фактические записи поиска. Если ожидаемого предложения нет, выводится полная причина. Для personal добавлена подсказка об охвате и повторных поисках. Режим выбирается по ответу моста.
+- В mock ?scenario=personal есть зафиксированные ответы, без реализации формулы. Синтетический dread имеет три книги, книжный охват .60, итоговый .75 и уровень 1. Закреплены порядок, история примера, первое место новой порции, короткая причина и отсутствие прежних причин в карточке обоих режимов. Coverage остался отдельным совместимым сценарием.
+- Vitest 147/147, TypeScript/Vite и git diff --check по src прошли. Browser plugin not available, использован Playwright. На 1440/600 проверены переход из Главной в карточку, короткая и полная причины, уровень 1 и подсказка каталога. Совместимый coverage проверен отдельно. Первый браузерный прогон выявил длинную причину в строке каталога, после общей функции сокращения повторный прогон прошёл. Снимки в игнорируемой папке .app-data/rpv2-personal-*.png. Нативный клиент, физическая читалка и личная библиотека не проверялись. Без коммита.
+- При заморозке базовый mock coverage для dread также установлен на .60 (уровень 2). Регрессия сопоставляет его напрямую с coverage_score персонального сценария, где итог .75 и уровень 1. Повторные Vitest 147/147, TypeScript/Vite и diff --check по src прошли.
+
+
+## 2026-11-24 — QA-инженер. Персональный приоритет RP-V2
+
+- Проверен штатный внешний JSON-мост на изолированном профиле. 21 синтетическая запись проверяет единичный поиск, повтор в одной паре книга/UTC-день, границы UTC при разных смещениях, несколько книг, потолок прибавки, невалидную дату, пустую книгу, KOReader/Kobo в смеси с Kindle, записи Obsidian, края книжной шкалы, предварительную группу и структурный 10. Временная проекция содержит независимые значения C и не затрагивает ресурс поставки.
+- В промежуточном коде воспроизведён пограничный дефект C=0,60 и m=2. Округление давало 0,7499999999999999 и уровень 2. После исправления подтверждены 0,75 и уровень 1; при C=0,599999999 уровень остаётся 2. Объяснение хранит исходные 60%. Независимый повтор прошёл целиком.
+- Ручное «не учить» сохраняет приоритет и исключает запись из новых. Новая порция записала пять строк TSV в порядке рейтинга, полная выбранная выгрузка без уровня 10 записала четыре строки в порядке снимка. Перезагрузка после выгрузки не изменила приоритеты. Импорт вымышленного vocab.db через обычный вход и очередь дал три записи в двух книгах, m=1,5. Повторный импорт добавил ноль слов и сохранил три записи и оценку. Снятие модели включило legacy. 45 адресных pytest прошли.
+- Chromium на отдельном Vite, сценарии personal, coverage и mixed. Проверены каталог, карточка, совпадение первых пяти с Главной, короткая причина повтора, исходные 60% в полной причине, лидер среди предварительных уровня 6 и структурный 10 в конце. Фильтр и сброс восстанавливают порядок, ручной пропуск исключает только из новых, legacy сохраняет прежний порядок. На 600×900 два вызова mock-выгрузки завершились: порция 3 с ID в порядке предпросмотра и полные 12 ID без уровня 10. Снимки сохранены во временном каталоге, узкий просмотрен. Финальный проход без ошибок страницы.
+- Первые браузерные попытки выявили промежуточный HMR и неактуальное ожидание полного книжного пояснения в короткой строке; стабильная загрузка и проверка полной причины в карточке прошли. В промежуточном mock также передано несоответствие уровня и оценки dread. Исходники продукта не менялись. Нативное окно, реальный Anki и устройство в этой партии не использованы. Финальный расширенный корпус ожидается для отдельного контрольного прогона.
+
+## 2026-11-24 — Инженер корпуса. Пересчёт авторского охвата современных романов
+
+- В scripts/research/expand_novel_coverage.py воспроизвёл исходную модель на локальном CONLIT v1. Проверены SHA-256 обеих исходных таблиц и пяти замороженных файлов RP-V2. Совпали все 181 670 исходных измерений и контрольное P@5. Добавлены 251 взрослый англоязычный роман 2002–2016 годов, 189 авторов, ранее валидационная часть. Итого 1022 книги 825 авторов, 2001–2016. Не пересекаются ни идентификаторы, ни авторы обучения, 393 тестовых и всех 161 исходных книг, в том числе 24 источников списков, и юношеской части. Каждый автор по-прежнему имеет один голос.
+- Приватный вывод .app-data/expanded-corpus/ranker.json.gz содержит 212 857 ключей, среди них 27 924 новых, плюс 1885 исходных соответствий форм. 126 ранее неизмеренных ключей получили охват, осталось 3137 null. Зарезервированные написания исходных alias не перехватывают прежние соответствия. Новые строки включают также имена и варианты написания. Из мешка слов порядок выражений не восстанавливался. Два независимых запуска дали одинаковый SHA-256 952f50b48899fa4e8fc34a85c8997a16f8e623ae97d589ca0a6ce180f307b842.
+- На 240 неизменённых списках по 20 слов и 393 тестовых романах (315 авторов) P@5 с равным весом авторов 0,77100331 → 0,77094175. Из 471 600 сырых позиций попаданий 365 500 → 365 454. Состав пятёрки поменялся в 25 из 240 списков. Парная разность −0,00006155, 95% процентильный интервал для 5000 перевыборок тестовых авторов с фиксированными источниками [−0,00037610; +0,00025594]. Преимущество не установлено. Сохранился контрольный evaluation.json с числами и хешами входов. Тест оценивает встречу в книге. Тексты и данные читателей не использовались.
+- Для внешних новых романов добавлен отдельный --supplement с проверкой метаданных, псевдонимов/фамилий контрольных авторов и дедупликацией произведений. По всем 2754 строкам CONLIT отсутствуют фамилии шести намеченных независимых авторов проверки. В tests/test_expand_novel_coverage.py прошли 3 проверки веса по автору и запрета пересечений. Первое замечание Ruff к оформлению исправлено, финальный Ruff и diff --check чисты. Данные и модель хранятся только в ignored .app-data. Личные поиски, качество запоминания, UI и native этой линией не проверялись. Коммита нет.
+
+
+## 2026-11-24 — Инженер ранжирования: краткая причина личной поправки
+
+- В personalized_priority добавлено опциональное personal_reason только при фактической прибавке. Оно описывает поиски в разные дни одной книги, поиски в разных книгах или обе причины. Для предварительной группы поле также присутствует, когда поправка влияет на порядок. Полное reason, исходный coverage_score, формула и open_model этой правкой не изменены.
+- В своих тестах проверил три формулировки, предварительную группу и прежнее отсутствие поля без поправки, в том числе при нулевом и полном охвате. Целевой pytest: 17 прошли. Ruff и diff --check прошли. UI, полный набор и сборка в этой задаче не запускались. Собственного коммита нет.
+
+
+## 2026-11-24 — QA-инженер. Расширенный ресурс RP-V2
+
+- Кандидат ranker.json.gz с SHA-256 952f50b48899fa4e8fc34a85c8997a16f8e623ae97d589ca0a6ce180f307b842 совпал с разрешённой контрольной суммой загрузчика. Штатный импорт построил expanded SQLite в отдельном временном профиле. Внешний load_library при наличии обеих проекций выбрал расширенную: контрольная лемма получила обновлённый C и ожидаемый C′ с m=1,25, другая получила измеримый охват вместо предварительного.
+- Повреждение только тестовой копии expanded восстановило прежние значения RP-V2, отсутствие обеих проекций включило legacy. В первом диагностическом запросе выбрана слишком широкая разница долей 5 п.п., подходящей строки не оказалось. Повтор с 0,1 п.п. дал наблюдаемую пару, критерий совпадения значений остался точным. Проверена загрузка ресурса и его приоритет, а не перенос качества на читателей. Исходники, рабочая библиотека, frozen bridge и установщик не менялись.
+
+## 2026-11-24 — Фронтенд: короткая причина персонального приоритета
+- После UI-ревью добавил необязательное personal_reason в StudyPriority и сценарий personal. Строки Главной и каталога берут его или reason, карточка сохраняет полную причину с исходным охватом. Разбор русского предложения и зависимость от пунктуации удалены. Регрессия проверяет самостоятельные формулировки и запасной вариант для coverage.
+- Vitest 147/147, TypeScript/Vite и diff --check по src прошли. Финальная проверка этой правки выполнена на браузерных данных через Vitest, нативное окно и визуальный прогон после смены текста не запускались. Без коммита.
+
+
+## 2026-11-24 — Бэкенд-разработчик: персональный приоритет RP-V2 в мосте
+
+- В library_view.py подключил гибрид к готовым и отклонённым записям, для которых мост уже строил RP-V2. Продукт и оценка используют один фильтр is_personal_lookup: принимает датированные поиски Kindle с идентифицируемой книгой, точное выражение либо однословную форму из канонической группы. Пустые ключи книги исключены, поскольку хеш SQLite скрывает префикс исходного ID KOReader/Kobo. Структурные и ожидающие записи сохраняют прежнюю оценку, учёт ручных решений и экспортных событий прежний.
+- В contracts.py описал rp-v2-personal, исходный coverage_score с возможным null и необязательную непустую строку personal_reason. Валидатор и подборка используют один порядок RP-V2. Регрессия обнаружила прежнюю проверку порядка по старому рангу и прошла после сверки с компаратором моста.
+- В tests/test_export_words.py проверил порцию, фильтр полного TSV, сохранение приоритета после ручного решения, старые однословные формы, точное выражение, предварительную оценку и повторный импорт KOReader без книги. Отдельно проверены допустимые и недопустимые personal_reason. До последнего поля прошли 89 целевых тестов, с полем прошли 46 целевых тестов. Ruff, compileall и git diff --check в своей области прошли.
+- Первый полный прогон дал 377 passed, 1 skipped и нестабильный PermissionError в тесте повторной загрузки обложки. Группа из 42 тестов с тем же тестом прошла. Физический Kindle, личная библиотека и упакованный клиент в этой проверке не задействованы.
+- SHA-256 для заморозки: library_view.py D135447B, contracts.py A0AE610C. База 9f77358, собственного коммита нет.
+
+
+## 2026-11-24 — Бэкенд-разработчик: итоговая проверка RP-V2
+
+- Повторный полный pytest с отдельным basetemp прошёл: 382 passed, 1 skipped. Ошибка прав доступа в тесте обложки не повторилась. Финальные 46 целевых тестов прошли с personal_reason, сформированным моделью. Хеши моста совпадают с указанными при заморозке.
+
+## 2026-11-24 — Пересборка frontend Personal Priority
+- По подтверждённому финальному frontend состоянию (147 тестов, `personal_reason` без regexp) выполнены production Vite и Tauri `--no-bundle` в `build/internal-personal-priority/`.
+- EXE пересобран с заголовком шаблонного commit и preview ID. SHA-256 промежуточного frontend EXE: `B0428BE4D789D3FDAD0E057F3D22D018A67B37297CB49DE98C620768C928E076`.
+- Bridge и `rp-v2-expanded.sqlite` ещё ожидают отдельный pin, поэтому комплект не финализирован. Публичные артефакты не менялись.
+
+## 2026-11-24 — Инженер по открытым текстам: современный роман для обучения
+
+- Проверен полный англоязычный роман HarryBlank (Harry Blank) «The Breach Goes On: Bury the Survivors», опубликованный автором в SCP Wiki, завершён 2022-10-10. Источник https://scpwiki.com/bury-the-survivors-hub, CC BY-SA 3.0 https://creativecommons.org/licenses/by-sa/3.0/. Все 18 глав имеют отдельную атрибуцию автора и лицензию. Загружены HTML, в подсчёт вошли только абзацы между заголовком и навигацией. Иллюстрации, заголовки, элементы навигации, сноски и лицензии в текст не попали. Аудит 6671 абзаца не нашёл HTML-комментариев, служебных строк, повторов длинных абзацев или повторов четырёх последовательных абзацев длиной от 120 слов. Жанровый перекос одного романа ограничивает выводы об охвате современной прозы.
+- scripts/research/open_training_novels.py сверяет автора и название со всеми 2754 строками CONLIT, автора дополнительно с замороженными группами и списком независимого внешнего контроля. POS Treebank/NLTK и WordNet отличаются от исходной токенизации CONLIT. Для совместимости исключены размеченные имена собственные и прописные акронимы, применены замороженные алиасы RP-V2, леммы ограничены положительными ключами train+validation. Словари тестовых книг для фильтрации не читались. Получено 186007 слов, 9331 лемма. Локальный манифест хранит SHA-256 исходных страниц, аудиты и версии NLP.
+- Замороженные ignored-файлы .app-data/novel-training/training-presence.json и source-manifest.json в повторном прогоне из отдельной копии получились побайтно идентичными. SHA-256 соответственно 2d90f0cc8716640ad13e4e54cd31272ad50f0ff851dc12da5b9b861eaa805423 и 554127b2df933c488bb18f30d282a76431e92ec5c8b590959b8182ca9211b5cd. Ruff, py_compile и diff --check прошли. Первый расчёт выявил неверное имя поля метаданных, исправлено на Work_Title. Первые PowerShell HTTP-запросы завершились ошибкой TLS, штатное TLS-подключение Python к официальному домену успешно. Itch автора второго кандидата вернул 404, источники других кандидатов в замороженный набор не вошли. По согласованию оставлен один новый роман. Тексты не передавались наружу; интеграция в модель и проверка распространения находятся у ведущего. Базовый коммит 9f77358, собственного коммита нет.
+
+### 2026-11-24 — Инженер корпуса. Заморожена итоговая модель с внешним романом
+
+- В новом отдельном голосе автора учтён HarryBlank (Harry Blank), «The Breach Goes On: Bury the Survivors» (2022, SCP Wiki, CC BY-SA 3.0). Получены 18 глав, 186 007 токенов и 9331 уникальная сопоставленная лемма. Соседняя линия сохранила атрибуцию, ссылки, хеши, правила лемматизации и проверила дубли. Внешние формы сопоставлялись с пространством train+valid, имена собственные и акронимы отфильтрованы на этом этапе. Поэтому новые строки появились от 251 книги CONLIT; внешний текст изменил оценки присутствия уже известных лемм. Полные главы в Git не добавлялись. Атрибуция первоисточника — https://scpwiki.com/bury-the-survivors-hub .
+- Итоговые 1023 книги, 826 авторов, 2001–2022 годы. Доля исходных и дополнительных книг распределена по прежнему правилу одного общего голоса на автора. В .app-data/expanded-corpus/extended сохранены ranker.json.gz, evaluation.json, training-presence.json и source-manifest.json. SHA-256 gzip 60bc1a8f30a8d41bc527a1ba5747508b030faf2e58df213bb341f490b59e15db; входа внешних лемм 2d90f0cc8716640ad13e4e54cd31272ad50f0ff851dc12da5b9b861eaa805423. Итоговые значения для публичных контрольных лемм borrow 73,397%, sword 47,312%, harpoon 5,089%.
+- Вклад последней книги проверен отдельно относительно корпуса из 1022. На прежних 240 списках состав всех пятёрок совпал. В обеих версиях по 365 454 попадания, P@5 0,77094175, условный парный интервал разницы [0; 0]. По отношению к исходным 771 книге результат совпадает с предыдущей записью. Это проверка фиксированных списков и данных авторов, не обобщение о современной прозе 2020-х. Модель заморожена до раскрытия результатов внешней проверки. Сценарий считывает и хеширует одни и те же байты supplement. Ruff и три адресных теста повторно прошли; интеграция и личная проверка выполняются другими линиями. Коммита нет.
+
+
+## 2026-11-24 — QA-инженер. Финальный ресурс Personal Priority
+
+- Проверен extended ranker.json.gz с SHA-256 60bc1a8f30a8d41bc527a1ba5747508b030faf2e58df213bb341f490b59e15db. Штатный импорт во временный каталог дал побайтно ту же SQLite, что рабочая проекция, SHA-256 a24e16fa43a22ab3cdb871b2bc16971997fe97ab1a35ce18ee53119090d96f75. В двух изолированных профилях с одной и двумя книгами запущен внешний load_library. У sword книжный охват 47,31%, score 0,473119425 → 0,573914167, уровень 3 → 2. У harpoon охват 5,09%, score 0,050887813 → 0,074437732, уровень 6 → 6, статус рассчитанный в обоих профилях. Множитель двух книг 1,5, книжный охват сохраняется, personal_reason приходит только при повышении score.
+- Текущие Главная и каталог выбирают явное поле personal_reason с fallback на reason, карточка показывает полный reason. 70 адресных Vitest в четырёх файлах прошли. Финальный frontend проверен адресными тестами и чтением пути отображения. Отдельного браузерного или нативного прогона на этом SHA не было. Исходники не менялись.
+
+
+## 2026-11-24 — ML-инженер: независимая проверка на новых полных романах
+
+- Изолировал шесть оригинальных англоязычных романов пяти авторов, 2018–2025, 481 788 токенов. Barbara Fister — Runtime (2023) и In the Dark (2020), CC BY-NC 4.0. Jim Bowering — The Plainsrunner (2018, выпуск под CC BY-SA в 2025). Nume Mashinini — Vumani (2025, UJ Press, CC BY 4.0). Anne Currie — Utopia Five (2019, CC BY-NC 4.0 с явным разрешением некоммерческого ML). Daniel Meyer-Dinkgräfe — The View across the Bay (2018, CC BY-NC-ND 4.0). Первичные страницы, прямые URL, SHA-256 оригиналов и выделенного основного текста в .app-data/novel-supplement/manifest.json. Полные тексты и словарные множества лежат только в ignored-каталоге для локального некоммерческого исследования.
+- Добавил scripts/research/acquire_open_novels.py. Провёл вычленение по главам EPUB, по основному Story XML издателя Vumani и по диапазонам PDF с исключением оглавления, колонтитулов и дополнительных материалов. EPUB Vumani содержал ошибочные поля автора и названия в OPF, поэтому использован официальный XML с совпадающими издательскими полями и полным текстом. Far Less, Growland и другие романы Cal Poly не включены. Сервер Digital Commons вернул 403 на издательские ссылки. Первый curl остановился на Schannel SEC_E_NO_CREDENTIALS, прямой urllib успешно загрузил включённые источники. В двух PDF фразы не измерялись из-за неоднозначных границ абзацев.
+- Заморожены 240 редких списков по 20 ключей и вторичная панель из 240 всех слов. Одна и та же нормализация и алиасы исходного ranker для обеих моделей, исключение CLOSED_CLASS и равновероятное разрешение ничьих. Поиск ключа в полной книге, P@5 с равным весом 24 исходных книг и 5 целевых авторов, парный bootstrap по обеим осям. Фамилии внешних авторов не найдены в исходном reference/split.json, новые обучающие авторы согласованы отдельно. Непересекаемость скрытых источников wordfreq подтвердить нельзя.
+- Rare P@5: исходная 62,075%, расширенная 61,783%, общая частота 62,538%. Разность расширенная−исходная −0,292 п.п., 95% интервал [−0,733; +0,117] п.п. All: 82,692%, 82,600%, 82,075%, разность −0,092 п.п. [−0,433; +0,200]. Пятёрки c одинаковыми весами у кандидата на 1022 романах и итогового extended совпали на обеих панелях. Исходная модель d75e5ba0…e686, extended 60bc1a8f…15db. Раздельные отчёты evaluation-1022.json и evaluation-extended.json содержат данные по каждой книге и автору. На этой небольшой жанрово неоднородной выборке новое расширение не дало подтверждённого выигрыша. Измерялось появление ключа, человеческих меток полезности нет.
+- Проверки: Ruff, py_compile и проверка пробелов прошли. Ошибку кавычек PowerShell при фразе с апострофом устранил повтор с двойными кавычками. Повтор с заблокированным urlopen дал побайтово одинаковый отчёт (SHA-256 467a462f…0dc5). Проявление точных поверхностных фраз диагностировано только в четырёх структурированных EPUB/XML, без вывода о значениях. Коммита нет. База кода 9f77358. Пользовательские книги и данные не использовал.
+
+## 2026-11-24 — Финальная личная сборка RP-V2
+- Подготовлена внутренняя папка `build/internal-personal-priority/` с EXE и свежим frozen bridge. Expanded SQLite размещена только под `bridge/models/`; книжные материалы не поставлялись.
+- Исправлена раскладка frozen one-folder в staging: содержимое `_internal` сохранено внутри собственного каталога. Первичная проверка выявила ошибочную плоскую копию и не загрузившуюся `python311.dll`; staging очищен только в пределах целевой папки, после корректного копирования frozen smoke и lookup прошли.
+- Smoke: load_demo, llm_config, process_queue (3 слова совпадают с dev Python), UTF-8 save_card_edit/load_library и `rp-v2-personal` для 3 синтетических записей. Модель совпала с pin исходного корпуса `60bc1a8f…e15db`; SHA SQLite зафиксирован отдельно. SHA256SUMS создан для EXE, bridge и модели.
+- Vite/Tauri EXE собран ранее в этом staging. Публичные/установленные сборки не менялись. Native UI приёмка остаётся QA владельца.
+
+## 2026-11-24 — Native-приёмка Personal Priority
+- После исправления раскладки frozen bridge последовательно проверены два изолированных профиля с готовыми синтетическими записями. При одном поиске sword: уровень 3, книжный охват 47,31%; при поисках в двух книгах: уровень 2, тот же охват, отдельная причина «Вы искали в разных книгах». Карточка подтверждает две записи и две книги.
+- give up при двух книгах осталось предварительным уровнем 6 с пояснением отсутствия книжного охвата выражения и учёта поисков; 00:17 сохранило уровень 10 и причину отсутствия букв. Ночной снимок списка просмотрен.
+- Первые два запуска на некорректной раскладке не загрузили интерфейс и были остановлены; после исправления оба прошли. Использованы только временные данные и собственные процессы, устройство и пользовательские окна не затронуты. Реальный импорт в этом прогоне не проверялся, исходники не менялись.
+
+## 2026-11-24 — Тимлид. Расширенная выборка романов и персональный приоритет
+
+- Владелец подтвердил две задачи — совместить оценки и действительно расширить книжный корпус. Специалисты по продукту, ранжированию, корпусам, UX и QA согласовали единый порядок. При одном поиске сохраняется книжный балл. Достоверные возвраты в другой книге или в той же книге в другой день получают ограниченный множитель шансов. Повышение ограничено одним уровнем, решения о выгрузке остаются отдельными. Книжный процент отделён в контракте от гибридного балла. Проценты, объяснение и приоритет проверены в каталоге, карточке, предпросмотре и TSV. Полная методика и ограничения записаны в docs/plan/personalized-book-priority.md, PRODUCT.md и docs/plan/meetings.md.
+- Подключил новую таблицу в обычный и frozen поиск модели и импорт. Поддержаны варианты 1 022 и 1 023 книг и исходная таблица RP-V2. Финальная версия — 1 023 романа 826 авторов, 209 720 измеренных ключей, прирост 28 050. SHA-256 ranker.json.gz 60bc1a8f30a8d41bc527a1ba5747508b030faf2e58df213bb341f490b59e15db. Исходные 393 контрольных романа и их авторы не вошли в обучение. Шесть внешних книг 2018–2025 годов выделены до оценки. На прежней панели P@5 77,100% → 77,094%, на новых книгах в основной диагностике 62,075% → 61,783%. Улучшение точности следующей книги не установлено; больше ключей теперь обеспечено измерением.
+- В ranking_eval добавлены наблюдения по тем же правилам происхождения, точных выражений и времени, что и в продукте. Сравнены книжная и гибридная оценки на одних и тех же прошедших срезах, с чистым чтением профиля. При расширенной выборке AUC для повторного поиска 0,589 → 0,595, P@50 6% → 6%; чистая прежняя личная модель дала 32% на срезах, ранее использовавшихся при её разработке. Тест проверяет границу времени и источник наблюдений. Значимость маленькой разницы на одном профиле не утверждается.
+- Независимые проверки выявили погрешность на границе 0,75 и двусмысленность сокращённого текста в каталоге. Исправлены точные сравнения и добавлено поле personal_reason. Итоговый pytest 382 passed, 1 skipped; Vitest 147/147, TypeScript/Vite, Ruff, compileall и diff --check прошли. При первой проверке поставки обнаружена неверная раскладка библиотек PyInstaller. Релиз-инженер исправил конечную папку bridge/_internal, проверены именно поставляемые EXE/модель и их хеши. Native QA на отдельных профилях прошла после исправления. SHA-256 EXE b0428be4d789d3fdad0e057f3d22d018a67b37297cb49de98c620768c928e076.
+- Самостоятельный сквозной прогон через конечный frozen bridge: обычный импорт вымышленного vocab.db, обработка, добавление второго поиска в другой книге, повторный импорт и загрузка новым процессом. У sword книжная доля 47,31% сохранилась при изменении приоритета 3→2. У give up предварительная 6 и отдельная личная причина. 00:17 остался на 10. При повторном импорте ноль новых слов, с фильтром уровней 2 и 6 TSV содержал ровно три ожидаемых строки в порядке снимка. Новый исполняемый файл, манифест SHA и SOURCES.txt с атрибуцией CONLIT и HarryBlank — в build/internal-personal-priority/. Проверка понимания у читателей, реальный Anki и физическое устройство в эту задачу не входили. Пользовательские данные и тексты книг не входят в поставку; публичной публикации не было.
+
+
+## 2026-11-24 — Коммит и отправка персонального ранжирования
+
+По запросу владельца тимлид отправил ветку codex/card-review в origin. Коммит 6338407 объединяет код книжного и персонального ранжирования, протокол исследования, инструменты подготовки корпуса и тесты. Хеш вершины проверен через git ls-remote. В индекс отобран 41 файл. Личные данные, исходные романы, локальная модель, сборки и рабочие журналы остались в рабочей области.
+
+Перед коммитом прошли git diff --cached --check, TypeScript/Vite, 147 тестов интерфейса и 382 теста Python с одним пропуском. При первом запуске песочница ограничила доступ Vite к конфигурации и pytest к временному каталогу. Итоговая проверка Python прошла с отдельным basetemp. Отправка включила десять более ранних коммитов этой ветки. Готовый бинарный ресурс ранжирования поставляется отдельно от исходников.
+
+
+## 2026-11-27 — QA-инженер. Обогащение карточек и сохранение контекста
+
+- На 6338407 проследил текущие Настройки, «Слова», карточку, JSON-мост и оба штатных экспорта. Настройки показывают провайдера, модель, состояние ключа и пробное подключение. Описание облачной передачи перечисляет слово и предложения, но синтетический запрос также содержит лемму, часть речи и название книги. Кнопка каталога и автоматический режим выбирают все допустимые слова, карточка передаёт один ID. Допуск опирается на старые ready/accepted/importance 3–10, независимо от ручного решения. Тестовый FakeClient получил слово с «Не учить».
+- В двух временных профилях проверены обогащение FakeClient, чтение SQLite, штатный TSV и поля заметок реально сформированного .apkg при отключённом AnkiConnect. Ручной перевод и выбранное исходное предложение сохранились. Генерируемый пример отделён от книжного. TSV не содержит перевода книжной цитаты. Карточка показывает сгенерированный пример и определение под «Подробнее», перевод исходной цитаты там отсутствует.
+- Провайдер получает до двух длиннейших цитат по 400 символов, независимо от ручного выбора. .apkg сохраняет выбранную цитату полностью. Перевод исходной цитаты появляется при совпадении короткой цитаты с первой в запросе. При альтернативном выборе и при совпадении длинной цитаты свыше 400 символов поле ContextTranslation пустеет, потому что сравниваются хеши усечённого и полного текста. Готовое обогащение не запускается снова после такого выбора. Причины переданы тимлиду с точными местами.
+- Прошли 17 адресных pytest, включая тесты обогащения и Anki. Первоначальное предположение о пропаже оформленных полей после enrich опровергнуто штатным dispatch. Маршрут применяет _with_ranking, ответ сохраняет card, decision, ranking и study_priority. Исходники продукта не менялись. Реальный провайдер, ключи, пользовательская библиотека, импорт Anki и браузерный макет в этой партии не использовались.
+
+
+## 2026-11-27 — Тимлид. Проверка контекстного обогащения GPT-6 Luna
+
+По просьбе владельца проверен действующий путь Настройки → test_llm и enrich_lexemes → SQLite → TSV и поля Anki. Использованы два изолированных профиля с одинаковыми восемью вымышленными записями и официальный OpenAI API. У модели gpt-6-luna стандартный reasoning medium; приложение не передаёт отдельный параметр. Ключ использовался только в памяти, данные личного словаря и ключ в артефакты не включались. Исходники продукта и настройки владельца не менялись. Коммита нет.
+
+Первый вызов test_llm занял 7,906 с в bridge, 4,396 с в SDK. Два независимых заполнения восьми карточек заняли 6,481 и 8,451 с, по одному сетевому вызову каждое. Повтор в тех же профилях 0,036 и 0,048 с без обращений к API. Фиксировались длина ответа, токены и реальные шесть полей. Обе партии верно передали значения bank, spring, fine, light, give in; для имени вернули помету, для слова без исходного предложения оставили перевод цитаты пустым. Перевод фразы с address во втором прогоне звучит неестественно. Это две партии на коротких синтетических контекстах, не оценка всей библиотеки. Обе выгрузки TSV содержали по восемь строк. Отдельно записан и затем открыт тестовый пакет Anki первого ответа, проверены восемь заметок и значения ContextTranslation, Example, ExampleTranslation. Anki пользователя не запускался.
+
+Ошибку выбора контекста воспроизвели на bank: при выборе финансовой цитаты вместо речной готовые значение и новый пример остались про берег, перевод выбранной цитаты в Anki пуст. Независимая QA дополнительно обнаружила расхождение критерия обогащения с выбором «Учить», поведение длинных цитат при отсечке 400 символов и лишнее относительно описания в Настройках поле названия книги в запросе. Результат с ответами модели, размеры запросов, замеры и тестовый пакет лежат в локальной игнорируемой .app-data/llm-audit-20261127. Изначально песочница сбрасывала прямое TLS-соединение; официальный адрес проверен по HTTPS, затем живой прогон выполнен через обычное подключение. Первая попытка инициализации одноразовой локальной передачи секрета в Windows завершилась до обращения к провайдеру; после исправления использован только успешный вариант. Дополнительных расходов на повторное обогащение в заполненном профиле не было.
+
+## 2026-11-27 — Подготовка Parallel Enrichment staging
+- Подготовлен новый ignored каталог `build/internal-parallel-enrichment/` с копией принятого UI EXE под целевым именем, Tauri config и expanded SQLite в `bridge/models/`. Старую сборку не менял.
+- В conda `kindle_app` доступен OpenAI SDK 2.44.0. До заморозки проверить PyInstaller inclusion, при необходимости добавить hidden imports только в staging-команду.
+- Python исходники ожидаются. Frozen bridge и smoke отложены до сигнала владельца. Внешние API и ключи не использовались. Публичная установка не менялась.
+
+
+## 2026-11-27 — Бэкенд-разработчик. Блокировка профиля и параллельный клиент обогащения
+
+- В workspace_lock.py вынес общую неблокирующую файловую блокировку и добавил enrichment_run_lock(workspace). Мост тимлида берёт отдельный .app-data/enrichment.lock до выбора кандидатов, занятый профиль получает понятную ошибку. ОС освобождает замок при завершении процесса. В export_cards.py сохранены путь export.lock и прежние коды и тексты ошибок экспорта.
+- В llm/openai_compatible.py синхронизировал выбор режима JSON. Параллельные отказы одного формата сдвигают общий указатель не дальше чем до следующего уже подтверждённого отказом режима, HTTP-запросы выполняются вне блокировки. Ответы HTTP 408, 409 и 5xx временные, 429 и ошибки доступа остаются фатальными.
+- tests/test_enrichment_lock.py покрывает второе обращение через штатный dispatch, принудительную остановку владельца замка, независимость профилей и экспорта, гонку отказов json_schema и классификацию HTTP через MockTransport. Полный pytest: 391 прошёл, 1 пропущен. Прогоны обогащения и экспорта: 65 прошли, актуальные адресные тесты после интеграции: 20 прошли. Ruff, compileall и git diff --check прошли. При переносе Ruff обнаружил лишний import os, удалил его.
+- Проверено нативно на Windows, без сетевых запросов к провайдеру и без личных данных. POSIX-ветку отдельно не запускал. База 6338407, собственного коммита нет.
+
+
+## 2026-11-27 — QA-инженер. Параллельное обогащение OpenAI
+
+- Проверена штатная JSON-точка входа enrich_lexemes на двух временных SQLite-профилях с одинаковыми 1000 вымышленными словами. В контроле переопределён только max_parallel_batches с 4 на 1. FakeClient одинаково ждал 80 мс и возвращал элементы партии в обратном порядке. Замер полного вызова моста, включая сохранение и сборку ответа, составил 29,252 с при одном слоте и 21,675 с при четырёх, ускорение 1,35 раза в этом опыте. Обе ветви сделали ровно 125 запросов по 8 слов, с пиками 1 и 4, сохранили одинаковые 1000 пар слово/перевод. Повтор дал 0 запросов. JSON stdout и ключи ответа совпали. В каждой ветви 125 монотонных событий об обработанных результатах.
+- Временный сбой одной партии из 125 оставил 992 сохранённых результата и остановленный прогресс 992/1000. Следующий запуск отправил ровно 8 оставшихся слов одним запросом. При фатальной ошибке после запуска четырёх партий новых запросов не было, три успешные партии сохранили 24 слова, финал остановлен на 24/48. Повтор обработал только оставшиеся 24.
+- Два отдельных процесса JSON-моста одновременно запросили один профиль с 80 словами. Второй получил понятную ошибку занятости, суммарный пик остался 4. Первый сохранил все 80 слов за 10 обращений, дубли отсутствуют. Для Anthropic, DeepSeek, OpenRouter, Custom, LM Studio и Ollama подтверждён пик 1 и неизменные размеры партии 8 для облачных и 2 для локальных моделей.
+- Подставной конструктор SDK подтвердил max_retries 2 для одной партии OpenAI, 0 для нескольких, прежние 2 для DeepSeek и 0 для Ollama. Адресные tests/test_enrichment.py прошли 11/11. Продуктовые исходники не менялись. Реальные секреты, API, пользовательская база, браузер и frozen bridge не использовались. Замер характеризует только фиксированную задержку стенда. Основа 6338407, изменения в общем дереве проверялись до коммита.
+
+## 2026-11-27 — Внутренняя поставка Parallel Enrichment
+- В build/internal-parallel-enrichment размещены принятый UI EXE и расширенная SQLite-модель, побайтно совпадающие с Personal Priority, новый PyInstaller bridge и перенесённая атрибуция SOURCES.txt. SHA256SUMS.txt охватывает EXE, атрибуцию и весь каталог bridge.
+- Frozen HTTP smoke сначала выявил несовместимые DLL OpenSSL: libcrypto была взята из среды Codex, libssl из conda. В итоговом staging заменены обе на согласованную пару из kindle_app. Проверены размещение _internal, полный состав и хеши файлов моста с учётом этой замены.
+- Штатный bridge из staging через OpenAI SDK отправил на 127.0.0.1 четыре пакета по 8 слов с пиком 4. Повтор из нового процесса отправил 0 запросов. При загрузке подтверждены 32 сохранённых результата и источник rp-v2-personal. Только синтетический профиль и фиктивный токен.
+- Снимок сигнатур Python сохранён после сборки: исходный файл сигнатур не появился. Основа сборки 6338407 с рабочими изменениями. Нативное окно не запускалось. Публичной упаковки нет.
+
+## 2026-11-27 — HTTPS-проверка Parallel Enrichment
+- В конечном frozen bridge выполнен list_llm_models с чистым временным профилем и заведомо фиктивным токеном. Официальный API по HTTPS вернул HTTP 401, мост выдал штатную ошибку аутентификации. Запрос списка моделей выбран для проверки без передачи слов. Реальный ключ не использовался.
+- Проверены Python 3.11.15, OpenAI SDK 2.44.0, PyInstaller 6.22.3, OpenSSL 3.6.3 и побайтовое соответствие обеих DLL из staging окружению kindle_app. Шаги воспроизведения и полные SHA-256 сохранены в BUILD-OPENSSL.txt. Локальный HTTP smoke на четырёх пакетах и повтор без запросов пройдены в предыдущем шаге. Бинарники и продуктовые исходники в этом шаге не менялись.
+
+
+## 2026-11-27 — Тимлид. Большие очереди контекстного перевода
+
+Встроенный OpenAI теперь выполняет до четырёх запросов одновременно, каждый на восемь слов. Диспетчер передаёт ответ только его исходной пачке, пишет SQLite и сообщает прогресс после сохранения. Захват замка происходит до выбора кандидатов. Четыре потока не держат общую блокировку на время сетевого запроса. После 429/fatal новые пачки не отправляются; успешные соседи сохраняются, оставшиеся слова можно перевести повторно. Повторы SDK отключены для параллельного запуска. Профиль допускает одну активную очередь. Прочие провайдеры обрабатывают пачки последовательно. Протокол планёрки дополнен. Изменены enrichment.py, llm/presets.py, llm/openai_compatible.py, tauri_bridge.py, workspace_lock.py, export_cards.py, тесты и справка docs/TECHNICAL.md.
+
+Вызовы штатного JSON-диспетчера к gpt-6-luna на 32 одинаковых вымышленных словах (стандартный medium) дали 24,609 с последовательно, 14,240 с при двух слотах и 7,315 с при четырёх в успешном повторном сравнении. В первом четырёхпоточном опыте три пачки ответили за 4,98–5,61 с, одна получила APITimeoutError. Длительность того запуска 120,087 с, готовы 24/32. Оба опыта сохранены раздельно в игнорируемом каталоге, провайдер получил только искусственные предложения; сам ключ использовался в памяти. Тысяча слов не отправлялась в облако. На 1000 синтетических слов в штатном bridge с задержкой 80 мс тестовый провайдер получил ровно 125 запросов; 1 и 4 слота заняли 29,252 и 21,675 с. Пик 4, повтор 0. При тайм-ауте одной пачки сохранились 992 слова, повтор затронул только 8. Отдельно проверены отказ по квоте с поздними успешными ответами, блокировка второй копии и освобождение после остановки процесса, корректная привязка переводов, цитат и прогресса.
+
+Полный pytest на Windows: 393 passed, 1 skipped; набор Ruff из CI и дополнительные проверки изменённых модулей и тестов прошли. В расширенном линте всего tauri_bridge.py осталось прежнее BLE001 за пределами изменённого кода. Собрана отдельная внутренняя Windows-папка с прежним UI, новым мостом, согласованными OpenSSL DLL и расширенной SQLite-моделью; frozen SDK проверен локальным HTTP-сервером. Нативный UI, POSIX-замок и личная библиотека в этот прогон не входили.
+
+## 2026-11-27 — Фронтенд. Планёрка по назначениям выгрузки
+
+- Проследил выбор назначения, сохранение настроек, снимок scope/ids/levels, состояния Главной, открытие файлов и старую синхронизацию Obsidian. Согласовал с UX-дизайнером предложение из пяти назначений, одной кнопки с количеством на Главной, одного поля корня хранилища и следующего шага по результату.
+- Передал ведущему точки контракта. Текущий open_path принимает только файл из папки выгрузок. Результат Obsidian нужно отличать по назначению, а отсутствие каталога выгрузок не должно сбрасывать состояние записи в хранилище. Нужны согласованные IDs, формат предупреждений и политика открытия каталога и read-only автосверки старых профилей. Передал также расхождение общего индикатора занятости и состояния useHomeExport.
+- Просмотрены исходники и UX-ответ. Продуктовый код не менял и тесты не запускал. Реализация после сигнала ведущего и фиксации контракта. Без коммита.
+
+## 2026-11-27 — Подготовка внутренней сборки Study Exports
+- Создан игнорируемый staging build/internal-study-exports с конфигом Tauri: окно Kindle Cards — Study Exports, ID com.kindlevocab.cards.preview, отключена упаковка установщика.
+- Проверены Python 3.11.15, PyInstaller 6.22.3, OpenAI SDK 2.44.0, OpenSSL 3.6.3, Node 26.4.0 и Cargo 1.96.1 в kindle_app. Принятая rp-v2-expanded.sqlite из Parallel Enrichment совпадает с SHA-256 a24e16fa43a22ab3cdb871b2bc16971997fe97ab1a35ce18ee53119090d96f75. Там же доступны wordnet.zip, POS tagger и атрибуция.
+- После freeze собрать новые EXE и frozen bridge. Перенести модель, атрибуцию и локальные NLTK-ресурсы, сверить пару OpenSSL DLL с conda, прогнать smoke выгрузки в отдельном синтетическом профиле и записать SHA-256. Компиляция и smoke пока не запускались.
+
+## 2026-11-27 — Инженер интеграции с Anki — Файлы для Quizlet и RemNote
+
+- Сверены официальные инструкции Quizlet Creating sets by importing content и RemNote How to Import Flashcards from Text. Согласованный с ведущим writer write_study_file(output_path, destination, lexemes, edits) выдает Quizlet UTF-8 TSV с Tab и New line, RemNote UTF-8 TXT с одной Basic forward строкой «слово >> ответ» на запись. Оба формата без заголовка и BOM. Перевод и выбранная цитата берутся из card_fields.resolve, отсутствие перевода обозначается явно.
+- В полях управляющие пробелы и переносы сведены в пробелы. В RemNote известные управляющие сочетания и маркеры начала сторон получают видимые заменители. Пишется уникальный временный файл рядом с зарезервированным путём и заменяется атомарно. При отказе writer убирает свой временный файл и оставляет резерв владельцу.
+- В tests/test_study_formats.py три проверки на синтетике покрывают Quizlet контекст и пустой перевод, RemNote одну строку и один разделитель, отказ replace с чужим временным файлом. Первый pytest столкнулся с отказом доступа к общему каталогу pytest, выделен уникальный basetemp. В первом прогоне ожидаемый вывод выявил пропущенный RemNote маркер «;-», исправлен. Повтор: 3 passed, Ruff и compileall прошли.
+- Код export_cards и мост оставлены ведущему. Живые импорты внешних сервисов не проверялись, аккаунты и личная библиотека не использовались. Коммита нет.
+
+
+## 2026-11-27 — Инженер ранжирования: миграция истории экспорта SQLite v5
+
+- В library_migrations.py добавлен шаг 4 → 5 с разрешёнными destination quizlet и remnote. История копируется с исходными ID, строками и именами. Обе таблицы заменяются в одной транзакции с включёнными FK. Сохранены ON DELETE CASCADE, индекс по лексеме и следующий AUTOINCREMENT даже после удаления прежнего максимального ID. Имена существующих csv записей не изменены. Дублированного ограничителя в library_state.py нет.
+- В tests/test_library_migrations.py проверены синтетические базы v1/v3/v4, чистое создание, два отдельных запуска на одной v4, история и резервная копия до шага, запись фактических quizlet/remnote, FK, каскад и откат после перестройки таблиц с успешным повтором. 18 адресных тестов прошли. Ruff и git diff --check прошли.
+- Расширенный запуск с tests/test_library_state.py: 33 прошли, один упал на фиксированном ожидании версии 4 в ReviewCardsMigrationTests. Этот файл вне порученной области, точное место передано тимлиду. Личная БД, упаковка и тесты реальных назначений не использованы. База 6338407, собственного коммита нет.
+
+## 2026-11-27 — Совместимость с официальным Obsidian Spaced Repetition
+- Исполнены TypeScript parser, TopicPath и NotesDataStore официального тега 1.15.4 (22fbea0) на синтетике. Метаданные Obsidian поданы макетом. Порядок тегов влияет на выбор: первый подходящий родитель перехватывает вложенную колоду. Один вложенный тег работает при корне #flashcards. Folder mode берёт путь родительской папки и игнорирует теги заметки.
+- Штатный многострочный разделитель вопроса и ответа — ?. Между карточками bare --- склеивает две карточки в одну с настройками по умолчанию. Пустые строки вокруг --- дают две карточки; явное назначение --- маркером конца тоже работает. Изменение ? на ^ перестаёт читать старый формат.
+- NotesDataStore прочитал inline HTML-комментарий с датой, интервалом 4 и ease 270. Доступен StorageType.NOTES, FOLDER закомментирован в официальном теге. Git Schannel и общий npm-кэш не сработали, обход через OpenSSL и временные зависимости прошёл. Приложение Obsidian, личные профили и заметки не открывались; продуктовые файлы не изменены.
+
+## 2026-11-27 — Штатный экспорт Obsidian на парсере SR
+- Штатный export_words из отдельной синтетической SQLite создал по три заметки уровней 1, 8, 10 в трёх профилях: стандартный ?, пользовательский %%card%% и %%end%% с вложенным корнем #study/custom, режим колод по папкам. TopicPath и parser официального SR 1.15.4 подтвердили одну многострочную карточку на файл и нужную подколоду для каждой.
+- Повтор после правки перевода сохранил путь, состав заметок и расписание. NotesDataStore прочитал дату, интервал 4 и ease 270 на нужной карточке в каждом профиле. Первое сравнение перевода в тестовом скрипте учло экранирование дефиса после просмотра результата.
+- В промежуточном дереве выявлен повторный захват vault lock, сообщение передано ведущему. После появления lock_held=True обычный экспорт и повтор с расписанием прошли во всех трёх профилях. Метаданные кэша переданы макетом, Obsidian GUI и переносной EXE здесь не проверялись. Продуктовых правок нет.
+
+## 2026-11-27 — Проверка открытия папки Obsidian
+- Штатный open_obsidian_folder передал в функцию открытия абсолютный путь управляемой папки после экспорта. После временного снятия маркера владельца вернул opened=false без попытки открытия. Маркер восстановлен в синтетическом vault. Функция запуска ОС подменена для проверки аргумента; Проводник и личный vault не открывались.
+
+## 2026-11-27 — Фронтенд. Пять назначений выгрузки
+
+- В src подключены Anki, подробный TSV, Quizlet, RemNote и Obsidian · Spaced Repetition. В Настройках один список назначений, поле корня появляется только для Obsidian. Пустой и относительный путь ведут из Главной в Настройки. Старые поля и кнопка синхронизации удалены из интерфейса, авто-read старой схемы выключен при новом назначении Obsidian.
+- Главная сохраняет scope/ids/levels и показывает действие с количеством и назначением. Файлы открываются через open_path, папка Obsidian через open_obsidian_folder с пустым payload. Полный message отображается независимо от наличия локальных выгрузок, включая exported=0 и пустой runId. Смена пути или назначения сбрасывает прежний результат. Во время выгрузки общий статус показывает занятость, действия записи в каталоге и смена назначения заблокированы.
+- Vitest 153/153, TypeScript/Vite и diff --check по src прошли. Собственный Playwright на 600 и 1440 проверил пять назначений, открытие папки в mock, относительный путь и переход в Настройки. Первый прогон выявил, что reducer переводил все нулевые ответы в empty. Исправлено, добавлена регрессия, повторный прогон успешен. UI-дизайнер повторно просмотрел нулевой результат и снял блокер. Снимки в игнорируемом каталоге .app-data/export-destination-*.png. Реальные приложения и нативное окно в своей проверке не открывал. Без коммита.
+
+
+## 2026-11-27 — Бэкенд-разработчик. Управляемая выгрузка карточек в Obsidian
+
+- Сверил исходники и документацию Spaced Repetition 1.15.4. Подтверждены порядок выбора первого подходящего тега, активный inline-режим NOTES, текстовые разделители, варианты комментария расписания и отсечение заметок по префиксу или шаблону пути.
+- Реализовал obsidian_export.py. Управляемая папка Kindle Cards имеет отдельный маркер владения. Новые карточки обоих режимов создаются в подпапках уровня 01–10 с читаемым именем и полным стабильным суффиксом. Повтор находит прежние имена и переименования внутри управляемой папки. Узнанные файлы остаются на прежнем пути при смене уровня. Свойство уровня и тег изменяются при проверенной исходной записи. Служебный хеш отличает исходный текст от ручных правок, а распознанный комментарий SR сохраняется.
+- Общий vault_operation_lock разделяется со старым sync и находится вне vault, а managed_folder проверяет владельца и безопасные пути без записи. Чужие заметки, конфиг и расписание отдельно не меняются. При неизвестном внешнем режиме только добавляются новые карточки, а сложные правила исключения и неоднозначные папки настроек останавливают выгрузку. Отсутствующий или выключенный SR получает понятное сообщение.
+- tests/test_obsidian_export.py проверяет режимы, custom separator и end marker, пользовательское редактирование, три формы расписания, safe escaping, конфликты по суффиксу без свойств, junction, чужой hardlink, общий lock, обнаружение внешней записи перед заменой и повтор после сбоя. Начальный Ruff обнаружил два недочёта в тестах, исправлено. Итоговые 51 адресный тест, Ruff, compileall и diff --check прошли.
+- SHA-256 writer C914E773F6F04EB5FBA62E432715A0EF4BD1968726F77C1076F48EE5B90B6184. База 6338407, собственного коммита нет. Только искусственные vault. Живой Obsidian и POSIX-создание не запускал. Замок согласует процессы Kindle Cards. При одновременной записи Obsidian используется проверка байтов перед заменой, поэтому для обновлений остаётся короткое окно между проверкой и заменой. Поиск перемещённых заметок ограничен управляемой папкой.
+
+
+## 2026-11-27 — Бэкенд-разработчик. Межмодульный прогон Obsidian
+
+- Промежуточный полный pytest: 410 прошли, 1 пропущен, 3 падения воспроизведены адресно. Прежние тесты ожидали отказа для назначения obsidian, схемы 4 и синхронизации в тестовый путь без существующего корня vault. Все 18 собственных тестов writer на финальной версии прошли. Сопутствующие проверки переданы тимлиду, соседние файлы не редактировал.
+- Независимая QA Chromium 1440×900 прошла по пяти назначениям, абсолютному/пустому/относительному пути Obsidian, частичному/нулевому результатам и ошибке моста. Проверены подходящие команды открытия, отсутствие legacy-кнопки и pageerror. Смена корня убирает предыдущий результат. Свой дополнительный прогон этого перехода на 600 px также прошёл.
+
+
+## 2026-11-27 — QA-инженер. Пять назначений экспорта и совместимость Obsidian
+
+- На 6338407 с рабочими изменениями проверен штатный export_words. Синтетическая библиотека содержит все десять уровней. Выбор уровней 1, 9 и 10 и перемешанных ID возвращает ровно 9→1→10, включая вручную пропущенное слово в полном режиме. Подробный TSV сохраняет ручной перевод и выбранную книжную цитату. Два .apkg сохраняют состав и одинаковые GUID. Quizlet и RemNote дали по три импортные строки, отдельная проба табов и >>/== внутри текста не создала дополнительных разделителей или строк.
+- Синтетический vault без SR получил три Markdown-заметки и подсказку о включении плагина. Повтор сохранил файлы. Настройки folder-decks и разделителей ^^/!END дали папки 01/09/10. Inline SR сохранён при повторе и обновлении перевода. Ручная правка оставлена побайтно. Единственный конфликт дал exported=0 и пустой runId, частичный экспорт зафиксировал две строки. Незнакомая занятая папка, неверная конфигурация, внешние junction и файловая symlink оставлены нетронутыми. Отсутствующий корень назначения вернул no_destination.
+- Legacy load сохраняет только сведения назначения, файлов не меняет. Прежняя карточка учитывается без копии. При старых карточках без нового каталога результат имеет path=null. После создания управляемого каталога штатное открытие передаёт ОС ровно vault/Kindle Cards, проверено подставным открывателем. Старый sync блокируется при наличии маркера нового writer даже с назначением TSV. Оба старых маршрута отклоняют ../, абсолютный cards_path, managed каталог в роли старого и junction. 25 адресных тестов Obsidian прошли.
+- Chromium на 1452 через Playwright, 1440×900. Через Настройки по очереди выбраны Quizlet, RemNote, TSV и Anki. Каждое действие сохранило mock-файл, правильный следующий шаг и открытие ожидаемого расширения. Пустой или относительный путь Obsidian ведёт в Настройки без export_words, абсолютный путь открывает папку карточек. При смене vault предыдущий результат исчезает. Сценарии частичного 12/13, нулевого 0/13 и ошибки различимы. Старой кнопки синхронизации в Настройках и «Словах» нет, pageerror=0.
+- Первый backend-прогон поймал двойной захват замка vault, после lock_held=True повтор прошёл. Браузерные пробы подстроены к обновившимся подписям и сохранению абсолютного пути при передаче через раннер. Продуктовые исходники не менялись. Физическое устройство, настоящий Anki/Quizlet/RemNote, установка SR и пользовательский vault не использовались. Точный разбор и сохранение расписания проверены на синтетическом inline-комментарии, а не через цикл повторения в настоящем приложении.
+
+## 2026-11-27 — Нативный EXE Study Exports
+- После freeze фронтенда собраны production Vite и Tauri --no-bundle (exit 0), основа 6338407 с рабочими изменениями. JS index-DcaVYn6f.js. Готовность EXE в 10:45:44 МСК, SHA-256 fc1ae74a55e31e10e2f0222c005a409d7a383cbb538156b9729083dddcbfaadb.
+- В build/internal-study-exports перенесены подтверждённая expanded SQLite (хеш совпал) и SOURCES.txt. Проверка запуска и smoke остаются до нового frozen bridge после сигнала Python freeze.
+
+
+## 2026-11-27 — Тимлид. Пять назначений выгрузки и карточки Obsidian по приоритетам
+
+- Согласованы один выбор назначения, один путь к существующему хранилищу и привычный выбор слов на Главной. Источники форматов и правила работы со старыми карточками зафиксированы в протоколе встречи. Из двух текстовых форматов Quizlet использует две колонки, RemNote получает строки Basic forward.
+- Интеграция в export_cards, tauri_bridge и contracts ведёт общую историю после записи. Для Obsidian учитываются подтверждённые карточки, конфликты остаются доступны. Папка открывается через отдельную проверку владельца. Прежняя синхронизация и новая выгрузка используют общую блокировку хранилища. Список старых карточек читается из проверенного вложенного каталога. Безопасный старый путь проверяется перед чтением, копированием и записью. Миграция SQLite до v5 сохраняет историю и допускает два новых назначения.
+- По отзыву UX оставили одно поле корня. По отзыву UI исправили отображение результата при нуле записанных и наличии конфликтов. По отзыву приёмки исправили двойной захват блокировки и проверили parser, TopicPath и NotesDataStore SR 1.15.4 на файлах самого приложения в трёх конфигурациях. Файлы в подпапках 01–10 имеют читаемое начало имени и постоянный идентификатор. Смена уровня обновляет тег и свойство. Существующий путь остаётся для ссылок и расписания. README, PRODUCT и TECHNICAL описывают пользовательский маршрут и границы повторной выгрузки.
+- Первый полный запуск нашёл три устаревших ожидания тестов — Quizlet как недопустимое назначение, фиксированную версию 4 и отсутствующий корень в тесте старой записи. Исправлены фикстуры и ожидания. Итоговый pytest 419 прошли, 1 пропущен на Windows. Vitest 153 прошли, TypeScript, production Vite, линтер для файлов CI и новых модулей прошли. Проверены выбор уровней, ручной перевод, выбранная цитата, повтор, частичный результат, пути, дубли старых карточек и обработка особых разделителей.
+- На искусственных 1000 карточках writer создал 1000 Markdown-файлов в 10 папках за 8,51 с. Второй вызов занял 1,38 с, подтвердил все 1000 и сохранил тот же набор файлов с совпадающим SHA-256 каждого. Время относится к записи и сверке на этой машине. Личные заметки и настройки Obsidian при приёмке не изменялись. Веб-аккаунты Quizlet и RemNote не использовались. Поиск перемещённых заметок ограничен папкой Kindle Cards, при одновременной правке сторонним синхронизатором остаётся узкое окно между сверкой и заменой файла.
+
+## 2026-11-27 — Финальная внутренняя поставка Study Exports
+- SHA-256 Obsidian writer совпал с C914E773F6F04EB5FBA62E432715A0EF4BD1968726F77C1076F48EE5B90B6184. Новый PyInstaller bridge собран из замороженного дерева на основе 6338407, подписи входных файлов до и после совпали.
+- В staging использованы локальные проверенные NLTK-ресурсы, согласованная пара OpenSSL DLL из conda, принятая расширенная SQLite и SOURCES.txt. Создан SHA256SUMS.txt для EXE, атрибуции и всего bridge.
+- Конечный frozen bridge прошёл load_library с rp-v2-personal и штатный export_words в изолированных профилях: Obsidian создал одну Markdown-карточку, повтор сохранил её побайтно, Quizlet создал TSV с табуляцией, RemNote создал TXT с разделителем >>. Native UI и импорт в сторонние приложения не проверялись.
+5268be21c3e8c1f38e7d69f77eded196251179afdc7d3bd678461bbd6d1a4b8e  bridge/kindle-bridge.exe
+a24e16fa43a22ab3cdb871b2bc16971997fe97ab1a35ce18ee53119090d96f75  bridge/models/rp-v2-expanded.sqlite
+fc1ae74a55e31e10e2f0222c005a409d7a383cbb538156b9729083dddcbfaadb  Kindle Cards - Study Exports.exe
+
+## 2026-11-27 — Нативная приёмка Study Exports
+- После изменения формата штатный экспорт и парсер SR 1.15.4 повторно проверены в стандартном, custom и folder mode. Физические подпапки 01, 08, 10 и читаемые имена с постоянным ключом появились во всех трёх профилях. Парсер и TopicPath дали по одной карточке и нужной колоде. Повтор с правкой сохранил расписание, проверено NotesDataStore.
+- В отдельном native WebView2 обнаружены пять назначений. Через Настройки задан путь тестового vault, первый экспорт записал три заметки в подпапках 01, 06, 10 на замороженной модели, повтор показал 0 новых и 3 уже в хранилище. Содержимое файлов побайтно совпало; кнопка открытия папки видна. Ночной снимок проверен, ошибок страницы нет.
+- Первый UI-прогон проверил select до монтирования. Повтор после ожидания прошёл. Коллекции, заметки владельца, устройство и другие окна не использованы. Продуктовые файлы не изменены; другие назначения проверены по наличию в UI.
+
+
+Приёмка конечной переносной сборки Study Exports прошла на отдельном профиле WebView2. Из настроек выбран путь к синтетическому хранилищу. Первая выгрузка создала три заметки уровней 01, 06 и 10, вторая подтвердила те же три файла побайтно. Проверены пять назначений в нативном интерфейсе и экспорт Quizlet/RemNote конечным мостом. Тимлид сверил SHA-256 EXE fc1ae74a55e31e10e2f0222c005a409d7a383cbb538156b9729083dddcbfaadb, bridge 5268be21c3e8c1f38e7d69f77eded196251179afdc7d3bd678461bbd6d1a4b8e и ресурса модели с манифестом. Комплект расположен в build/internal-study-exports. Публичной поставки в этом этапе нет.
+
+## 2026-11-27 — Фронтенд. Завершение стенда Study Exports
+
+- После нативной приёмки остановил свой Vite, проверил освобождение порта 1452 и закрыл две собственные сессии Playwright. Продуктовый код не менялся.
+
+## 2026-11-27 — Подготовка внутренней сборки Fox Guide
+- Создан ignored staging `build/internal-fox-guide/` с Tauri-конфигом preview ID `com.kindlevocab.cards.preview` и новым заголовком. Полный принятый каталог bridge из Study Exports скопирован побайтно вместе с `_internal`, моделью и NLTK-ресурсами.
+- Vite/Tauri не запускались. Предыдущая сборка и открытые окна не менялись.
+- При первом старте Windows Tauri использует WebView2 Runtime. На современных Windows он обычно уже установлен. Если runtime отсутствует, окно может не открыться до установки Microsoft Edge WebView2 Runtime. Переносной EXE не включает сам runtime.
+- Флаг реплик лиса хранится в `localStorage` под ключом `kindle-cards.fox-speech.enabled`. Сохранение выполняется с обработкой ошибки. При недоступном хранилище выбор действует только до завершения процесса, а реплики при старте включены по умолчанию. Профиль WebView2 и внутренний preview ID могут отделять это значение от другого приложения.
+- Жду явного freeze для Vite/Tauri. После сборки проверить первый запуск и сохранение флага в отдельном профиле.
+
+## 2026-11-27 — Подготовка нативной приёмки Fox Guide
+- Подготовлен временный драйвер с пустым workspace, отдельным профилем WebView2 и подменой обнаружения читалки. Он позволяет запускать и закрывать только собственный процесс с сохранением профиля между запусками.
+- До сигнала о freeze EXE не запускался. Проверка пропуска, фактического перезапуска и повторного прохождения через Настройки остаётся впереди. Продуктовые файлы не менялись.
+
+
+## 2026-11-27 — QA-инженер. Экскурсия с лисом при первом запуске
+
+- Два сквозных прогона Chromium через отдельный Vite 1453 на 6338407 с рабочими изменениями. Итоговый прогон использует шесть новых BrowserContext. Автопоказ начинается только после подтверждения пустой библиотеки на Главной. Замедленный ответ и ошибка загрузки не открывают диалог и не ставят seen. Маркер kindle-cards.fox-tour.v1.seen сохраняется сразу после открытия и переживает пропуск, reload в середине тура и реальное закрытие вкладки в том же профиле. В заполненной библиотеке и при первом входе в Настройки автоматического показа нет.
+- Клавиатурой пройдены все четыре заголовка, возврат «Назад», переходы «Далее», «Готово», Escape и быстрый «Пропустить». Фокус на объявляемом заголовке каждого шага, Tab и Shift+Tab внутри диалога. Клик по фону не закрывает. После автозакрытия фокус на заголовке Главной, после ручного открытия возвращается к «Пройти обучение с лисом». Повтор из Настроек начинает с шага 1.
+- Проверены 1440×900 ночь и 600×570 день, снимки первого и последнего шагов просмотрены. В коротком окне панель и кнопки внутри окна. Статические миниатюры исключены из списка активных кнопок. Аудит вызовов browser mock не обнаружил запуска импорта, демо, выгрузки, обогащения или изменения настроек от экскурсии. После закрытия обычные демо и ручная mock-выгрузка 13 слов прошли.
+- 26 адресных Vitest прошли, ошибок страницы нет. Использованы синтетическая библиотека и отдельное хранилище Chromium, Playwright CLI. Запуск с реальным WebView2, устройство и программа экранного доступа в этой проверке не использовались. Исходники продукта не менялись.
+
+## 2026-11-27 — Фронтенд. Диалог экскурсии лиса
+
+- Добавил только fox-tour.tsx/css и fox-tour.test.tsx в src/features/onboarding. Четыре шага следуют реальному маршруту читателя. Реплики от первого лица показаны сразу, карандашная выноска связывает их с существующим FoxFigure. На каждом шаге один подписанный статичный учебный пример. Примеры не вызывают мост и не меняют библиотеку. Интеграция показа и флага ведётся отдельно.
+- Radix управляет модальностью, Tab и Escape. При смене шага фокус переходит на заголовок с доступным номером, отдельный live-канал не используется. При закрытии фокус возвращается к запомненному инициатору или home-title. Открыв диалог повторно, читатель начинает с первого шага. Пропуск доступен сразу. В коротких окнах прокручивается только содержимое, футер остаётся доступным. Смена системной темы проверила ререндер родителя с новой функцией onDismiss без сброса шага или фокуса.
+- Vitest 155/155, TypeScript/Vite и diff --check по onboarding прошли. Playwright 1453: день 1440×900, ночь 600×450 и 390×430, reduced motion, цикл Tab/Shift+Tab, смена шага и возврат фокуса после всех трёх способов закрытия, клавиатурная прокрутка в узком коротком окне, отсутствие повторного автозапуска после reload. Снимки в .app-data/fox-tour-*.png. Независимая browser QA прошла, UI-дизайнер не обнаружил блокирующих визуальных дефектов в просмотренных состояниях. Нативный экран и фактическая озвучка screen reader в этой линии не проверялись. Без коммита.
+
+## 2026-11-27 — Фронтенд. Финальная правка экскурсии
+
+- В fox-tour.tsx/css и тесте обновлены заголовок «Загрузим слова», текст шага 3, кегль причины borrow до 14 px и стык хвоста с рамкой выноски.
+- Vitest 155/155, TypeScript/Vite и diff --check прошли. Первый браузерный вызов на 1453 получил connection refused. На временном собственном preview 1454 из итогового dist прошли повторный сценарий обеих тем, 1440×900, 600×450, 390×430 и клавиатурный проход. Просмотрены обновлённые кадры первого и второго шагов. Нативный интерфейс в этой правке не проверял. Freeze передан ведущему, коммита нет.
+
+## 2026-11-27 — Внутренняя сборка Fox Guide
+- Production Vite/Tauri --no-bundle завершились успешно с новым заголовком. Итоговый EXE — `build/internal-fox-guide/Kindle Cards - Fox Guide.exe`.
+- Полный bridge Study Exports скопирован побайтно, все 259 файлов совпали. Frozen `load_demo` из нового каталога с отдельным профилем вернул 9 синтетических записей.
+- SHA256SUMS.txt создан для EXE и всех ресурсов bridge. Старые сборки и открытые окна не изменялись. Нативная визуальная проверка onboarding не выполнялась.
+
+## 2026-11-27 — Нативная приёмка Fox Guide
+- В пустом временном workspace и отдельном WebView2 первый запуск показал экскурсию на шаге 1. Нажатие «Пропустить» закрыло диалог. После фактического завершения собственного процесса и нового запуска с теми же данными экскурсия автоматически не открылась.
+- Через Настройки → «Пройти обучение с лисом» открылись все четыре шага; «Готово» закрыло диалог. Доступ к читалке заменён тестовым ответом, личные данные и другие окна не использовались. Исходники не менялись. Реальные screen reader и физическая читалка не проверялись.
+
+
+## 2026-11-27 — Тимлид. Экскурсия с лисом и README
+
+- Согласована экскурсия за четыре шага. Сценарий ведёт от загрузки слов до выбора выгрузки через приоритеты и правку карточки. Реплики принадлежат лису из приложения, все примеры доступны без читалки. Встроили экскурсию в основной shell, кнопку повтора в Настройки и приглушение обычных реплик на Главной на время обучения.
+- Автопоказ учитывает успешный начальный ответ библиотеки. Существующим читателям оставили добровольный вход. Версионированная отметка WebView сохраняется при открытии, в том числе вручную. Неуспешное чтение базы не считается пустым профилем. Закрытие по Escape, «Пропустить» и «Готово» возвращает фокус. Мост и формат библиотеки не менялись.
+- Решение команды записано в docs/plan/meetings.md. Продакт и UX отказались от обязательных практических действий внутри урока. После визуального ревью усилили связь реплики с рисунком и увеличили пояснение причины приоритета на втором шаге. В README учтены замечания UX-исследователя о папке выгрузок и пяти назначениях.
+- Получены два штатных снимка Playwright с учебными данными для README: готовая ночная Главная в docs/screenshots/fox-reading-desk.png и дневной третий шаг с лисом, переводом и цитатой в docs/screenshots/fox-first-run.png. Оба просмотрены, проверены локальные ссылки, CRC PNG, размеры и альтернативные подписи. Ранний снимок с незаконченной обработкой заменён на готовую подборку. Для локального preview и проверки Vitest esbuild потребовалось разрешение на чтение конфигурации через родительские каталоги. Первый автоматический поиск пути Chromium вернул отсутствующую ревизию, использован уже установленный headless Chromium.
+- Итог Vitest 155/155, production TypeScript/Vite/Tauri и diff --check прошли. Приёмка браузера на широком и узком окне в двух темах проверила пропуск, возврат, все четыре шага, заданный маршрут, загрузку с задержкой/ошибкой, заполненную библиотеку, повтор из Настроек и отсутствие команд записи от экскурсии. Отдельно проверили ручное первое открытие напрямую из Настроек, пропуск и последующий запуск на Главной. Browser plugin not available; проверка через Playwright. Читалка и данные владельца не использовались.
+- Для тестирования собран отдельный build/internal-fox-guide/Kindle Cards - Fox Guide.exe, SHA-256 ae16c0baf16fdf7fd3dd0582d61dff692ee24a6ce7b73e3a44f16f26089a1352. Полный мост совпадает с принятой Study Exports. Публичный релиз не публиковался.
+
+## 2026-11-27 — Тимлид. Планёрка по стабильной версии 1.0
+
+- Провели два круга с продакт-менеджером, UX-исследователем, инженером ранжирования, бэкендом, QA и релиз-инженером. Решение и критерии по владельцам этапов записаны в `docs/plan/meetings.md`. Готовим закрытый кандидат Windows x64; публичный выпуск ожидает приёмки и решения владельца.
+- Сверены PRODUCT, README, история v0.4.0 и рабочей ветки, версия схемы, релизный workflow, упаковщик моста, фактические поля облачного запроса, исследовательская записка и границы ранее проведённых проверок. Обнаружены расхождения между переносной и стандартной поставкой модели и между раскрытием данных ИИ и запросом. Выбрано сохранить книжный сигнал для одного поиска. Приняты возражения о повторной сборке по тегу и ограничениях автоматической резервной копии.
+- Условия следующего решения — подтверждённый состав и происхождение ресурсов, один коммит и SHA установщика, успешные чистая установка и обновление 0.4.0, восстановление старого профиля, реальный Kindle, повторная выгрузка на тестовых данных и понятный объём экспорта. Приватный проход новичка и позднейший возврат после чтения оцениваем отдельно.
+- Изменены только протокол и этот журнал. Выполнена сверка плана с исходниками и прошлыми отчётами. Сборка 1.0, повтор тестов продукта, приглашение читателей и публикация в эту планёрку не входили.
+
+## 2026-11-27 — Подготовка частного RC1
+- Создан `build/rc-1.0.0/`. Старый NSIS 0.4.0 сохранён в подкаталоге QA-копии; SHA подтвердился как c2f38d8b20484e30588b906c4f99311e2a1e399f107467da9a2f91be86d41826.
+- В staging сохранены `rp-v2-expanded.sqlite` (SHA a24e16fa43a22ab3cdb871b2bc16971997fe97ab1a35ce18ee53119090d96f75) и имеющийся SOURCE атрибут. Исходный корпус ranker.json.gz pin 60bc1a8f30a8d41bc527a1ba5747508b030faf2e58df213bb341f490b59e15db.
+- Сверка обнаружила неподтверждённое расхождение версий: package.json и pyproject.toml уже 1.0.0, Cargo и Tauri остаются 0.4.0. Рабочее дерево не зафиксировано на 6338407. Финальные сборка и заморозка ожидают сигнала backend/тимлида после выравнивания и принятия состава.
+- Текущий attribution SOURCE указывает на разные условия CONLIT (Figshare CC BY 4.0 и статья CC BY-NC 4.0) и ограничивает сборку личным некоммерческим использованием. Использовать только для частного RC1; для публичного сценария нужна отдельная проверка условий. Public CI/workflow не менялся. Не устанавливалось в профиль и не публиковалось.
+
+## 2026-11-27 — Подготовка изолированной приёмки RC1
+- Прочитаны PRODUCT и решение планёрки. Найден установщик 0.4.0 SHA-256 c2f38d8b20484e30588b906c4f99311e2a1e399f107467da9a2f91be86d41826. 7-Zip извлёк его 265 файлов в отдельный временный каталог без запуска установщика.
+- WindowsSandbox.exe и командлет Get-VM не обнаружены; vmcompute работает, опрос компонента Sandbox требует повышения. Реальной изолированной VM пока не подтверждено. Извлечение и отдельный WebView2-профиль помогут проверить файлы и UI, но не доказывают установку, обновление и ярлыки; безопасность NSIS /PPORTABLE не подтверждена.
+- Ожидается конечный NSIS и SHA от релиз-инженера. Установщик не запускался, пользовательский профиль и реестр не менялись.
+
+
+## 2026-11-27 — Бэкенд-разработчик. Раскрытие данных обогащения RC1
+
+- В enrichment.py удалил поле book из общего формирования запроса и название из встроенной пробы. Номер, форма слова, лемма, предполагаемая часть речи и до двух фрагментов по 400 символов сохраняются. Prompt описывает возможное усечение. PROMPT_VERSION прежняя, готовые карточки не возвращаются в очередь из-за обновления.
+- В settings-view.tsx перечислены поля запроса и предел цитат, объяснён возможный повтор после сбоя. Ручной и автоматический режимы используют один enrich_lexemes. Отдельный optimizer_cli.py вызывает llm_enricher.py и относится к явной CLI-команде за пределами desktop-моста, эту ветку не менял.
+- В tests/test_enrichment.py проверил сериализованное тело обеих форм штатного bridge-вызова, отсечку третьей цитаты и обе длины, отсутствие обращения при выключенном переключателе, готовые слова при повторе и синтетический test_llm. 21 адресный pytest прошёл без ключа и сети. Ruff, compileall, TypeScript и diff --check прошли. Обычный Vitest столкнулся с ограничением чтения конфигурации esbuild, альтернативный загрузчик runner дал 155/155, production Vite с ним также прошёл.
+- Префиксы SHA-256 для заморозки: enrichment.py D9C5306C, settings-view.tsx 3F811ED1, test_enrichment.py 135C1788. База 6338407. Упаковку, личные данные и настоящий провайдер не использовал, коммита нет.
+
+## 2026-11-27 — Ранжирование. Происхождение и выбор модели RC1
+
+- Добавил `packaging/ranking-model-notices.txt` для расширенной RP-V2. SHA-256 исходной `ranker.json.gz` — `60bc1a8f30a8d41bc527a1ba5747508b030faf2e58df213bb341f490b59e15db`. SHA-256 `rp-v2-expanded.sqlite` — `a24e16fa43a22ab3cdb871b2bc16971997fe97ab1a35ce18ee53119090d96f75`. Копии SQLite в локальном каталоге модели, Study Exports и Fox Guide совпали.
+- Сверил Figshare CONLIT v1 (CC BY 4.0), раздел 3 статьи Andrew Piper (CC BY-NC 4.0 для того же набора), атрибуцию HarryBlank в SCP Wiki и её условия CC BY-SA 3.0, условия WordNet 3.0. Публичная поставка конкретной SQLite остаётся неподтверждённой. Открыты расхождение в условиях CONLIT, поставка сохранённых соответствий форм RP-V2 и применимость ShareAlike к объединённой статистике. Существующую частную сборку можно дать владельцу для локальной проверки. Внешних обращений, новых данных и модели не было.
+- В `book_coverage.py` комплектная expanded-таблица frozen bridge теперь опережает прежнюю локальную expanded. Если комплектный файл отсутствует или не проходит проверку, остаются совместимые локальные ресурсы. Тест с двумя допустимыми expanded-вариантами проверяет фактически открытый файл на чистом и обновлённом профиле, сохранность локальной таблицы и восстановление при повреждении ресурса.
+- Прошли 60 адресных тестов Python. Первый запуск остановился на запрете доступа к общему временному каталогу pytest. Повтор прошёл с отдельным basetemp в ignored build. Проверка исходного загрузчика в режиме frozen с фактической SQLite из Fox Guide подтвердила одинаковые первую пятёрку, уровни и причины на чистом профиле и при старой локальной RP-V2. Возврат к контрольному слову в другой книге поднял уровень 3 до 2, книжная доля 47,31% сохранилась. В первых двух попытках отдельной проверки исправил в проверочном коде сравнение служебного поля и путь импорта сортировки. `git diff --check` по изменённым Python-файлам прошёл.
+- Новый frozen bridge, NSIS и обновление 0.4.0 этим этапом не запускались. Сборочный скрипт и workflow не менял. Без коммита.
+
+
+## 2026-11-27 — Бэкенд-разработчик. Полная проверка приватности RC1
+
+- Полный pytest прошёл: 421 тест, 1 пропуск. Текст о двух фрагментах по 400 символов найден в production bundle. Хеши трёх файлов совпадают с сообщёнными при заморозке.
+
+## 2026-11-27 — Инженер интеграции с Anki — Репетиция приёмки RC1
+
+- На исходном Python-мосте из рабочих исходников 6338407 с последующими локальными правками прошёл сценарий двух APKG. На синтетическом vocab.db импортированы два слова, записан исходный перевод и первый пример. Затем выбран второй исходный пример, изменён перевод и добавлено новое слово. Вторая колода включила изменённое и новое, третье из первой колоды исключено.
+- Штатный import_anki_package Anki 25.09.4 в одной временной коллекции: 2→3, updated1/new1. Проверены выбранная цитата, новый перевод, прежние GUID/ID заметки и карточки, полное расписание и строка revlog. Исключённая карточка целиком сохранена, повтор второго пакета дал duplicate2/new0.
+- Отдельный прогон того же сценария на официальном AnkiConnect API6 в новом временном профиле и на отдельном loopback-порту прошёл с теми же утверждениями. Тестовый прокси допускал только version/importPackage, проверял активный тестовый профиль и расположение .apkg в собственном workspace. Обычный local 8765 и личный профиль не использовались. Проверка процессов перед открытием Anki потребовала повышенного доступа. В первом запуске старый маркер завершения помешал перезапуску тестового Anki; исправлен временный runner, повтор обеих отправок прошёл.
+- Ждём конечный frozen bridge RC1 и его SHA для привязанной к файлу приёмки. Нативный Kindle Cards в этом прогоне не запускался. Изменён только WORKLOG.md, коммита нет.
+
+## 2026-11-27 — Подготовка нативного RC1 с обычным resolver
+- Подготовлен временный сценарий с синтетическим Kindle vocab.db, отдельными workspace и WebView2. KINDLE_CARDS_PYTHON удаляется из окружения, поэтому оболочка выберет соседний frozen bridge по обычной логике.
+- Финальный NSIS ожидается. Проверка интерфейса импорта и назначения будет выполнена после сигнала. Установка, пользовательский профиль и реестр не менялись.
+
+
+## 2026-11-27 — Инженер интеграции с Anki — Приёмка собранного моста RC1
+
+- Повторил два независимых прогона на сборочном `build/rc-1.0.0/bridge-build/kindle-bridge/kindle-bridge.exe`, SHA-256 `51ca7b5efda600c74e51301d75815f2b0ad974bec39e4424bb914e4fdb40fa49`. Синтетические читательская база и коллекция Anki отдельно для каждого прогона. Штатный Anki 25.09.4 обработал 2 новые заметки при первом импорте, 1 обновлённую и 1 новую при втором, 0 новых при повторе, итог 3. Подтвердил точный перевод и выбранную цитату, сохранение GUID/ID заметки и карточки, полей расписания, строки revlog и целой карточки, исключённой из второй выгрузки.
+- Те же проверки прошли в новой временной коллекции штатного Anki через официальный AnkiConnect API 6 на отдельном loopback-порту (два вызова version и две отправки importPackage через собранный мост, повторный импорт второго файла оставил те же три ID). Завершил тестовый Anki. Профиль и порт 8765 пользователя не использовались.
+- Проверка относится к собранному standalone-мосту. Экземпляр из NSIS и UI этим прогоном не проверялись. Изменён только WORKLOG.md, коммита нет.
+
+
+## 2026-11-27 — QA-инженер. Миграция и назначения RC1
+
+- Прошли отдельные сквозные прогоны на исходном мосте, предварительном frozen и финальном frozen. SHA-256 финального `kindle-bridge.exe` — `3172f5418c07e65798a3aff39f06571565616f70f597ea1c4dcba43fc88412f8`. Все 260 файлов испытанного комплекта совпали по SHA-256 с `build/rc-1.0.0/bridge`. Комплектная RP-V2 активна (rp-v2-personal, SHA-256 SQLite `a24e16fa43a22ab3cdb871b2bc16971997fe97ab1a35ce18ee53119090d96f75`).
+- Настоящий мост 0.4.0 (SHA-256 `11858c7b64fe01d30fdad099a955f5e38fea33db19ae05bb0a986cfc392258e8`) извлечён 7-Zip из сохранённого NSIS (SHA-256 `c2f38d8b20484e30588b906c4f99311e2a1e399f107467da9a2f91be86d41826`). Первая неполная копия не стартовала из-за отсутствующих DLL. Полное извлечение позволило создать профиль реальным старым мостом. Для полей правки карточки и решения подготовлены синтетические строки непосредственно в таблицах v4, поскольку соответствующих действий в старом мосте нет; старый мост штатно прочитал эти строки при откате. Остальные данные подготовлены действиями моста.
+- Миграция v4→v5 сохранила содержимое 13 таблиц, счётчик истории, 7 ID слов, 8 вхождений, ручные правки и решения, 1 запись повторения, 1 старый экспорт, настройки и оригинальный TSV. Очередь 1→0 после штатного возобновления в отдельной копии. Повторный запуск не плодит резервные копии. Если путь резервирования недоступен, схема и данные остаются v4. Откат выполнен восстановлением резервной SQLite и сохранённых отдельно настроек в чистом тестовом профиле. 0.4.0 открыл профиль и выгрузил APKG с выбранной цитатой и ручным переводом.
+- KOReader и Kobo через `import_reader_file` дали по 1 новому слову и 0 при повторном импорте. Проверены ID, ключи книги и исходный контекст там, где его предоставляет формат. Размер порции по умолчанию 6, разово выгружено 101 из 130 допустимых новых, осталось 29. Снимок уровней 1–9 выгрузил 132, вся библиотека — 133, включая ранее выгруженное, пропущенное и приоритет 10. Сверены порядок и строки истории.
+- Anki, TSV, Quizlet и RemNote выгрузили по 3 выбранных слова. Повторный APKG сохранил GUID, обновлённые перевод и цитата проверены внутри пакета. Obsidian записал 3/3/3/2 при первой выгрузке, повторе, обновлении и конфликте. Повтор не размножает заметки, SR-комментарий сохранён, столкнувшаяся ручная правка и чужая заметка остались побайтно прежними.
+- Только синтетические профили. Проверен собранный мост, установка NSIS, нативный интерфейс, физический USB и импорт непосредственно в Anki остаются отдельными линиями приёмки. Исходники продукта не менялись. Единственное изменение в репозитории — эта запись, коммита нет.
+
+
+## 2026-11-27 — Инженер интеграции с Anki — Финальный мост RC1
+
+- Повторены два независимых сквозных прогона на `build/rc-1.0.0/bridge-build-final/kindle-bridge/kindle-bridge.exe`, SHA-256 `3172f5418c07e65798a3aff39f06571565616f70f597ea1c4dcba43fc88412f8`. Штатный импорт APKG в Anki 25.09.4 и реальный AnkiConnect API 6: 2→3, одна заметка обновилась и одна добавилась, повтор дал 0 новых. Сохранены GUID и оба ID, расписание, revlog и исключённая карточка. Исправленный перевод и выбранная цитата совпали.
+- Только вымышленные слова и отдельные временные коллекции. Личный профиль и его порт 8765 не использованы. Тестовый Anki закрыт. Установщик и UI вне этого прогона. Изменён только WORKLOG.md, без коммита.
+
+## 2026-11-27 — Тимлид. Заморозка исходников закрытого 1.0 RC1
+
+- Согласованы версии Python, Cargo, Tauri и npm 1.0.0 и заголовок окна. В инструкции для локального NSIS закреплены ресурс ранжирования и его паспорт, а README различает кандидата и публичную 0.4.0. Добавили краткий маршрут проверки с читалкой, уточнили описание облачного перевода и поиска обложек.
+- Первый полный pytest выявил ложное обнаружение Kindle по имени родительского каталога. Поиск присутствия проверяет метку тома и его собственное имя, сохраняя штатные WPD и файловый пути. Отрицательный тест теперь воспроизводит этот случай независимо от расположения каталога тестов. Повторный полный прогон дал 421 passed и один пропуск на Windows. Прошли 155 Vitest, cargo check, сборка TypeScript/Vite и целевые проверки приватности/модели.
+- Владелец отдельно подтвердил обновление зарегистрированной установки и выбор библиотеки рабочей области. Создана отдельная сверенная копия SQLite и настроек. У выбранной библиотеки схема 2. На временной копии новым замороженным мостом проверены переход к схеме 5, точное сохранение исходных записей и восстановление истории из старых отметок выгрузки. Первые проверки самого тестового сценария предполагали наличие таблиц схемы 4 и равенство числа исторических выгрузок в схемах 2 и 5; ожидания сверены с фактической миграцией, повтор прошёл. Чтение по USB оставлено для ручной проверки владельца.
+- Ресурс предназначен для закрытой проверки. Приёмка пакета и обновление установленного экземпляра фиксируются отдельно после сверки контрольных сумм.

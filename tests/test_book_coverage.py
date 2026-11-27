@@ -235,3 +235,41 @@ def test_expanded_model_is_preferred_without_overwriting_the_original(source, tm
     installed.write_bytes(b"incomplete")
     with book_coverage.open_model(tmp_path) as model:
         assert model.priority("walk")["score"] == 0.75
+
+
+def test_bundled_expanded_model_wins_on_clean_and_upgraded_profiles(source, tmp_path, monkeypatch):
+    upgraded = tmp_path / "upgraded"
+    original = importer.import_model(source, upgraded)
+    data = json.loads(gzip.decompress(source.read_bytes()))
+    data["rows"]["walk"][1] = 0.61
+    previous = gzip.compress(json.dumps(data).encode(), mtime=0)
+    data["rows"]["walk"][1] = 0.81
+    bundled = gzip.compress(json.dumps(data).encode(), mtime=0)
+    monkeypatch.setattr(book_coverage, "EXPANDED_SOURCE_SHA256", {
+        hashlib.sha256(previous).hexdigest(), hashlib.sha256(bundled).hexdigest(),
+    })
+    source.write_bytes(previous)
+    previous_path = importer.import_model(source, upgraded)
+    previous_bytes = previous_path.read_bytes()
+    source.write_bytes(bundled)
+    bridge_models = tmp_path / "bridge" / "models"
+    bridge_models.mkdir(parents=True)
+    bundled_path = bridge_models / book_coverage.EXPANDED_MODEL_FILENAME
+    bundled_path.write_bytes(importer.import_model(source, tmp_path).read_bytes())
+    monkeypatch.setattr(book_coverage.sys, "executable", str(bridge_models.parent / "kindle-bridge.exe"))
+    monkeypatch.setattr(book_coverage.sys, "frozen", True, raising=False)
+
+    for workspace in (tmp_path / "clean", upgraded):
+        with book_coverage.open_model(workspace) as model:
+            assert model is not None
+            database = model._connection.execute("PRAGMA database_list").fetchone()
+            assert Path(database[2]).samefile(bundled_path)
+            assert model.priority("walk")["score"] == 0.81
+            assert model.priority("walk")["level"] == 1
+
+    assert previous_path.read_bytes() == previous_bytes
+    assert original.is_file()
+    bundled_path.write_bytes(b"incomplete")
+    with book_coverage.open_model(upgraded) as model:
+        assert model is not None
+        assert model.priority("walk")["score"] == 0.61

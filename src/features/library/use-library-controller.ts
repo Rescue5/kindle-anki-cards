@@ -100,6 +100,7 @@ export function useLibraryController() {
   const [operation, setOperation] = React.useState<Operation>(idleOperation);
   const [queueStatus, setQueueStatus] = React.useState<QueueStatus>(emptyQueue);
   const [loading, setLoading] = React.useState(true);
+  const [initialLibraryEmpty, setInitialLibraryEmpty] = React.useState<boolean | null>(null);
   // The short-list parts of the last library answer (null until the bridge sends them).
   const [ranking, setRanking] = React.useState<LibraryRanking | null>(null);
   // `load_demo` words are shown on Главная only; nothing of them is stored or exported.
@@ -224,7 +225,8 @@ export function useLibraryController() {
       const next = { ...previous, ...patch };
       savedSettingsRef.current = next;
       if (demoRef.current) return;
-      if (next.obsidian_sync_enabled !== previous.obsidian_sync_enabled
+      if (next.export_destination !== previous.export_destination
+        || next.obsidian_sync_enabled !== previous.obsidian_sync_enabled
         || next.obsidian_vault_path !== previous.obsidian_vault_path
         || next.obsidian_cards_path !== previous.obsidian_cards_path) {
         checkObsidian(next);
@@ -249,6 +251,7 @@ export function useLibraryController() {
     void Promise.all([callBackend<AppSettings>("load_settings", {}), callBackend<LibraryResult>("load_library", {})])
       .then(([loadedSettings, library]) => {
         if (cancelled) return;
+        setInitialLibraryEmpty((initial) => initial ?? (library.entries.length === 0));
         if (pendingSettingsWrites.current === 0) {
           settingsRef.current = loadedSettings;
           savedSettingsRef.current = loadedSettings;
@@ -675,6 +678,7 @@ export function useLibraryController() {
       operation,
       queueStatus,
       loading,
+      initialLibraryEmpty,
       ranking,
       demo,
       loadDemo,
@@ -721,6 +725,7 @@ export function useLibraryController() {
       operation,
       queueStatus,
       loading,
+      initialLibraryEmpty,
       ranking,
       demo,
       loadDemo,

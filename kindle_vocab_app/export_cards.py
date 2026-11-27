@@ -10,7 +10,8 @@ but only from the exact ids supplied and the selected current study levels. Wher
   unavailable before sending, the file is the result. Notes carry a GUID made from the lexeme id,
   so sending the same word again updates its note instead of duplicating it.
 - `csv`: a tab-separated file in the optimized TSV layout, under `.app-data/exports`.
-- `obsidian`: not an export destination; it keeps its own sync button.
+- `quizlet` and `remnote`: single-card-per-line files for the destination's text importer.
+- `obsidian`: managed Markdown cards in the chosen vault, grouped by study priority.
 
 A run is recorded (`export_runs` + `export_items`, one transaction) only after the push or file
 export succeeds. An unconfirmed or rejected import keeps the saved package and leaves its words
@@ -20,8 +21,6 @@ in the short list.
 from __future__ import annotations
 
 import csv
-import errno
-import os
 import stat
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
@@ -35,24 +34,21 @@ from kindle_vocab_app import (
     book_coverage,
     card_fields,
     library_view,
+    obsidian_sync,
     offline_dictionary,
     settings,
+    study_formats,
 )
 from kindle_vocab_app.coded_error import CodedError
 from kindle_vocab_app.library_repository import repository_for
 from kindle_vocab_app.library_state import parse_moment
 from kindle_vocab_app.logging_config import get_logger
 from kindle_vocab_app.tsv_schema import OPTIMIZED_TSV_HEADER
+from kindle_vocab_app.workspace_lock import exclusive_file_lock
 
 logger = get_logger(__name__)
 
 Progress = Callable[[str, str, int, int], None]
-
-OBSIDIAN_TEXT = (
-    "Obsidian пока синхронизируется своей кнопкой. "
-    "Для этой выгрузки выберите Anki или файл в настройках"
-)
-
 
 def exports_dir(workspace: Path) -> Path:
     return workspace / ".app-data" / "exports"
@@ -62,7 +58,9 @@ def has_export_files(folder: Path) -> bool:
     """The folder is useful once it contains a finished package or table."""
     try:
         for entry in folder.iterdir():
-            if entry.suffix.lower() not in {".apkg", ".tsv"}:
+            if entry.suffix.lower() not in {".apkg", ".tsv"} and not (
+                entry.suffix.lower() == ".txt" and entry.name.startswith("Kindle Cards RemNote ")
+            ):
                 continue
             try:
                 info = entry.lstat()
@@ -77,28 +75,12 @@ def has_export_files(folder: Path) -> bool:
 
 @contextmanager
 def _workspace_export_lock(workspace: Path) -> Iterator[None]:
-    # Keep the file at a fixed path. Closing its descriptor also releases the lock after a crash.
-    lock_path = exports_dir(workspace).parent / "export.lock"
-    try:
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_file = lock_path.open("ab")
-    except OSError as exc:
-        raise CodedError("export_failed", "не удалось подготовить папку выгрузок") from exc
-    with lock_file:
-        try:
-            if os.name == "nt":
-                import msvcrt
-
-                lock_file.seek(0)
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-
-                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
-                raise CodedError("export_busy") from exc
-            raise CodedError("export_failed", "не удалось начать выгрузку") from exc
+    with exclusive_file_lock(
+        exports_dir(workspace).parent / "export.lock",
+        busy=CodedError("export_busy"),
+        prepare_failed=CodedError("export_failed", "не удалось подготовить папку выгрузок"),
+        acquire_failed=CodedError("export_failed", "не удалось начать выгрузку"),
+    ):
         yield
 
 
@@ -120,8 +102,8 @@ def _export_selected_words(
 ) -> dict[str, Any]:
     app_settings = settings.load(workspace)
     destination = app_settings.export_destination
-    if destination == "obsidian":
-        raise CodedError("no_destination", text=OBSIDIAN_TEXT)
+    if destination == "obsidian" and not app_settings.obsidian_vault_path.strip():
+        raise CodedError("no_destination", text="Укажите папку хранилища Obsidian в настройках")
 
     repository = repository_for(workspace)
     entries = repository.load_catalog()["lexemes"]
@@ -145,6 +127,7 @@ def _export_selected_words(
 
     tell("preparing", f"Готовим слов: {len(ids)}", 0, len(ids))
     pushed = 0
+    message = ""
     try:
         if destination == "anki":
             prior_exports = (state["exported_at"].get(lexeme_id, "") for lexeme_id in ids)
@@ -152,8 +135,16 @@ def _export_selected_words(
                 workspace, lexemes, edits, tell, prior_exports=prior_exports,
                 note_keys=repository.reserve_anki_note_keys(lexemes),
             )
-        else:
+        elif destination == "obsidian":
+            path, ids, message = _send_to_obsidian(app_settings, repository, lexemes, edits)
+        elif destination in {"quizlet", "remnote"}:
+            suffix, label = (".tsv", "Quizlet") if destination == "quizlet" else (".txt", "RemNote")
+            with _reserve_path(exports_dir(workspace), suffix, label=label) as path:
+                study_formats.write_study_file(path, destination, lexemes, edits)
+        elif destination == "csv":
             path = _write_tsv(workspace, lexemes, edits)
+        else:
+            raise CodedError("no_destination")
     except CodedError:
         raise
     except OSError as exc:
@@ -165,28 +156,71 @@ def _export_selected_words(
 
     try:
         # Existing storage calls any explicit repeat-capable export `again`.
-        run_id = repository.record_export_run(destination, ids, path=str(path), scope="again" if scope == "library" else "new")
+        run_id = ""
+        if ids:
+            run_id = str(repository.record_export_run(
+                destination, ids, path=str(path) if path else "", scope="again" if scope == "library" else "new",
+            ))
     except Exception as exc:
         logger.exception("Export succeeded but the run was not recorded destination=%s", destination)
-        if destination == "csv":
+        if destination == "obsidian":
+            raise CodedError("export_failed", "карточки в хранилище сохранены. Повторите выгрузку для сверки") from exc
+        if destination in {"csv", "quizlet", "remnote"}:
             raise CodedError(
                 "export_failed",
-                "TSV сохранён в папке выгрузок, но запись о выгрузке не сохранилась. "
+                f"{'TSV' if destination == 'csv' else 'Файл'} сохранён в папке выгрузок, но запись о выгрузке не сохранилась. "
                 "При повторе будет создан ещё один файл",
             ) from exc
         raise CodedError(
             "export_failed", "колода сохранена в папке выгрузок, но запись о выгрузке не сохранилась"
         ) from exc
-    logger.info("Export recorded destination=%s run=%d words=%d pushed=%d", destination, run_id, len(ids), pushed)
+    logger.info("Export completed destination=%s run=%s words=%d pushed=%d", destination, run_id, len(ids), pushed)
     tell("completed", "Выгрузка готова", len(ids), len(ids))
     return {
         "destination": destination,
-        "runId": str(run_id),
+        "runId": run_id,
         "exported": len(ids),
-        "path": None if pushed else str(path),
+        "path": str(path) if path and not pushed else None,
         "pushed": pushed,
-        "message": _message(len(ids), pushed),
+        "message": message or _message(len(ids), pushed),
     }
+
+
+def _send_to_obsidian(app_settings, repository, lexemes, edits) -> tuple[Path | None, list[str], str]:
+    from kindle_vocab_app import obsidian_export
+
+    vault = Path(app_settings.obsidian_vault_path.strip())
+    try:
+        with obsidian_sync.vault_operation_lock(vault):
+            old_keys = set()
+            legacy_parts = Path(app_settings.obsidian_cards_path).parts
+            if legacy_parts and legacy_parts[0].casefold() != "kindle cards":
+                old_dir = obsidian_sync.legacy_cards_dir(vault, app_settings.obsidian_cards_path)
+                for card in obsidian_sync.read_cards(old_dir):
+                    old_keys.update(obsidian_sync.lexical_aliases(card))
+
+            legacy_ids = set()
+            pending = []
+            for entry in lexemes:
+                if entry.get("language") == "en" and obsidian_sync.lexical_aliases({
+                    "word": entry.get("display_form"), "stem": entry.get("lemma"),
+                    "analysis": (entry.get("processing") or {}).get("analysis"),
+                }) & old_keys:
+                    legacy_ids.add(entry["id"])
+                else:
+                    pending.append(entry)
+            result = obsidian_export.export_cards(
+                vault, pending, edits=edits, note_keys=repository.reserve_anki_note_keys(pending), lock_held=True,
+            )
+    except (ValueError, OSError) as exc:
+        raise CodedError("export_failed", str(exc)) from exc
+    confirmed = legacy_ids.union(result.written_ids, result.unchanged_ids)
+    parts = [f"Записано в Obsidian: {len(result.written_ids)}. Уже в хранилище: {len(legacy_ids) + len(result.unchanged_ids)}."]
+    if result.conflict_ids:
+        parts.append(f"Оставлены без изменений из-за конфликта: {len(result.conflict_ids)}.")
+    parts.extend(result.notices)
+    folder = result.folder if pending and result.folder.is_dir() else None
+    return folder, [entry["id"] for entry in lexemes if entry["id"] in confirmed], " ".join(parts)
 
 
 def _selected_levels(payload: Mapping[str, Any], scope: str) -> frozenset[int]:
@@ -339,10 +373,11 @@ def _cell(value: Any) -> str:
 
 
 @contextmanager
-def _reserve_path(folder: Path, suffix: str) -> Iterator[Path]:
+def _reserve_path(folder: Path, suffix: str, *, label: str = "") -> Iterator[Path]:
     """Claim a dated filename exclusively, including against other bridge processes."""
     folder.mkdir(parents=True, exist_ok=True)
-    stem = f"Kindle Cards {datetime.now().strftime('%Y-%m-%d %H-%M-%S')}"
+    prefix = f"Kindle Cards {label}" if label else "Kindle Cards"
+    stem = f"{prefix} {datetime.now().strftime('%Y-%m-%d %H-%M-%S')}"
     candidate, number = folder / f"{stem}{suffix}", 1
     while True:
         try:
@@ -358,7 +393,8 @@ def _reserve_path(folder: Path, suffix: str) -> Iterator[Path]:
         candidate.unlink(missing_ok=True)
         raise
     finally:
-        candidate.with_suffix(candidate.suffix + ".tmp").unlink(missing_ok=True)
+        if not label:
+            candidate.with_suffix(candidate.suffix + ".tmp").unlink(missing_ok=True)
 
 
 def _message(count: int, pushed: int) -> str:

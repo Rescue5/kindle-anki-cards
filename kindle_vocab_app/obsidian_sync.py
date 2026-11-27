@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
+import stat
+import tempfile
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from kindle_vocab_app.logging_config import get_logger
 from kindle_vocab_app.vocab_cache import normalize_lemma
-
+from kindle_vocab_app.workspace_lock import exclusive_file_lock
 
 logger = get_logger(__name__)
 
@@ -32,9 +35,55 @@ _CARD_SEPARATOR = "\n---\n"
 _SOURCE_RE = re.compile(r"\*(.*?)\*\s*[\u2014\u2013-]\s*(.*)")
 
 
+def _check_legacy_path(path: Path) -> None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    if (stat.S_ISLNK(info.st_mode)
+        or getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+        or (stat.S_ISREG(info.st_mode) and info.st_nlink > 1)):
+        raise ValueError("Путь карточек Obsidian содержит файловую ссылку")
+
+
+def legacy_cards_dir(vault: Path, relative: str) -> Path:
+    """Validate old configured paths before reconciliation, backup, or append."""
+    subdir = Path(relative)
+    if not vault.is_absolute() or not vault.is_dir():
+        raise ValueError("Укажите существующую корневую папку хранилища Obsidian")
+    if (not subdir.parts or subdir.anchor or any(
+        part.startswith(".") or ":" in part or part.rstrip(" .") != part for part in subdir.parts
+    ) or subdir.parts[0].casefold() == "kindle cards"):
+        raise ValueError("Укажите относительную папку старых карточек внутри хранилища Obsidian")
+    if ".." in vault.parts:
+        raise ValueError("Укажите прямой путь к хранилищу Obsidian")
+    current = vault
+    for parent in (*reversed(vault.parents), vault):
+        _check_legacy_path(parent)
+    for part in subdir.parts:
+        current = current / part
+        _check_legacy_path(current)
+    return current
+
+
+def vault_operation_lock(vault: Path):
+    # Both generations of the bridge can target this vault from separate app profiles.
+    # A lock outside the vault never becomes a note or a synced file.
+    if not vault.is_absolute() or not vault.is_dir():
+        raise ValueError("Укажите существующее хранилище Obsidian")
+    name = hashlib.sha256(os.path.normcase(str(vault.resolve(strict=True))).encode()).hexdigest()
+    return exclusive_file_lock(
+        Path(tempfile.gettempdir()) / "kindle-cards-vault-locks" / (name + ".lock"),
+        busy=ValueError("Это хранилище Obsidian уже обновляется"),
+        prepare_failed=ValueError("Не удалось подготовить выгрузку в Obsidian"),
+        acquire_failed=ValueError("Не удалось заблокировать выгрузку в Obsidian"),
+    )
+
+
 def read_cards(cards_dir: Path) -> list[dict[str, Any]]:
     """Parse Obsidian SR cards into frontend-shaped vocabulary entries."""
     entries: list[dict[str, Any]] = []
+    _check_legacy_path(cards_dir)
     if not cards_dir.exists():
         logger.info("Obsidian cards directory does not exist path=%s", cards_dir)
         return entries
@@ -43,6 +92,7 @@ def read_cards(cards_dir: Path) -> list[dict[str, Any]]:
         priority = _priority_from_filename(path.name)
         if priority is None:
             continue
+        _check_legacy_path(path)
         text = path.read_text(encoding="utf-8-sig")
         body = _strip_frontmatter(text)
         for card in body.split("---"):
@@ -97,6 +147,7 @@ def append_cards(
 
     for filename in sorted(by_file.keys()):
         file_path = cards_dir / filename
+        _check_legacy_path(file_path)
         is_new = not file_path.exists()
         previous_bytes = file_path.read_bytes() if file_path.exists() else b""
         existing_keys = _existing_card_keys(file_path)
@@ -123,6 +174,7 @@ def append_cards(
 
         _ensure_file(file_path, filename)
         rendered = _CARD_SEPARATOR.join(new_cards)
+        _check_legacy_path(file_path)
         with file_path.open("a", encoding="utf-8", newline="\n") as file:
             if not is_new:
                 file.write(_CARD_SEPARATOR)
@@ -151,9 +203,14 @@ def append_cards(
 
 def backup_cards(cards_dir: Path, backups_dir: Path) -> Path:
     """Copy the entire cards directory into a timestamped backup folder."""
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S")
     backup_path = backups_dir / timestamp / cards_dir.name
     if cards_dir.exists():
+        if backups_dir.resolve().is_relative_to(cards_dir.resolve()):
+            raise ValueError("Папка резервной копии Obsidian находится внутри папки карточек")
+        for parent, directories, filenames in os.walk(cards_dir, followlinks=False):
+            for name in directories + filenames:
+                _check_legacy_path(Path(parent) / name)
         shutil.copytree(cards_dir, backup_path)
     else:
         backup_path.mkdir(parents=True, exist_ok=True)
